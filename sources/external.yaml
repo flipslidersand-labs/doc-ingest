@@ -1,0 +1,13 @@
+# External API doc sources for weekly sync
+# ETag is updated automatically after each sync
+- url: https://docs.anthropic.com/en/api/getting-started
+  type: external-api
+  check_interval: weekly
+  last_etag: ""
+  last_synced: ""
+
+- url: https://docs.github.com/en/rest
+  type: external-api
+  check_interval: weekly
+  last_etag: ""
+  last_synced: ""
