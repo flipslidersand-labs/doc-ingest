@@ -62,12 +62,14 @@ def upsert(collection: str, points: list[dict[str, Any]]) -> None:
 def search(collection: str, query: str, limit: int = 5) -> list[dict]:
     ensure_collection(collection)
     vector = embed([query])[0]
-    hits = client().search(collection_name=collection, query_vector=vector, limit=limit)
+    hits = client().query_points(
+        collection_name=collection, query=vector, limit=limit
+    ).points
     return [
         {
             "score": round(hit.score, 4),
             "id": hit.id,
-            **hit.payload,
+            **(hit.payload or {}),
         }
         for hit in hits
     ]
