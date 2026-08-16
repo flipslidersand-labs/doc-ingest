@@ -9,29 +9,19 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 
 
-<<<<<<< HEAD
-def _generate(prompt: str, source_text: str = "") -> str:
-    payload = json.dumps({"model": MODEL, "prompt": prompt, "stream": False}).encode()
-=======
 def _ollama(prompt: str) -> str:
     payload = json.dumps({"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}).encode()
->>>>>>> 9ddbfc0 (feat(distiller): Anthropic Haiku fallback を追加 (closes #10))
     req = urllib.request.Request(
         f"{OLLAMA_URL}/api/generate",
         data=payload,
         headers={"Content-Type": "application/json"},
     )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            return json.loads(resp.read())["response"].strip()
-    except Exception as e:
-        print(f"[distiller] Ollama unavailable ({e}), using raw text fallback")
-        return source_text[:500] if source_text else prompt[:500]
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return json.loads(resp.read())["response"].strip()
 
 
 def _anthropic(prompt: str) -> str:
     import anthropic
-
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     msg = client.messages.create(
         model=ANTHROPIC_MODEL,

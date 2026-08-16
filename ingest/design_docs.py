@@ -19,7 +19,6 @@ def _changed_files() -> list[Path]:
         text=True,
     )
     if result.returncode != 0:
-        # first commit: list all tracked files instead
         result = subprocess.run(
             ["git", "ls-files"],
             capture_output=True,
