@@ -6,7 +6,7 @@ Document ingestion pipeline — feeds external API docs, design docs, and arxiv 
 
 | module | source | trigger |
 |--------|--------|---------|
-| `ingest/external.py` | External API docs (GitHub, Anthropic, GCP…) | Weekly cron + ETag diff |
+| `ingest/external.py` | External API docs (GitHub, Anthropic, Qdrant…) | Weekly cron + ETag diff |
 | `ingest/design_docs.py` | CLAUDE.md / ADR / docs/ | post-commit git hook |
 | `ingest/arxiv.py` | arxiv papers / tech blogs | CLI manual |
 
@@ -14,7 +14,7 @@ Document ingestion pipeline — feeds external API docs, design docs, and arxiv 
 
 ```bash
 pip install -e .
-cp .env.example .env  # set QDRANT_URL, EMBED_URL, EMBED_API_KEY, ANTHROPIC_API_KEY
+cp .env.example .env  # fill in QDRANT_URL, EMBED_URL, EMBED_API_KEY
 ```
 
 ## Usage
@@ -28,19 +28,36 @@ doc-ingest arxiv https://example.com/blog/post
 
 # Sync external API docs (ETag-based)
 doc-ingest sync
-doc-ingest sync --force  # skip ETag check
+doc-ingest sync --force    # skip ETag check
+doc-ingest sync --dry-run  # preview without writing
 
 # Ingest a specific design doc manually
 doc-ingest design CLAUDE.md
+
+# Search ingested content
+doc-ingest search "Claude API streaming"
+doc-ingest search "qdrant vector" --collection external-docs --limit 3
 ```
 
 ## Git Hook
 
+Install the post-commit hook into one or more repos:
+
 ```bash
-cp hooks/post-commit .git/hooks/post-commit && chmod +x .git/hooks/post-commit
+# Default repos (mesh-drop / forge / fluxion)
+bash scripts/install-hooks.sh
+
+# Specific repo
+bash scripts/install-hooks.sh /path/to/repo
+
+# Preview without writing
+bash scripts/install-hooks.sh --dry-run
+
+# Remove hook snippet
+bash scripts/install-hooks.sh --uninstall
 ```
 
-Design docs are auto-ingested on every commit.
+Design docs (CLAUDE.md, ADR, docs/) are auto-ingested on every commit.
 
 ## Collections
 
@@ -49,3 +66,7 @@ Design docs are auto-ingested on every commit.
 | `research` | arxiv papers + tech blogs |
 | `design` | CLAUDE.md / ADR / docs/ |
 | `external-docs` | external API references |
+
+## Distillation
+
+LLM distillation runs as: **Ollama** (`qwen2.5:7b`) → **Anthropic Haiku** (if `ANTHROPIC_API_KEY` set) → raw text fallback.
