@@ -34,5 +34,15 @@ def sync(force: bool):
     sync_external(force=force)
 
 
+@main.command()
+@click.argument("path")
+@click.option("--tags", default="", help="Comma-separated tags")
+def pdf(path: str, tags: str):
+    """Ingest a local PDF file into the research collection."""
+    from ingest.pdf import ingest_pdf
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+    ingest_pdf(path, tags=tag_list)
+
+
 if __name__ == "__main__":
     main()

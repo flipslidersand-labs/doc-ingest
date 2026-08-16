@@ -4,9 +4,10 @@ import re
 from datetime import datetime, timezone
 
 import httpx
+import pymupdf
 
 from core.distiller import distill_paper, distill_webpage
-from core.qdrant import upsert
+from core.qdrant import delete_by_payload, upsert
 
 COLLECTION = "research"
 
@@ -22,7 +23,6 @@ def _fetch_arxiv(arxiv_id: str) -> dict:
         timeout=30,
     )
     resp.raise_for_status()
-    # minimal XML parse
     text = resp.text
     title = re.search(r"<title>([^<]+)</title>", text)
     summary = re.search(r"<summary>([^<]+)</summary>", text, re.DOTALL)
@@ -36,14 +36,33 @@ def _fetch_arxiv(arxiv_id: str) -> dict:
     }
 
 
+def _fetch_pdf_text(arxiv_id: str) -> str:
+    try:
+        resp = httpx.get(
+            f"https://arxiv.org/pdf/{arxiv_id}",
+            timeout=60,
+            follow_redirects=True,
+        )
+        resp.raise_for_status()
+        doc = pymupdf.open(stream=resp.content, filetype="pdf")
+        pages = [page.get_text() for page in doc]
+        doc.close()
+        return "\n\n".join(pages)[:8000]
+    except Exception as e:
+        print(f"[arxiv] PDF fetch failed ({e}), using abstract only")
+        return ""
+
+
 def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
     tags = tags or []
     now = datetime.now(timezone.utc).isoformat()
 
     arxiv_id = _arxiv_id(url)
     if arxiv_id:
+        delete_by_payload(COLLECTION, "arxiv_id", arxiv_id)
         meta = _fetch_arxiv(arxiv_id)
-        distilled = distill_paper(meta["abstract"])
+        body = _fetch_pdf_text(arxiv_id)
+        distilled = distill_paper(meta["abstract"], body=body)
         points = [
             {
                 "id": int(hashlib.sha256(arxiv_id.encode()).hexdigest(), 16) % (2**63),
@@ -59,6 +78,7 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
         ]
     else:
         # tech blog
+        delete_by_payload(COLLECTION, "source_url", url)
         resp = httpx.get(url, timeout=30)
         resp.raise_for_status()
         distilled = distill_webpage(resp.text)
