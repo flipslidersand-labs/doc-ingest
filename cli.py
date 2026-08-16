@@ -61,5 +61,22 @@ def search(query: str, collection: str, limit: int):
         click.echo(f"    {text[:200].replace(chr(10), ' ')}{'…' if len(text) > 200 else ''}")
 
 
+@main.command("list")
+def list_cmd():
+    """List Qdrant collections with point counts and last ingest time."""
+    from core.qdrant import list_collections
+
+    rows = list_collections()
+    if not rows:
+        click.echo("No collections found.")
+        return
+
+    col_w = max(len(r["name"]) for r in rows)
+    click.echo(f"{'collection':<{col_w}}  {'points':>6}  last_ingested")
+    click.echo(f"{'-' * col_w}  {'------':>6}  {'-------------------'}")
+    for r in rows:
+        click.echo(f"{r['name']:<{col_w}}  {r['points']:>6}  {r['last_ingested']}")
+
+
 if __name__ == "__main__":
     main()
