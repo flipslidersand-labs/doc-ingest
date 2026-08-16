@@ -6,9 +6,11 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://192.168.68.63:6333")
-EMBED_URL = os.getenv("EMBED_URL", "http://192.168.68.63:9092/embed")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
+EMBED_URL = os.getenv("EMBED_URL", "http://192.168.68.63:9092/embed/batch")
 EMBED_API_KEY = os.getenv("EMBED_API_KEY", "")
-VECTOR_SIZE = 1024  # e5-large
+EMBED_COLLECTION = os.getenv("EMBED_COLLECTION", "sessions")  # embedding-svc のモデルルーティング用
+VECTOR_SIZE = 768  # multilingual-e5-base
 
 _client: QdrantClient | None = None
 
@@ -16,7 +18,7 @@ _client: QdrantClient | None = None
 def client() -> QdrantClient:
     global _client
     if _client is None:
-        _client = QdrantClient(url=QDRANT_URL)
+        _client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY or None)
     return _client
 
 
@@ -35,12 +37,12 @@ def embed(texts: list[str]) -> list[list[float]]:
 
     resp = httpx.post(
         EMBED_URL,
-        json={"texts": texts},
-        headers={"Authorization": f"Bearer {EMBED_API_KEY}"},
+        json={"texts": texts, "collection": EMBED_COLLECTION, "mode": "index"},
+        headers={"X-API-Key": EMBED_API_KEY},
         timeout=60,
     )
     resp.raise_for_status()
-    return resp.json()["embeddings"]
+    return resp.json()["vectors"]
 
 
 def upsert(collection: str, points: list[dict[str, Any]]) -> None:
@@ -60,6 +62,9 @@ def upsert(collection: str, points: list[dict[str, Any]]) -> None:
 def delete_by_payload(collection: str, key: str, value: str) -> None:
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
+    existing = {col.name for col in client().get_collections().collections}
+    if collection not in existing:
+        return
     client().delete(
         collection_name=collection,
         points_selector=Filter(
