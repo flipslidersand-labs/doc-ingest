@@ -8,6 +8,7 @@ import httpx
 from ruamel.yaml import YAML
 
 from core.chunker import chunk_markdown
+from core.html import extract_markdown, looks_like_html
 from core.qdrant import delete_by_payload, upsert
 
 COLLECTION = "external-docs"
@@ -67,7 +68,16 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
 
         resp.raise_for_status()
         new_etag = resp.headers.get("etag", "")
-        chunks = chunk_markdown(resp.text, source_url=url)
+
+        body = resp.text
+        if looks_like_html(resp.headers.get("content-type", ""), body):
+            extracted = extract_markdown(body)
+            if extracted:
+                body = extracted
+            else:
+                print(f"warn {url} → HTML extraction empty, skipping (raw HTML not ingested)")
+                continue
+        chunks = chunk_markdown(body, source_url=url)
         points = [
             {
                 "id": int(

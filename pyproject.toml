@@ -12,6 +12,7 @@ dependencies = [
     "click>=8.1",
     "anthropic>=0.30",
     "ruamel.yaml>=0.18",
+    "trafilatura>=1.8",
 ]
 
 [project.scripts]
