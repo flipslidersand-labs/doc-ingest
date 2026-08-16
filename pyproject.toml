@@ -22,5 +22,11 @@ include = ["core*", "ingest*", "sources*"]
 [tool.setuptools.package-dir]
 "" = "."
 
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-mock>=3", "respx>=0.21"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 100
