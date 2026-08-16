@@ -10,6 +10,9 @@ QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 EMBED_URL = os.getenv("EMBED_URL", "http://192.168.68.63:9092/embed/batch")
 EMBED_API_KEY = os.getenv("EMBED_API_KEY", "")
 EMBED_COLLECTION = os.getenv("EMBED_COLLECTION", "sessions")  # embedding-svc のモデルルーティング用
+EMBED_TIMEOUT = float(os.getenv("EMBED_TIMEOUT", "180"))  # CPU e5 のコールドロードを許容
+EMBED_BATCH = int(os.getenv("EMBED_BATCH", "16"))  # 1 POST あたりの最大テキスト数
+EMBED_RETRIES = 3
 VECTOR_SIZE = 768  # multilingual-e5-base
 
 _client: QdrantClient | None = None
@@ -32,17 +35,35 @@ def ensure_collection(name: str) -> None:
         )
 
 
-def embed(texts: list[str]) -> list[list[float]]:
+def _embed_batch(texts: list[str]) -> list[list[float]]:
+    import time
+
     import httpx
 
-    resp = httpx.post(
-        EMBED_URL,
-        json={"texts": texts, "collection": EMBED_COLLECTION, "mode": "index"},
-        headers={"X-API-Key": EMBED_API_KEY},
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.json()["vectors"]
+    for attempt in range(EMBED_RETRIES):
+        try:
+            resp = httpx.post(
+                EMBED_URL,
+                json={"texts": texts, "collection": EMBED_COLLECTION, "mode": "index"},
+                headers={"X-API-Key": EMBED_API_KEY},
+                timeout=EMBED_TIMEOUT,
+            )
+            resp.raise_for_status()
+            return resp.json()["vectors"]
+        except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            if attempt == EMBED_RETRIES - 1:
+                raise
+            print(f"[embed retry {attempt+1}/{EMBED_RETRIES}] {len(texts)} texts → {type(e).__name__}")
+            time.sleep(2**attempt)  # 1s, 2s
+    raise RuntimeError("unreachable")
+
+
+def embed(texts: list[str]) -> list[list[float]]:
+    """Embed texts in bounded sub-batches so a single POST stays within timeout."""
+    vectors: list[list[float]] = []
+    for i in range(0, len(texts), EMBED_BATCH):
+        vectors.extend(_embed_batch(texts[i : i + EMBED_BATCH]))
+    return vectors
 
 
 def upsert(collection: str, points: list[dict[str, Any]]) -> None:
