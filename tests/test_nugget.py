@@ -1,5 +1,4 @@
 """Tests for core.nugget BM25 extraction."""
-import pytest
 from core.nugget import extract_nuggets, apply_nuggets
 
 
