@@ -18,13 +18,18 @@ def _changed_files() -> list[Path]:
         capture_output=True,
         text=True,
     )
+    if result.returncode != 0:
+        # first commit: list all tracked files instead
+        result = subprocess.run(
+            ["git", "ls-files"],
+            capture_output=True,
+            text=True,
+        )
     paths = [Path(p) for p in result.stdout.splitlines()]
     return [
         p
         for p in paths
-        if p.suffix == ".md" and any(
-            p.match(pat) for pat in DESIGN_PATTERNS
-        )
+        if p.suffix == ".md" and any(p.match(pat) for pat in DESIGN_PATTERNS)
     ]
 
 

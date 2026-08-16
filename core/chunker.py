@@ -9,8 +9,7 @@ def chunk_markdown(text: str, source_url: str = "") -> list[dict]:
         body = section.strip()
         if len(body) < 50:
             continue
-        heading_end = body.find("\n")
-        heading = body[:heading_end].strip() if heading_end > 0 else ""
+        heading = body.split("\n", 1)[0].strip()
         chunks.append(
             {
                 "text": body,
