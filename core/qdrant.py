@@ -71,3 +71,23 @@ def delete_by_payload(collection: str, key: str, value: str) -> None:
             must=[FieldCondition(key=key, match=MatchValue(value=value))]
         ),
     )
+
+
+def list_collections() -> list[dict]:
+    cols = client().get_collections().collections
+    result = []
+    for col in sorted(cols, key=lambda c: c.name):
+        info = client().get_collection(col.name)
+        records, _ = client().scroll(
+            collection_name=col.name,
+            limit=50,
+            with_payload=["ingested_at"],
+        )
+        timestamps = [r.payload.get("ingested_at", "") for r in records if r.payload]
+        last = max(timestamps, default="")
+        result.append({
+            "name": col.name,
+            "points": info.points_count,
+            "last_ingested": last[:19].replace("T", " ") if last else "—",
+        })
+    return result
