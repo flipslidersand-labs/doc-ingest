@@ -1,9 +1,9 @@
-"""Markdown section-level chunker (splits on h2/h3 headings) and plain text chunker."""
+"""Markdown section-level chunker and plain text chunker."""
 import re
 
 
 def chunk_text(text: str, source_url: str = "", chunk_size: int = 800) -> list[dict]:
-    """Split plain text (e.g. PDF) into fixed-size chunks by paragraph boundaries."""
+    """Split plain text into fixed-size chunks by paragraph boundaries."""
     paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
     chunks, current, idx = [], [], 0
     for para in paragraphs:
