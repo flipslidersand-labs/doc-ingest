@@ -1,9 +1,6 @@
 """Tests for ingest/design_docs.py"""
-import subprocess
-from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
 
 
 class TestChangedFiles:
@@ -15,8 +12,8 @@ class TestChangedFiles:
             "subprocess.run",
             return_value=MagicMock(returncode=0, stdout=f"{claude_md}\n"),
         )
-        from ingest.design_docs import _changed_files
-        import importlib, ingest.design_docs as m
+        import importlib
+        import ingest.design_docs as m
         importlib.reload(m)
 
         result = m._changed_files()
@@ -33,7 +30,8 @@ class TestChangedFiles:
 
         mocker.patch("subprocess.run", side_effect=fake_run)
 
-        import importlib, ingest.design_docs as m
+        import importlib
+        import ingest.design_docs as m
         importlib.reload(m)
         m._changed_files()
 
@@ -45,7 +43,8 @@ class TestChangedFiles:
             "subprocess.run",
             return_value=MagicMock(returncode=0, stdout="src/main.go\nREADME.md\n"),
         )
-        import importlib, ingest.design_docs as m
+        import importlib
+        import ingest.design_docs as m
         importlib.reload(m)
         result = m._changed_files()
         assert result == []
