@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import httpx
 
 from core.distiller import distill_paper, distill_webpage
-from core.qdrant import upsert
+from core.qdrant import delete_by_payload, upsert
 
 COLLECTION = "research"
 
@@ -42,6 +42,7 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
 
     arxiv_id = _arxiv_id(url)
     if arxiv_id:
+        delete_by_payload(COLLECTION, "arxiv_id", arxiv_id)
         meta = _fetch_arxiv(arxiv_id)
         distilled = distill_paper(meta["abstract"])
         points = [
@@ -59,6 +60,7 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
         ]
     else:
         # tech blog
+        delete_by_payload(COLLECTION, "source_url", url)
         resp = httpx.get(url, timeout=30)
         resp.raise_for_status()
         distilled = distill_webpage(resp.text)
