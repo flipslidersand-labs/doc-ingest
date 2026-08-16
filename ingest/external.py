@@ -98,9 +98,15 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             print(f"dry-run {url} → {len(chunks)} chunks (not written)")
             continue
 
-        delete_by_payload(COLLECTION, "source_url", url)
-        if points:
-            upsert(COLLECTION, points)
+        try:
+            delete_by_payload(COLLECTION, "source_url", url)
+            if points:
+                upsert(COLLECTION, points)
+        except Exception as e:  # noqa: BLE001 - isolate one source's failure from the rest
+            print(f"failed {url} → {type(e).__name__}: {e} (continuing)")
+            source["failed_at"] = now
+            changed = True
+            continue
 
         source["last_etag"] = new_etag
         source["last_synced"] = now
