@@ -41,7 +41,9 @@ def sync(force: bool, dry_run: bool):
               type=click.Choice(["external-docs", "research", "design"]),
               help="Qdrant collection to search")
 @click.option("--limit", default=5, show_default=True, help="Number of results")
-def search(query: str, collection: str, limit: int):
+@click.option("--nugget", is_flag=True, help="Extract BM25 nugget sentences instead of full chunks")
+@click.option("--nugget-k", default=3, show_default=True, help="Sentences per chunk when --nugget")
+def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int):
     """Search ingested documents by semantic similarity."""
     from core.qdrant import search as qdrant_search
 
@@ -50,15 +52,23 @@ def search(query: str, collection: str, limit: int):
         click.echo("No results found.")
         return
 
+    if nugget:
+        from core.nugget import apply_nuggets
+        results = apply_nuggets(query, results, top_k=nugget_k)
+
     for i, r in enumerate(results, 1):
-        score = r.pop("score")
+        score = r.pop("score", None)
         src = r.get("source_url") or r.get("file_path") or r.get("arxiv_id", "")
         section = r.get("section", "")
-        click.echo(f"\n[{i}] score={score}  {src}")
+        score_str = f"score={score:.4f}  " if score is not None else ""
+        click.echo(f"\n[{i}] {score_str}{src}")
         if section:
             click.echo(f"    section: {section}")
         text = r.get("text", "")
-        click.echo(f"    {text[:200].replace(chr(10), ' ')}{'…' if len(text) > 200 else ''}")
+        orig_len = r.get("nugget_source_len")
+        suffix = f" (nugget from {orig_len}c)" if orig_len else ("…" if len(text) > 200 else "")
+        preview = text[:200].replace(chr(10), " ")
+        click.echo(f"    {preview}{suffix}")
 
 
 @main.command("list")
