@@ -1,14 +1,21 @@
-"""LLM distillation via Ollama (local inference)."""
+"""LLM distillation: Ollama → Anthropic Haiku fallback → raw text."""
+import json
 import os
 import urllib.request
-import json
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 
 
+<<<<<<< HEAD
 def _generate(prompt: str, source_text: str = "") -> str:
     payload = json.dumps({"model": MODEL, "prompt": prompt, "stream": False}).encode()
+=======
+def _ollama(prompt: str) -> str:
+    payload = json.dumps({"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}).encode()
+>>>>>>> 9ddbfc0 (feat(distiller): Anthropic Haiku fallback を追加 (closes #10))
     req = urllib.request.Request(
         f"{OLLAMA_URL}/api/generate",
         data=payload,
@@ -20,6 +27,33 @@ def _generate(prompt: str, source_text: str = "") -> str:
     except Exception as e:
         print(f"[distiller] Ollama unavailable ({e}), using raw text fallback")
         return source_text[:500] if source_text else prompt[:500]
+
+
+def _anthropic(prompt: str) -> str:
+    import anthropic
+
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    msg = client.messages.create(
+        model=ANTHROPIC_MODEL,
+        max_tokens=300,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return msg.content[0].text.strip()
+
+
+def _generate(prompt: str, source_text: str = "") -> str:
+    try:
+        return _ollama(prompt)
+    except Exception as e:
+        print(f"[distiller] Ollama unavailable ({e}), trying Anthropic Haiku")
+
+    if ANTHROPIC_API_KEY:
+        try:
+            return _anthropic(prompt)
+        except Exception as e:
+            print(f"[distiller] Anthropic unavailable ({e}), using raw text fallback")
+
+    return source_text[:500] if source_text else prompt[:500]
 
 
 def distill_paper(abstract: str, body: str = "") -> str:
