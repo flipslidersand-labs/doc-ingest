@@ -61,6 +61,7 @@ def sync_external(force: bool = False) -> None:
                 "source_url": url,
                 "section": c["section"],
                 "doc_type": source.get("type", "external-api"),
+                "tags": source.get("tags", []),
                 "ingested_at": now,
             }
             for c in chunks
