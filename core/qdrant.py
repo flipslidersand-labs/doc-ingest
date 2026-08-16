@@ -59,6 +59,20 @@ def upsert(collection: str, points: list[dict[str, Any]]) -> None:
     client().upsert(collection_name=collection, points=structs)
 
 
+def search(collection: str, query: str, limit: int = 5) -> list[dict]:
+    ensure_collection(collection)
+    vector = embed([query])[0]
+    hits = client().search(collection_name=collection, query_vector=vector, limit=limit)
+    return [
+        {
+            "score": round(hit.score, 4),
+            "id": hit.id,
+            **hit.payload,
+        }
+        for hit in hits
+    ]
+
+
 def delete_by_payload(collection: str, key: str, value: str) -> None:
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 

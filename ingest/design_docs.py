@@ -6,7 +6,7 @@ from pathlib import Path
 
 from core.chunker import chunk_markdown
 from core.distiller import distill_design_doc
-from core.qdrant import upsert
+from core.qdrant import delete_by_payload, upsert
 
 COLLECTION = "design"
 DESIGN_PATTERNS = ("CLAUDE.md", "AGENTS.md", "docs/*.md", "adr/*.md", "ADR/*.md")
@@ -58,6 +58,7 @@ def ingest_design_docs(file: str | None = None) -> None:
     for path in files:
         if not path.exists():
             continue
+        delete_by_payload(COLLECTION, "file_path", str(path))
         text = path.read_text()
         chunks = chunk_markdown(text, source_url=str(path))
         points = []
