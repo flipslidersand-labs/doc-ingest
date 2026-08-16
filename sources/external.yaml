@@ -1,13 +1,64 @@
 # External API doc sources for weekly sync
 # ETag is updated automatically after each sync
+# Fields: url, type, check_interval, tags, last_etag, last_synced
+
+# --- Claude / Anthropic ---
 - url: https://docs.anthropic.com/en/api/getting-started
   type: external-api
   check_interval: weekly
-  last_etag: ""
-  last_synced: ""
+  tags: [anthropic, claude, api]
+  last_etag: ''
+  last_synced: '2026-08-16T03:56:56.422105+00:00'
 
+- url: https://docs.anthropic.com/en/docs/about-claude/models/overview
+  type: external-api
+  check_interval: weekly
+  tags: [anthropic, claude, models]
+  last_etag: ''
+  last_synced: ''
+
+# --- GitHub ---
 - url: https://docs.github.com/en/rest
   type: external-api
   check_interval: weekly
-  last_etag: ""
-  last_synced: ""
+  tags: [github, api]
+  last_etag: ''
+  last_synced: '2026-08-16T03:56:56.422105+00:00'
+
+# --- Qdrant ---
+- url: https://qdrant.tech/documentation/concepts/
+  type: external-api
+  check_interval: weekly
+  tags: [qdrant, vector-db]
+  last_etag: ''
+  last_synced: ''
+
+- url: https://qdrant.tech/documentation/interfaces/
+  type: external-api
+  check_interval: weekly
+  tags: [qdrant, api]
+  last_etag: ''
+  last_synced: ''
+
+# --- Go ---
+- url: https://pkg.go.dev/net/http
+  type: external-api
+  check_interval: weekly
+  tags: [go, stdlib]
+  last_etag: ''
+  last_synced: ''
+
+- url: https://pkg.go.dev/sync
+  type: external-api
+  check_interval: weekly
+  tags: [go, stdlib]
+  last_etag: ''
+  last_synced: ''
+
+# --- Kubernetes ---
+- url: https://kubernetes.io/docs/reference/kubernetes-api/
+  type: external-api
+  check_interval: weekly
+  tags: [kubernetes, api]
+  last_etag: ''
+  last_synced: ''
