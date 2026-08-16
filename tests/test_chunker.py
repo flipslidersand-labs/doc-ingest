@@ -38,6 +38,28 @@ class TestChunkMarkdown:
     def test_empty_text_returns_empty(self):
         assert chunk_markdown("") == []
 
+    def test_oversized_section_is_subsplit(self):
+        # one section whose body far exceeds the cap → multiple chunks
+        body = "## Big\n" + "\n\n".join(["word " * 100] * 20)
+        chunks = chunk_markdown(body, max_section_chars=500)
+        assert len(chunks) > 1
+        assert all(len(c["text"]) <= 500 for c in chunks)
+        assert all(c["section"] == "Big" for c in chunks)
+
+    def test_subsplit_chunk_indices_unique(self):
+        body = "## Big\n" + "\n\n".join(["word " * 100] * 20)
+        indices = [c["chunk_index"] for c in chunk_markdown(body, max_section_chars=500)]
+        assert indices == list(range(len(indices)))
+
+    def test_single_giant_paragraph_hard_split(self):
+        # a single paragraph with no blank lines still gets bounded
+        chunks = chunk_markdown("## H\n" + "a" * 2000, max_section_chars=500)
+        assert all(len(c["text"]) <= 500 for c in chunks)
+
+    def test_small_section_not_split(self):
+        chunks = chunk_markdown("## S\n" + "a" * 60, max_section_chars=1500)
+        assert len(chunks) == 1
+
 
 class TestChunkText:
     def test_splits_by_paragraph(self):
