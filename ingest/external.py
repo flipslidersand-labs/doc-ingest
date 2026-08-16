@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
-import yaml
+from ruamel.yaml import YAML
 
 from core.chunker import chunk_markdown
 from core.qdrant import delete_by_payload, upsert
@@ -14,13 +14,17 @@ COLLECTION = "external-docs"
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
 MAX_RETRIES = 3
 
+_yaml = YAML()
+_yaml.preserve_quotes = True
 
-def _load_sources() -> list[dict]:
-    return yaml.safe_load(SOURCES_FILE.read_text()) or []
+
+def _load_sources():
+    return _yaml.load(SOURCES_FILE.read_text()) or []
 
 
-def _save_sources(sources: list[dict]) -> None:
-    SOURCES_FILE.write_text(yaml.dump(sources, allow_unicode=True))
+def _save_sources(sources) -> None:
+    with SOURCES_FILE.open("w") as f:
+        _yaml.dump(sources, f)
 
 
 def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
