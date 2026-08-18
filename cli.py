@@ -4,6 +4,7 @@ import click
 from ingest.arxiv import ingest_arxiv
 from ingest.design_docs import ingest_design_docs
 from ingest.external import sync_external
+from ingest.notes import ingest_notes
 
 
 @click.group()
@@ -28,6 +29,13 @@ def design(file: str | None):
 
 
 @main.command()
+@click.argument("file", required=False)
+def notes(file: str | None):
+    """Ingest curated Obsidian vault notes (10-projects/20-areas/30-resources). Runs changed files when called from git hook."""
+    ingest_notes(file)
+
+
+@main.command()
 @click.option("--force", is_flag=True, help="Skip ETag check and re-ingest all sources")
 @click.option("--dry-run", is_flag=True, help="Show what would be ingested without writing")
 def sync(force: bool, dry_run: bool):
@@ -38,7 +46,7 @@ def sync(force: bool, dry_run: bool):
 @main.command()
 @click.argument("query")
 @click.option("--collection", default="external-docs",
-              type=click.Choice(["external-docs", "research", "design"]),
+              type=click.Choice(["external-docs", "research", "design", "notes"]),
               help="Qdrant collection to search")
 @click.option("--limit", default=5, show_default=True, help="Number of results")
 @click.option("--nugget", is_flag=True, help="Extract BM25 nugget sentences instead of full chunks")
