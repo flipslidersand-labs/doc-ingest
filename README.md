@@ -8,6 +8,7 @@ Document ingestion pipeline — feeds external API docs, design docs, and arxiv 
 |--------|--------|---------|
 | `ingest/external.py` | External API docs (GitHub, Anthropic, Qdrant…) | Weekly cron + ETag diff |
 | `ingest/design_docs.py` | CLAUDE.md / ADR / docs/ | post-commit git hook |
+| `ingest/notes.py` | Obsidian vault (10-projects/20-areas/30-resources) | post-commit git hook |
 | `ingest/arxiv.py` | arxiv papers / tech blogs | CLI manual |
 
 ## Setup
@@ -59,12 +60,21 @@ bash scripts/install-hooks.sh --uninstall
 
 Design docs (CLAUDE.md, ADR, docs/) are auto-ingested on every commit.
 
+For an Obsidian vault (e.g. `~/notes`), install a post-commit hook that runs the
+`notes` command instead, so curated notes flow into the `notes` collection:
+
+```bash
+printf '#!/usr/bin/env bash\n_D="$HOME/projects/doc-ingest"\n[ -f "$_D/.env" ] && { set -a; . "$_D/.env"; set +a; }\nPYTHONPATH="$_D" "$_D/.venv/bin/doc-ingest" notes 2>/dev/null || true\n' \
+  > ~/notes/.git/hooks/post-commit && chmod +x ~/notes/.git/hooks/post-commit
+```
+
 ## Collections
 
 | Qdrant collection | content |
 |-------------------|---------|
 | `research` | arxiv papers + tech blogs |
 | `design` | CLAUDE.md / ADR / docs/ |
+| `notes` | curated Obsidian vault notes (private thinking) |
 | `external-docs` | external API references |
 
 ## Distillation
