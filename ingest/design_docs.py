@@ -1,7 +1,7 @@
 """Ingest own design docs (CLAUDE.md / ADR / docs/) into Qdrant design collection."""
 import hashlib
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from core.chunker import chunk_markdown
@@ -17,12 +17,14 @@ def _changed_files() -> list[Path]:
         ["git", "diff", "--name-only", "HEAD~1"],
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode != 0:
         result = subprocess.run(
             ["git", "ls-files"],
             capture_output=True,
             text=True,
+            check=False,
         )
     paths = [Path(p) for p in result.stdout.splitlines()]
     return [
@@ -37,12 +39,13 @@ def _git_sha() -> str:
         ["git", "rev-parse", "--short", "HEAD"],
         capture_output=True,
         text=True,
+        check=False,
     )
     return result.stdout.strip()
 
 
 def ingest_design_docs(file: str | None = None) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     sha = _git_sha()
 
     if file:

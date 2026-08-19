@@ -28,6 +28,7 @@
 # --- Qdrant ---
 - url: https://qdrant.tech/documentation/concepts/
   type: external-api
+  render: true
   check_interval: weekly
   tags: [qdrant, vector-db]
   last_etag: ''
@@ -35,6 +36,7 @@
 
 - url: https://qdrant.tech/documentation/interfaces/
   type: external-api
+  render: true
   check_interval: weekly
   tags: [qdrant, api]
   last_etag: ''

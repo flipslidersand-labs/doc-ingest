@@ -1,7 +1,7 @@
 """Ingest arxiv papers and tech blog posts into Qdrant research collection."""
 import hashlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import httpx
 import pymupdf
@@ -48,14 +48,14 @@ def _fetch_pdf_text(arxiv_id: str) -> str:
         pages = [page.get_text() for page in doc]
         doc.close()
         return "\n\n".join(pages)[:8000]
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"[arxiv] PDF fetch failed ({e}), using abstract only")
         return ""
 
 
 def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
     tags = tags or []
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     arxiv_id = _arxiv_id(url)
     if arxiv_id:
