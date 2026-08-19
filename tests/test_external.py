@@ -3,7 +3,6 @@ import httpx
 import pytest
 import respx
 
-
 SOURCES = [
     {
         "url": "https://example.com/api",
@@ -74,3 +73,62 @@ class TestSyncExternal:
         sync_external()
         captured = capsys.readouterr()
         assert "retry" in captured.out or "failed" in captured.out
+
+    @respx.mock
+    def test_render_true_fetches_via_jina(self, mocker):
+        """render: true → fetch URL is prefixed with Jina Reader base."""
+        render_source = [
+            {
+                "url": "https://example.com/js-only",
+                "type": "external-api",
+                "render": True,
+                "check_interval": "weekly",
+                "tags": ["test"],
+                "last_etag": "",
+                "last_synced": "",
+            }
+        ]
+        mocker.patch("ingest.external._load_sources", return_value=render_source)
+        mocker.patch("ingest.external._save_sources")
+        mocker.patch("ingest.external.delete_by_payload")
+        mocker.patch("ingest.external.upsert")
+
+        jina_url = "https://r.jina.ai/https://example.com/js-only"
+        respx.get(jina_url).mock(
+            return_value=httpx.Response(200, text="## Rendered\n" + "content " * 50)
+        )
+
+        from ingest.external import sync_external
+        sync_external()
+
+        import ingest.external as ext
+        ext.upsert.assert_called_once()
+
+    @respx.mock
+    def test_render_true_empty_body_skips(self, mocker, capsys):
+        """render: true + empty Jina response → skip without upsert."""
+        render_source = [
+            {
+                "url": "https://example.com/js-only",
+                "type": "external-api",
+                "render": True,
+                "check_interval": "weekly",
+                "tags": ["test"],
+                "last_etag": "",
+                "last_synced": "",
+            }
+        ]
+        mocker.patch("ingest.external._load_sources", return_value=render_source)
+        mocker.patch("ingest.external._save_sources")
+        mocker.patch("ingest.external.delete_by_payload")
+        mocker.patch("ingest.external.upsert")
+
+        jina_url = "https://r.jina.ai/https://example.com/js-only"
+        respx.get(jina_url).mock(return_value=httpx.Response(200, text="   "))
+
+        from ingest.external import sync_external
+        sync_external()
+
+        import ingest.external as ext
+        ext.upsert.assert_not_called()
+        assert "skipping" in capsys.readouterr().out
