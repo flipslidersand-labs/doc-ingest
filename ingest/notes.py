@@ -6,7 +6,7 @@ collection with unfinished thinking.
 """
 import hashlib
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from core.chunker import chunk_markdown
@@ -34,23 +34,24 @@ def _changed_files() -> list[Path]:
         ["git", "diff", "--name-only", "HEAD~1"],
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode != 0:
         result = subprocess.run(
-            ["git", "ls-files"], capture_output=True, text=True
+            ["git", "ls-files"], capture_output=True, text=True, check=False
         )
     return [p for p in (Path(x) for x in result.stdout.splitlines()) if _is_note(p)]
 
 
 def _git_sha() -> str:
     result = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
+        ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=False
     )
     return result.stdout.strip()
 
 
 def ingest_notes(file: str | None = None) -> None:
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     sha = _git_sha()
 
     if file:

@@ -17,7 +17,7 @@ def looks_like_html(content_type: str, body: str) -> bool:
     if any(h in ct for h in _HTML_HINTS):
         return True
     head = body[:512].lstrip().lower()
-    return head.startswith("<!doctype html") or head.startswith("<html")
+    return head.startswith(("<!doctype html", "<html"))
 
 
 def extract_markdown(html: str) -> str | None:

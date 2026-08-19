@@ -3,7 +3,6 @@ import httpx
 import pytest
 import respx
 
-
 SOURCES = [
     {
         "url": "https://example.com/api",

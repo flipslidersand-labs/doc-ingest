@@ -34,13 +34,13 @@ def _anthropic(prompt: str) -> str:
 def _generate(prompt: str, source_text: str = "") -> str:
     try:
         return _ollama(prompt)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"[distiller] Ollama unavailable ({e}), trying Anthropic Haiku")
 
     if ANTHROPIC_API_KEY:
         try:
             return _anthropic(prompt)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"[distiller] Anthropic unavailable ({e}), using raw text fallback")
 
     return source_text[:500] if source_text else prompt[:500]
