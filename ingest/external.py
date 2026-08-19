@@ -14,6 +14,7 @@ from core.qdrant import delete_by_payload, upsert
 COLLECTION = "external-docs"
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
 MAX_RETRIES = 3
+JINA_BASE = "https://r.jina.ai/"
 
 _yaml = YAML()
 _yaml.preserve_quotes = True
@@ -55,7 +56,10 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
         if stored_etag and not force:
             headers["If-None-Match"] = stored_etag
 
-        resp = _fetch_with_retry(url, headers)
+        use_jina = source.get("render", False)
+        fetch_url = JINA_BASE + url if use_jina else url
+
+        resp = _fetch_with_retry(fetch_url, headers)
         if resp is None:
             print(f"failed {url} (gave up after {MAX_RETRIES} attempts)")
             source["failed_at"] = now
@@ -70,7 +74,12 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
         new_etag = resp.headers.get("etag", "")
 
         body = resp.text
-        if looks_like_html(resp.headers.get("content-type", ""), body):
+        if use_jina:
+            # Jina Reader returns clean markdown — skip HTML extraction
+            if not body.strip():
+                print(f"warn {url} → Jina returned empty body, skipping")
+                continue
+        elif looks_like_html(resp.headers.get("content-type", ""), body):
             extracted = extract_markdown(body)
             if extracted:
                 body = extracted
