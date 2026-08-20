@@ -1,5 +1,8 @@
 """doc-ingest CLI entrypoint."""
 import click
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from ingest.arxiv import ingest_arxiv
 from ingest.design_docs import ingest_design_docs
