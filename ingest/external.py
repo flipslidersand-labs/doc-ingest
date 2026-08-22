@@ -160,7 +160,8 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             failed_urls.append(url)
             continue
 
-        source["last_etag"] = new_etag
+        if new_etag:
+            source["last_etag"] = new_etag
         source["last_synced"] = now
         source.pop("failed_at", None)
         changed = True
