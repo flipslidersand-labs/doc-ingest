@@ -1,7 +1,7 @@
 """Sync external API docs with ETag-based freshness detection."""
 import hashlib
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -45,7 +45,7 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
 
 def sync_external(force: bool = False, dry_run: bool = False) -> None:
     sources = _load_sources()
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     changed = False
 
     for source in sources:
