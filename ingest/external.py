@@ -1,5 +1,4 @@
 """Sync external API docs with ETag-based freshness detection."""
-import hashlib
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,6 +10,7 @@ from ruamel.yaml import YAML
 
 from core.chunker import chunk_markdown
 from core.html import extract_markdown, looks_like_html
+from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
 
@@ -90,9 +90,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
     chunks = chunk_markdown(body, source_url=url)
     points = [
         {
-            "id": int(
-                hashlib.sha256(f"{url}:{c['chunk_index']}".encode()).hexdigest(), 16
-            ) % (2**63),
+            "id": make_id(f"{url}:{c['chunk_index']}"),
             "text": c["text"],
             "source": "external-api",
             "source_url": url,

@@ -4,13 +4,13 @@ Targets a private thought vault (e.g. ~/notes). Only curated directories are
 ingested — scratch dirs (00-inbox, 90-daily) are skipped to avoid polluting the
 collection with unfinished thinking.
 """
-import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
 from core.chunker import chunk_markdown
 from core.distiller import distill_design_doc
 from core.git import changed_files, head_sha
+from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import delete_by_payload, upsert
 
@@ -58,10 +58,7 @@ def ingest_notes(file: str | None = None) -> None:
         points = []
         for chunk in chunks:
             distilled = distill_design_doc(chunk["text"])
-            uid = int(
-                hashlib.sha256(f"{path}:{chunk['chunk_index']}".encode()).hexdigest(),
-                16,
-            ) % (2**63)
+            uid = make_id(f"{path}:{chunk['chunk_index']}")
             points.append(
                 {
                     "id": uid,

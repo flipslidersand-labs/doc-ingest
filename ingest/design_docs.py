@@ -1,11 +1,11 @@
 """Ingest own design docs (CLAUDE.md / ADR / docs/) into Qdrant design collection."""
-import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
 from core.chunker import chunk_markdown
 from core.distiller import distill_design_doc
 from core.git import changed_files, head_sha
+from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import delete_by_payload, upsert
 
@@ -45,9 +45,7 @@ def ingest_design_docs(file: str | None = None) -> None:
         points = []
         for chunk in chunks:
             distilled = distill_design_doc(chunk["text"])
-            uid = int(
-                hashlib.sha256(f"{path}:{chunk['chunk_index']}".encode()).hexdigest(), 16
-            ) % (2**63)
+            uid = make_id(f"{path}:{chunk['chunk_index']}")
             points.append(
                 {
                     "id": uid,
