@@ -1,5 +1,4 @@
 """Ingest local or remote PDF files into Qdrant research collection."""
-import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -7,6 +6,7 @@ import pymupdf
 
 from core.chunker import chunk_text
 from core.distiller import distill_design_doc
+from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import delete_by_payload, upsert
 
@@ -47,9 +47,7 @@ def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
     chunks = chunk_text(text, source_url=source_url)
     points = [
         {
-            "id": int(
-                hashlib.sha256(f"{source_url}:{c['chunk_index']}".encode()).hexdigest(), 16
-            ) % (2**63),
+            "id": make_id(f"{source_url}:{c['chunk_index']}"),
             "text": distill_design_doc(c["text"]),
             "source": "pdf",
             "source_url": source_url,

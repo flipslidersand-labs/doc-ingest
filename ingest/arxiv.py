@@ -1,5 +1,4 @@
 """Ingest arxiv papers and tech blog posts into Qdrant research collection."""
-import hashlib
 import re
 from datetime import UTC, datetime
 
@@ -7,6 +6,7 @@ import httpx
 import pymupdf
 
 from core.distiller import distill_paper, distill_webpage
+from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import upsert
 
@@ -67,7 +67,7 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
         distilled = distill_paper(meta["abstract"], body=body)
         points = [
             {
-                "id": int(hashlib.sha256(arxiv_id.encode()).hexdigest(), 16) % (2**63),
+                "id": make_id(arxiv_id),
                 "text": distilled,
                 "source": "arxiv",
                 "arxiv_id": arxiv_id,
@@ -83,7 +83,7 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
         resp = httpx.get(url, timeout=30)
         resp.raise_for_status()
         distilled = distill_webpage(resp.text)
-        uid = int(hashlib.sha256(url.encode()).hexdigest(), 16) % (2**63)
+        uid = make_id(url)
         points = [
             {
                 "id": uid,
