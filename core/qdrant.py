@@ -5,9 +5,9 @@ from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
-QDRANT_URL = os.getenv("QDRANT_URL", "http://192.168.68.63:6333")
+QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
-EMBED_URL = os.getenv("EMBED_URL", "http://192.168.68.63:9092/embed/batch")
+EMBED_URL = os.getenv("EMBED_URL", "http://localhost:9092/embed/batch")
 EMBED_API_KEY = os.getenv("EMBED_API_KEY", "")
 EMBED_COLLECTION = os.getenv("EMBED_COLLECTION", "sessions")  # embedding-svc のモデルルーティング用
 EMBED_TIMEOUT = float(os.getenv("EMBED_TIMEOUT", "180"))  # CPU e5 のコールドロードを許容
