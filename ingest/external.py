@@ -1,5 +1,6 @@
 """Sync external API docs with ETag-based freshness detection."""
 import hashlib
+import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ COLLECTION = "external-docs"
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
 MAX_RETRIES = 3
 JINA_BASE = "https://r.jina.ai/"
+DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
 
 _yaml = YAML()
 _yaml.preserve_quotes = True
@@ -43,10 +45,37 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
     return None
 
 
+def _notify_discord(
+    synced: int,
+    total_chunks: int,
+    skipped: list[str],
+    failed: list[str],
+    ts: str,
+) -> None:
+    if not DISCORD_WEBHOOK_URL:
+        return
+    status = "✅" if not failed else "⚠️"
+    lines = [
+        f"{status} doc-ingest sync 完了 ({ts})",
+        f"synced: {synced} sources / {total_chunks} chunks",
+        f"skipped: {len(skipped)}" + (f" ({', '.join(skipped[:3])}{'…' if len(skipped) > 3 else ''})" if skipped else ""),
+        f"failed: {len(failed)}" + (f" ({', '.join(failed[:3])}{'…' if len(failed) > 3 else ''})" if failed else ""),
+    ]
+    try:
+        httpx.post(DISCORD_WEBHOOK_URL, json={"content": "\n".join(lines)}, timeout=10)
+    except Exception as e:  # noqa: BLE001
+        print(f"[discord] notify failed: {e}")
+
+
 def sync_external(force: bool = False, dry_run: bool = False) -> None:
     sources = _load_sources()
     now = datetime.now(UTC).isoformat()
     changed = False
+
+    synced_count = 0
+    total_chunks = 0
+    skipped_urls: list[str] = []
+    failed_urls: list[str] = []
 
     for source in sources:
         url = source["url"]
@@ -64,10 +93,12 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             print(f"failed {url} (gave up after {MAX_RETRIES} attempts)")
             source["failed_at"] = now
             changed = True
+            failed_urls.append(url)
             continue
 
         if resp.status_code == 304:
             print(f"up-to-date {url}")
+            skipped_urls.append(url)
             continue
 
         resp.raise_for_status()
@@ -75,9 +106,9 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
 
         body = resp.text
         if use_jina:
-            # Jina Reader returns clean markdown — skip HTML extraction
             if not body.strip():
                 print(f"warn {url} → Jina returned empty body, skipping")
+                skipped_urls.append(url)
                 continue
         elif looks_like_html(resp.headers.get("content-type", ""), body):
             extracted = extract_markdown(body)
@@ -85,6 +116,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
                 body = extracted
             else:
                 print(f"warn {url} → HTML extraction empty, skipping (raw HTML not ingested)")
+                skipped_urls.append(url)
                 continue
         chunks = chunk_markdown(body, source_url=url)
         points = [
@@ -115,13 +147,20 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             print(f"failed {url} → {type(e).__name__}: {e} (continuing)")
             source["failed_at"] = now
             changed = True
+            failed_urls.append(url)
             continue
 
         source["last_etag"] = new_etag
         source["last_synced"] = now
         source.pop("failed_at", None)
         changed = True
+        synced_count += 1
+        total_chunks += len(points)
         print(f"synced {url} ({len(points)} chunks) → {COLLECTION}")
 
     if changed and not dry_run:
         _save_sources(sources)
+
+    if not dry_run:
+        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+        _notify_discord(synced_count, total_chunks, skipped_urls, failed_urls, ts)
