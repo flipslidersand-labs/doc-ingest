@@ -11,7 +11,10 @@ from pathlib import Path
 from core.chunker import chunk_markdown
 from core.distiller import distill_design_doc
 from core.git import changed_files, head_sha
+from core.logging import get_logger
 from core.qdrant import delete_by_payload, upsert
+
+_log = get_logger(__name__)
 
 COLLECTION = "notes"
 
@@ -43,7 +46,7 @@ def ingest_notes(file: str | None = None) -> None:
         files = _changed_files()
 
     if not files:
-        print("no curated notes changed")
+        _log.debug("no curated notes changed")
         return
 
     for path in files:
@@ -71,4 +74,4 @@ def ingest_notes(file: str | None = None) -> None:
                 }
             )
         upsert(COLLECTION, points)
-        print(f"ingested {path} ({len(points)} chunks) → {COLLECTION}")
+        _log.info("ingested %s (%d chunks) → %s", path, len(points), COLLECTION)

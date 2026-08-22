@@ -7,7 +7,10 @@ import httpx
 import pymupdf
 
 from core.distiller import distill_paper, distill_webpage
+from core.logging import get_logger
 from core.qdrant import upsert
+
+_log = get_logger(__name__)
 
 COLLECTION = "research"
 
@@ -49,7 +52,7 @@ def _fetch_pdf_text(arxiv_id: str) -> str:
         doc.close()
         return "\n\n".join(pages)[:8000]
     except Exception as e:  # noqa: BLE001
-        print(f"[arxiv] PDF fetch failed ({e}), using abstract only")
+        _log.warning("PDF fetch failed (%s), using abstract only", e)
         return ""
 
 
@@ -93,4 +96,4 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
         ]
 
     upsert(COLLECTION, points)
-    print(f"ingested {url} → {COLLECTION}")
+    _log.info("ingested %s → %s", url, COLLECTION)

@@ -38,17 +38,19 @@ class TestIngestPdf:
         with pytest.raises(FileNotFoundError):
             ingest_pdf("/nonexistent/path/file.pdf")
 
-    def test_empty_pdf_skips_upsert(self, mocker, tmp_path, capsys):
+    def test_empty_pdf_skips_upsert(self, mocker, tmp_path, caplog):
         pdf = tmp_path / "empty.pdf"
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf.extract_text", return_value="   ")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
+        import logging
         from ingest.pdf import ingest_pdf
-        ingest_pdf(str(pdf))
+        with caplog.at_level(logging.WARNING, logger="ingest.pdf"):
+            ingest_pdf(str(pdf))
 
         mock_upsert.assert_not_called()
-        assert "warning" in capsys.readouterr().out
+        assert "no text extracted" in caplog.text
 
     def test_local_pdf_upserted(self, mocker, tmp_path):
         pdf = tmp_path / "paper.pdf"
