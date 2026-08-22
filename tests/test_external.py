@@ -105,6 +105,35 @@ class TestSyncExternal:
         ext.upsert.assert_called_once()
 
     @respx.mock
+    def test_discord_notify_called_on_sync(self, mock_sources, mocker):
+        """Discord notify is called once after sync when webhook URL is set."""
+        content = "## Section\n" + "x" * 200
+        respx.get("https://example.com/api").mock(
+            return_value=httpx.Response(200, text=content, headers={"etag": '"abc"'})
+        )
+        notify = mocker.patch("ingest.external._notify_discord")
+        mocker.patch.dict("os.environ", {"DISCORD_WEBHOOK_URL": "https://discord.example/hook"})
+        from ingest.external import sync_external
+        sync_external()
+        notify.assert_called_once()
+        _, kwargs = notify.call_args[0], notify.call_args[1]
+        args = notify.call_args[0]
+        assert args[0] == 1   # synced
+        assert args[2] == []  # skipped
+        assert args[3] == []  # failed
+
+    @respx.mock
+    def test_discord_not_called_on_dry_run(self, mock_sources, mocker):
+        """Discord notify is NOT called during dry-run."""
+        respx.get("https://example.com/api").mock(
+            return_value=httpx.Response(200, text="## S\n" + "y" * 200)
+        )
+        notify = mocker.patch("ingest.external._notify_discord")
+        from ingest.external import sync_external
+        sync_external(dry_run=True)
+        notify.assert_not_called()
+
+    @respx.mock
     def test_render_true_empty_body_skips(self, mocker, capsys):
         """render: true + empty Jina response → skip without upsert."""
         render_source = [
