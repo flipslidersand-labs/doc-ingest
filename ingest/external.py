@@ -16,8 +16,6 @@ COLLECTION = "external-docs"
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
 MAX_RETRIES = 3
 JINA_BASE = "https://r.jina.ai/"
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "")
-
 _yaml = YAML()
 _yaml.preserve_quotes = True
 
@@ -52,7 +50,8 @@ def _notify_discord(
     failed: list[str],
     ts: str,
 ) -> None:
-    if not DISCORD_WEBHOOK_URL:
+    webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "")
+    if not webhook_url:
         return
     status = "✅" if not failed else "⚠️"
     lines = [
@@ -62,7 +61,8 @@ def _notify_discord(
         f"failed: {len(failed)}" + (f" ({', '.join(failed[:3])}{'…' if len(failed) > 3 else ''})" if failed else ""),
     ]
     try:
-        httpx.post(DISCORD_WEBHOOK_URL, json={"content": "\n".join(lines)}, timeout=10)
+        resp = httpx.post(webhook_url, json={"content": "\n".join(lines)}, timeout=10)
+        resp.raise_for_status()
     except Exception as e:  # noqa: BLE001
         print(f"[discord] notify failed: {e}")
 
@@ -101,7 +101,13 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             skipped_urls.append(url)
             continue
 
-        resp.raise_for_status()
+        if not resp.is_success:
+            print(f"failed {url} → HTTP {resp.status_code} (continuing)")
+            source["failed_at"] = now
+            changed = True
+            failed_urls.append(url)
+            continue
+
         new_etag = resp.headers.get("etag", "")
 
         body = resp.text
