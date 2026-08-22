@@ -5,12 +5,12 @@ ingested — scratch dirs (00-inbox, 90-daily) are skipped to avoid polluting th
 collection with unfinished thinking.
 """
 import hashlib
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 from core.chunker import chunk_markdown
 from core.distiller import distill_design_doc
+from core.git import changed_files, head_sha
 from core.qdrant import delete_by_payload, upsert
 
 COLLECTION = "notes"
@@ -30,29 +30,12 @@ def _is_note(p: Path) -> bool:
 
 
 def _changed_files() -> list[Path]:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "HEAD~1"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        result = subprocess.run(
-            ["git", "ls-files"], capture_output=True, text=True, check=False
-        )
-    return [p for p in (Path(x) for x in result.stdout.splitlines()) if _is_note(p)]
-
-
-def _git_sha() -> str:
-    result = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=False
-    )
-    return result.stdout.strip()
+    return [p for p in changed_files() if _is_note(p)]
 
 
 def ingest_notes(file: str | None = None) -> None:
     now = datetime.now(UTC).isoformat()
-    sha = _git_sha()
+    sha = head_sha()
 
     if file:
         files = [Path(file)]
