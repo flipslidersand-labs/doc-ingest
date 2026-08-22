@@ -110,6 +110,41 @@ def delete_by_payload(collection: str, key: str, value: str) -> None:
     )
 
 
+def ids_by_payload(collection: str, key: str, value: str) -> list[int]:
+    """Return all point IDs where payload[key] == value (scrolls to exhaustion)."""
+    from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+    existing = {col.name for col in client().get_collections().collections}
+    if collection not in existing:
+        return []
+    ids: list[int] = []
+    offset = None
+    filt = Filter(must=[FieldCondition(key=key, match=MatchValue(value=value))])
+    while True:
+        records, offset = client().scroll(
+            collection_name=collection,
+            scroll_filter=filt,
+            limit=256,
+            offset=offset,
+            with_payload=False,
+            with_vectors=False,
+        )
+        ids.extend(r.id for r in records)
+        if offset is None:
+            break
+    return ids
+
+
+def delete_by_ids(collection: str, ids: list[int]) -> None:
+    """Delete points by explicit ID list."""
+    if not ids:
+        return
+    existing = {col.name for col in client().get_collections().collections}
+    if collection not in existing:
+        return
+    client().delete(collection_name=collection, points_selector=ids)
+
+
 def list_collections() -> list[dict]:
     cols = client().get_collections().collections
     result = []
