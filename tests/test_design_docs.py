@@ -55,7 +55,7 @@ class TestChangedFiles:
 class TestIngestDesignDocs:
     def test_no_files_prints_message(self, mocker, capsys):
         mocker.patch("ingest.design_docs._changed_files", return_value=[])
-        mocker.patch("ingest.design_docs._git_sha", return_value="abc1234")
+        mocker.patch("ingest.design_docs.head_sha", return_value="abc1234")
         from ingest.design_docs import ingest_design_docs
         ingest_design_docs()
         captured = capsys.readouterr()
@@ -66,7 +66,7 @@ class TestIngestDesignDocs:
         md.write_text("## Section\n" + "x" * 100)
 
         mocker.patch("ingest.design_docs._changed_files", return_value=[md])
-        mocker.patch("ingest.design_docs._git_sha", return_value="abc")
+        mocker.patch("ingest.design_docs.head_sha", return_value="abc")
         mock_delete = mocker.patch("ingest.design_docs.delete_by_payload")
         mock_upsert = mocker.patch("ingest.design_docs.upsert")
         mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")

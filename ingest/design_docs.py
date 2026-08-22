@@ -1,11 +1,11 @@
 """Ingest own design docs (CLAUDE.md / ADR / docs/) into Qdrant design collection."""
 import hashlib
-import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 from core.chunker import chunk_markdown
 from core.distiller import distill_design_doc
+from core.git import changed_files, head_sha
 from core.qdrant import delete_by_payload, upsert
 
 COLLECTION = "design"
@@ -13,40 +13,16 @@ DESIGN_PATTERNS = ("CLAUDE.md", "AGENTS.md", "docs/*.md", "adr/*.md", "ADR/*.md"
 
 
 def _changed_files() -> list[Path]:
-    result = subprocess.run(
-        ["git", "diff", "--name-only", "HEAD~1"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        result = subprocess.run(
-            ["git", "ls-files"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    paths = [Path(p) for p in result.stdout.splitlines()]
     return [
         p
-        for p in paths
+        for p in changed_files()
         if p.suffix == ".md" and any(p.match(pat) for pat in DESIGN_PATTERNS)
     ]
 
 
-def _git_sha() -> str:
-    result = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return result.stdout.strip()
-
-
 def ingest_design_docs(file: str | None = None) -> None:
     now = datetime.now(UTC).isoformat()
-    sha = _git_sha()
+    sha = head_sha()
 
     if file:
         files = [Path(file)]
