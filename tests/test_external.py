@@ -105,6 +105,20 @@ class TestSyncExternal:
         ext.upsert.assert_called_once()
 
     @respx.mock
+    def test_4xx_recorded_as_failed_and_continues(self, mock_sources, mocker, capsys):
+        """4xx response is recorded in failed_urls and loop continues (does not raise)."""
+        respx.get("https://example.com/api").mock(
+            return_value=httpx.Response(403)
+        )
+        from ingest.external import sync_external
+        sync_external()
+        captured = capsys.readouterr()
+        assert "failed" in captured.out
+        assert "403" in captured.out
+        import ingest.external as ext
+        ext.upsert.assert_not_called()
+
+    @respx.mock
     def test_discord_notify_called_on_sync(self, mock_sources, mocker):
         """Discord notify is called once after sync when webhook URL is set."""
         content = "## Section\n" + "x" * 200
