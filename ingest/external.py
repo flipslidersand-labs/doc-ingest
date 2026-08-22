@@ -10,7 +10,7 @@ from ruamel.yaml import YAML
 
 from core.chunker import chunk_markdown
 from core.html import extract_markdown, looks_like_html
-from core.qdrant import delete_by_payload, upsert
+from core.qdrant import delete_by_ids, ids_by_payload, upsert
 
 COLLECTION = "external-docs"
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
@@ -146,9 +146,13 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             continue
 
         try:
-            delete_by_payload(COLLECTION, "source_url", url)
+            old_ids = ids_by_payload(COLLECTION, "source_url", url)
             if points:
                 upsert(COLLECTION, points)
+            new_ids = {p["id"] for p in points}
+            stale = [i for i in old_ids if i not in new_ids]
+            if stale:
+                delete_by_ids(COLLECTION, stale)
         except Exception as e:  # noqa: BLE001 - isolate one source's failure from the rest
             print(f"failed {url} → {type(e).__name__}: {e} (continuing)")
             source["failed_at"] = now

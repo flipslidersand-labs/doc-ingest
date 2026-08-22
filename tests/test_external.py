@@ -25,7 +25,8 @@ def mock_sources(mocker, tmp_path):
 
     mocker.patch("ingest.external._load_sources", return_value=list(SOURCES))
     mocker.patch("ingest.external._save_sources", side_effect=fake_save)
-    mocker.patch("ingest.external.delete_by_payload")
+    mocker.patch("ingest.external.ids_by_payload", return_value=[])
+    mocker.patch("ingest.external.delete_by_ids")
     mocker.patch("ingest.external.upsert")
     return saved
 
@@ -90,7 +91,8 @@ class TestSyncExternal:
         ]
         mocker.patch("ingest.external._load_sources", return_value=render_source)
         mocker.patch("ingest.external._save_sources")
-        mocker.patch("ingest.external.delete_by_payload")
+        mocker.patch("ingest.external.ids_by_payload", return_value=[])
+        mocker.patch("ingest.external.delete_by_ids")
         mocker.patch("ingest.external.upsert")
 
         jina_url = "https://r.jina.ai/https://example.com/js-only"
@@ -163,7 +165,8 @@ class TestSyncExternal:
         ]
         mocker.patch("ingest.external._load_sources", return_value=render_source)
         mocker.patch("ingest.external._save_sources")
-        mocker.patch("ingest.external.delete_by_payload")
+        mocker.patch("ingest.external.ids_by_payload", return_value=[])
+        mocker.patch("ingest.external.delete_by_ids")
         mocker.patch("ingest.external.upsert")
 
         jina_url = "https://r.jina.ai/https://example.com/js-only"
