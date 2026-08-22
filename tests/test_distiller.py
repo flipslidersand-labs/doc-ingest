@@ -2,7 +2,7 @@
 import json
 from unittest.mock import MagicMock, patch
 
-import core.distiller as distiller
+from core import distiller
 
 
 def _mock_urlopen(response_text: str):

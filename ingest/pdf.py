@@ -1,6 +1,6 @@
 """Ingest local or remote PDF files into Qdrant research collection."""
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pymupdf
@@ -22,7 +22,7 @@ def extract_text(pdf_bytes: bytes) -> str:
 def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
     """Ingest a local PDF path or remote PDF URL."""
     tags = tags or []
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
     source_url = source
 
     if source.startswith("http"):
