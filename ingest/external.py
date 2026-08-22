@@ -2,6 +2,7 @@
 import hashlib
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -19,6 +20,7 @@ COLLECTION = "external-docs"
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
 MAX_RETRIES = 3
 JINA_BASE = "https://r.jina.ai/"
+SYNC_WORKERS = int(os.getenv("SYNC_WORKERS", "4"))
 _yaml = YAML()
 _yaml.preserve_quotes = True
 
@@ -44,6 +46,64 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
         if attempt < MAX_RETRIES - 1:
             time.sleep(2**attempt)  # 1s, 2s, 4s
     return None
+
+
+def _fetch_source(source: dict, force: bool, now: str) -> dict:
+    """Fetch + extract content for one source. Thread-safe: reads source, never writes it."""
+    url = source["url"]
+    stored_etag = source.get("last_etag", "")
+    headers: dict[str, str] = {}
+    if stored_etag and not force:
+        headers["If-None-Match"] = stored_etag
+
+    use_jina = source.get("render", False)
+    fetch_url = JINA_BASE + url if use_jina else url
+
+    resp = _fetch_with_retry(fetch_url, headers)
+    if resp is None:
+        _log.warning("failed %s (gave up after %d attempts)", url, MAX_RETRIES)
+        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+
+    if resp.status_code == 304:
+        _log.info("up-to-date %s", url)
+        return {"status": "skipped", "url": url, "source": source, "new_etag": "", "points": []}
+
+    if not resp.is_success:
+        _log.warning("failed %s → HTTP %d (continuing)", url, resp.status_code)
+        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+
+    new_etag = resp.headers.get("etag", "")
+    body = resp.text
+
+    if use_jina:
+        if not body.strip():
+            _log.warning("Jina returned empty body, skipping: %s", url)
+            return {"status": "skipped", "url": url, "source": source, "new_etag": "", "points": []}
+    elif looks_like_html(resp.headers.get("content-type", ""), body):
+        extracted = extract_markdown(body)
+        if extracted:
+            body = extracted
+        else:
+            _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", url)
+            return {"status": "skipped", "url": url, "source": source, "new_etag": "", "points": []}
+
+    chunks = chunk_markdown(body, source_url=url)
+    points = [
+        {
+            "id": int(
+                hashlib.sha256(f"{url}:{c['chunk_index']}".encode()).hexdigest(), 16
+            ) % (2**63),
+            "text": c["text"],
+            "source": "external-api",
+            "source_url": url,
+            "section": c["section"],
+            "doc_type": source.get("type", "external-api"),
+            "tags": source.get("tags", []),
+            "ingested_at": now,
+        }
+        for c in chunks
+    ]
+    return {"status": "ready", "url": url, "source": source, "new_etag": new_etag, "points": points}
 
 
 def _notify_discord(
@@ -80,72 +140,49 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
     skipped_urls: list[str] = []
     failed_urls: list[str] = []
 
-    for source in sources:
-        url = source["url"]
-        stored_etag = source.get("last_etag", "")
+    # Phase 1: parallel fetch + content extraction (I/O bound)
+    fetch_results: list[dict] = [{}] * len(sources)
+    with ThreadPoolExecutor(max_workers=SYNC_WORKERS) as pool:
+        future_to_idx = {
+            pool.submit(_fetch_source, source, force, now): i
+            for i, source in enumerate(sources)
+        }
+        for fut in as_completed(future_to_idx):
+            i = future_to_idx[fut]
+            try:
+                fetch_results[i] = fut.result()
+            except Exception as e:  # noqa: BLE001
+                url = sources[i]["url"]
+                _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, e)
+                fetch_results[i] = {
+                    "status": "failed", "url": url,
+                    "source": sources[i], "new_etag": "", "points": [],
+                }
 
-        headers = {}
-        if stored_etag and not force:
-            headers["If-None-Match"] = stored_etag
+    # Phase 2: sequential upsert + metadata update (preserves source order)
+    for result in fetch_results:
+        if not result:
+            continue
+        source = result["source"]
+        url = result["url"]
+        status = result["status"]
 
-        use_jina = source.get("render", False)
-        fetch_url = JINA_BASE + url if use_jina else url
-
-        resp = _fetch_with_retry(fetch_url, headers)
-        if resp is None:
-            _log.warning("failed %s (gave up after %d attempts)", url, MAX_RETRIES)
+        if status == "failed":
             source["failed_at"] = now
             changed = True
             failed_urls.append(url)
             continue
 
-        if resp.status_code == 304:
-            _log.info("up-to-date %s", url)
+        if status == "skipped":
             skipped_urls.append(url)
             continue
 
-        if not resp.is_success:
-            _log.warning("failed %s → HTTP %d (continuing)", url, resp.status_code)
-            source["failed_at"] = now
-            changed = True
-            failed_urls.append(url)
-            continue
-
-        new_etag = resp.headers.get("etag", "")
-
-        body = resp.text
-        if use_jina:
-            if not body.strip():
-                _log.warning("Jina returned empty body, skipping: %s", url)
-                skipped_urls.append(url)
-                continue
-        elif looks_like_html(resp.headers.get("content-type", ""), body):
-            extracted = extract_markdown(body)
-            if extracted:
-                body = extracted
-            else:
-                _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", url)
-                skipped_urls.append(url)
-                continue
-        chunks = chunk_markdown(body, source_url=url)
-        points = [
-            {
-                "id": int(
-                    hashlib.sha256(f"{url}:{c['chunk_index']}".encode()).hexdigest(), 16
-                ) % (2**63),
-                "text": c["text"],
-                "source": "external-api",
-                "source_url": url,
-                "section": c["section"],
-                "doc_type": source.get("type", "external-api"),
-                "tags": source.get("tags", []),
-                "ingested_at": now,
-            }
-            for c in chunks
-        ]
+        # status == "ready"
+        points = result["points"]
+        new_etag = result["new_etag"]
 
         if dry_run:
-            _log.info("dry-run %s → %d chunks (not written)", url, len(chunks))
+            _log.info("dry-run %s → %d chunks (not written)", url, len(points))
             continue
 
         try:
