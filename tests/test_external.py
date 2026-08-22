@@ -132,7 +132,6 @@ class TestSyncExternal:
         from ingest.external import sync_external
         sync_external()
         notify.assert_called_once()
-        _, kwargs = notify.call_args[0], notify.call_args[1]
         args = notify.call_args[0]
         assert args[0] == 1   # synced
         assert args[2] == []  # skipped

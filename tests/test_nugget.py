@@ -1,6 +1,5 @@
 """Tests for core.nugget BM25 extraction."""
-from core.nugget import extract_nuggets, apply_nuggets
-
+from core.nugget import apply_nuggets, extract_nuggets
 
 TEXT = (
     "Python supports list comprehensions for concise loops. "
