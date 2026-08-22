@@ -7,7 +7,7 @@ import httpx
 import pymupdf
 
 from core.distiller import distill_paper, distill_webpage
-from core.qdrant import delete_by_payload, upsert
+from core.qdrant import upsert
 
 COLLECTION = "research"
 
@@ -59,7 +59,6 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
 
     arxiv_id = _arxiv_id(url)
     if arxiv_id:
-        delete_by_payload(COLLECTION, "arxiv_id", arxiv_id)
         meta = _fetch_arxiv(arxiv_id)
         body = _fetch_pdf_text(arxiv_id)
         distilled = distill_paper(meta["abstract"], body=body)
@@ -78,7 +77,6 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
         ]
     else:
         # tech blog
-        delete_by_payload(COLLECTION, "source_url", url)
         resp = httpx.get(url, timeout=30)
         resp.raise_for_status()
         distilled = distill_webpage(resp.text)
