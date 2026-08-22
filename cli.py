@@ -1,4 +1,6 @@
 """doc-ingest CLI entrypoint."""
+import logging
+
 import click
 from dotenv import load_dotenv
 
@@ -11,8 +13,12 @@ from ingest.notes import ingest_notes  # noqa: E402
 
 
 @click.group()
-def main():
-    pass
+@click.option("--verbose", "-v", is_flag=True, help="Enable DEBUG logging")
+def main(verbose: bool):
+    logging.basicConfig(
+        level=logging.DEBUG if verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
 
 @main.command()

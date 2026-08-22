@@ -43,17 +43,18 @@ class TestSyncExternal:
         ext.upsert.assert_not_called()
 
     @respx.mock
-    def test_new_content_is_upserted(self, mock_sources, mocker, capsys):
+    def test_new_content_is_upserted(self, mock_sources, mocker, caplog):
         content = "## Section\n" + "x" * 200
         respx.get("https://example.com/api").mock(
             return_value=httpx.Response(200, text=content, headers={"etag": '"abc"'})
         )
+        import logging
         from ingest.external import sync_external
-        sync_external()
+        with caplog.at_level(logging.INFO, logger="ingest.external"):
+            sync_external()
         import ingest.external as ext
         ext.upsert.assert_called_once()
-        captured = capsys.readouterr()
-        assert "synced" in captured.out
+        assert "synced" in caplog.text
 
     @respx.mock
     def test_dry_run_skips_upsert(self, mock_sources):
@@ -66,14 +67,15 @@ class TestSyncExternal:
         ext.upsert.assert_not_called()
 
     @respx.mock
-    def test_retry_on_500(self, mock_sources, capsys):
+    def test_retry_on_500(self, mock_sources, caplog):
         respx.get("https://example.com/api").mock(
             return_value=httpx.Response(500)
         )
+        import logging
         from ingest.external import sync_external
-        sync_external()
-        captured = capsys.readouterr()
-        assert "retry" in captured.out or "failed" in captured.out
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            sync_external()
+        assert "retry" in caplog.text or "failed" in caplog.text
 
     @respx.mock
     def test_render_true_fetches_via_jina(self, mocker):
@@ -107,16 +109,17 @@ class TestSyncExternal:
         ext.upsert.assert_called_once()
 
     @respx.mock
-    def test_4xx_recorded_as_failed_and_continues(self, mock_sources, mocker, capsys):
+    def test_4xx_recorded_as_failed_and_continues(self, mock_sources, mocker, caplog):
         """4xx response is recorded in failed_urls and loop continues (does not raise)."""
         respx.get("https://example.com/api").mock(
             return_value=httpx.Response(403)
         )
+        import logging
         from ingest.external import sync_external
-        sync_external()
-        captured = capsys.readouterr()
-        assert "failed" in captured.out
-        assert "403" in captured.out
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            sync_external()
+        assert "failed" in caplog.text
+        assert "403" in caplog.text
         import ingest.external as ext
         ext.upsert.assert_not_called()
 
@@ -149,7 +152,7 @@ class TestSyncExternal:
         notify.assert_not_called()
 
     @respx.mock
-    def test_render_true_empty_body_skips(self, mocker, capsys):
+    def test_render_true_empty_body_skips(self, mocker, caplog):
         """render: true + empty Jina response → skip without upsert."""
         render_source = [
             {
@@ -171,9 +174,11 @@ class TestSyncExternal:
         jina_url = "https://r.jina.ai/https://example.com/js-only"
         respx.get(jina_url).mock(return_value=httpx.Response(200, text="   "))
 
+        import logging
         from ingest.external import sync_external
-        sync_external()
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            sync_external()
 
         import ingest.external as ext
         ext.upsert.assert_not_called()
-        assert "skipping" in capsys.readouterr().out
+        assert "skipping" in caplog.text

@@ -10,7 +10,10 @@ from ruamel.yaml import YAML
 
 from core.chunker import chunk_markdown
 from core.html import extract_markdown, looks_like_html
+from core.logging import get_logger
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
+
+_log = get_logger(__name__)
 
 COLLECTION = "external-docs"
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
@@ -35,9 +38,9 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
             resp = httpx.get(url, headers=headers, timeout=30, follow_redirects=True)
             if resp.status_code < 500:
                 return resp
-            print(f"[retry {attempt+1}/{MAX_RETRIES}] {url} → HTTP {resp.status_code}")
+            _log.debug("retry %d/%d %s → HTTP %d", attempt + 1, MAX_RETRIES, url, resp.status_code)
         except httpx.RequestError as e:
-            print(f"[retry {attempt+1}/{MAX_RETRIES}] {url} → {e}")
+            _log.debug("retry %d/%d %s → %s", attempt + 1, MAX_RETRIES, url, e)
         if attempt < MAX_RETRIES - 1:
             time.sleep(2**attempt)  # 1s, 2s, 4s
     return None
@@ -64,7 +67,7 @@ def _notify_discord(
         resp = httpx.post(webhook_url, json={"content": "\n".join(lines)}, timeout=10)
         resp.raise_for_status()
     except Exception as e:  # noqa: BLE001
-        print(f"[discord] notify failed: {e}")
+        _log.warning("Discord notify failed: %s", e)
 
 
 def sync_external(force: bool = False, dry_run: bool = False) -> None:
@@ -90,19 +93,19 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
 
         resp = _fetch_with_retry(fetch_url, headers)
         if resp is None:
-            print(f"failed {url} (gave up after {MAX_RETRIES} attempts)")
+            _log.warning("failed %s (gave up after %d attempts)", url, MAX_RETRIES)
             source["failed_at"] = now
             changed = True
             failed_urls.append(url)
             continue
 
         if resp.status_code == 304:
-            print(f"up-to-date {url}")
+            _log.info("up-to-date %s", url)
             skipped_urls.append(url)
             continue
 
         if not resp.is_success:
-            print(f"failed {url} → HTTP {resp.status_code} (continuing)")
+            _log.warning("failed %s → HTTP %d (continuing)", url, resp.status_code)
             source["failed_at"] = now
             changed = True
             failed_urls.append(url)
@@ -113,7 +116,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
         body = resp.text
         if use_jina:
             if not body.strip():
-                print(f"warn {url} → Jina returned empty body, skipping")
+                _log.warning("Jina returned empty body, skipping: %s", url)
                 skipped_urls.append(url)
                 continue
         elif looks_like_html(resp.headers.get("content-type", ""), body):
@@ -121,7 +124,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             if extracted:
                 body = extracted
             else:
-                print(f"warn {url} → HTML extraction empty, skipping (raw HTML not ingested)")
+                _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", url)
                 skipped_urls.append(url)
                 continue
         chunks = chunk_markdown(body, source_url=url)
@@ -142,7 +145,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
         ]
 
         if dry_run:
-            print(f"dry-run {url} → {len(chunks)} chunks (not written)")
+            _log.info("dry-run %s → %d chunks (not written)", url, len(chunks))
             continue
 
         try:
@@ -154,7 +157,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             if stale:
                 delete_by_ids(COLLECTION, stale)
         except Exception as e:  # noqa: BLE001 - isolate one source's failure from the rest
-            print(f"failed {url} → {type(e).__name__}: {e} (continuing)")
+            _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, e)
             source["failed_at"] = now
             changed = True
             failed_urls.append(url)
@@ -167,7 +170,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
         changed = True
         synced_count += 1
         total_chunks += len(points)
-        print(f"synced {url} ({len(points)} chunks) → {COLLECTION}")
+        _log.info("synced %s (%d chunks) → %s", url, len(points), COLLECTION)
 
     if changed and not dry_run:
         _save_sources(sources)

@@ -7,7 +7,10 @@ import pymupdf
 
 from core.chunker import chunk_text
 from core.distiller import distill_design_doc
+from core.logging import get_logger
 from core.qdrant import delete_by_payload, upsert
+
+_log = get_logger(__name__)
 
 COLLECTION = "research"
 
@@ -36,7 +39,7 @@ def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
 
     text = extract_text(pdf_bytes)
     if not text.strip():
-        print(f"warning: no text extracted from {source}")
+        _log.warning("no text extracted from %s", source)
         return
 
     delete_by_payload(COLLECTION, "source_url", source_url)
@@ -58,4 +61,4 @@ def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
     ]
     if points:
         upsert(COLLECTION, points)
-    print(f"ingested {source} ({len(points)} chunks) → {COLLECTION}")
+    _log.info("ingested %s (%d chunks) → %s", source, len(points), COLLECTION)

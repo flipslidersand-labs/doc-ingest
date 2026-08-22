@@ -53,13 +53,14 @@ class TestChangedFiles:
 
 
 class TestIngestDesignDocs:
-    def test_no_files_prints_message(self, mocker, capsys):
+    def test_no_files_logs_message(self, mocker, caplog):
         mocker.patch("ingest.design_docs._changed_files", return_value=[])
         mocker.patch("ingest.design_docs.head_sha", return_value="abc1234")
+        import logging
         from ingest.design_docs import ingest_design_docs
-        ingest_design_docs()
-        captured = capsys.readouterr()
-        assert "no design docs changed" in captured.out
+        with caplog.at_level(logging.DEBUG, logger="ingest.design_docs"):
+            ingest_design_docs()
+        assert "no design docs changed" in caplog.text
 
     def test_delete_called_before_upsert(self, mocker, tmp_path):
         md = tmp_path / "CLAUDE.md"
