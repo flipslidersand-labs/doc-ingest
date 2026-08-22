@@ -3,6 +3,10 @@ import json
 import os
 import urllib.request
 
+from core.logging import get_logger
+
+_log = get_logger(__name__)
+
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
@@ -35,13 +39,13 @@ def _generate(prompt: str, source_text: str = "") -> str:
     try:
         return _ollama(prompt)
     except Exception as e:  # noqa: BLE001
-        print(f"[distiller] Ollama unavailable ({e}), trying Anthropic Haiku")
+        _log.warning("Ollama unavailable (%s), trying Anthropic Haiku", e)
 
     if ANTHROPIC_API_KEY:
         try:
             return _anthropic(prompt)
         except Exception as e:  # noqa: BLE001
-            print(f"[distiller] Anthropic unavailable ({e}), using raw text fallback")
+            _log.warning("Anthropic unavailable (%s), using raw text fallback", e)
 
     return source_text[:500] if source_text else prompt[:500]
 

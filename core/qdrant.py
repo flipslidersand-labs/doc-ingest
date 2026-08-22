@@ -5,6 +5,10 @@ from typing import Any
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
+from core.logging import get_logger
+
+_log = get_logger(__name__)
+
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
 EMBED_URL = os.getenv("EMBED_URL", "http://localhost:9092/embed/batch")
@@ -53,7 +57,7 @@ def _embed_batch(texts: list[str]) -> list[list[float]]:
         except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
             if attempt == EMBED_RETRIES - 1:
                 raise
-            print(f"[embed retry {attempt+1}/{EMBED_RETRIES}] {len(texts)} texts → {type(e).__name__}")
+            _log.warning("embed retry %d/%d — %d texts → %s", attempt + 1, EMBED_RETRIES, len(texts), type(e).__name__)
             time.sleep(2**attempt)  # 1s, 2s
     raise RuntimeError("unreachable")
 
