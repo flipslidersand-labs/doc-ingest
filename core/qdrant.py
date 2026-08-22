@@ -10,9 +10,9 @@ from core.logging import get_logger
 _log = get_logger(__name__)
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY", "")
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None  # None → unauthenticated (dev/localhost)
 EMBED_URL = os.getenv("EMBED_URL", "http://localhost:9092/embed/batch")
-EMBED_API_KEY = os.getenv("EMBED_API_KEY", "")
+EMBED_API_KEY = os.getenv("EMBED_API_KEY") or None  # None → no X-API-Key header sent
 EMBED_COLLECTION = os.getenv("EMBED_COLLECTION", "sessions")  # embedding-svc のモデルルーティング用
 EMBED_TIMEOUT = float(os.getenv("EMBED_TIMEOUT", "180"))  # CPU e5 のコールドロードを許容
 EMBED_BATCH = int(os.getenv("EMBED_BATCH", "16"))  # 1 POST あたりの最大テキスト数
@@ -25,7 +25,7 @@ _client: QdrantClient | None = None
 def client() -> QdrantClient:
     global _client
     if _client is None:
-        _client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY or None)
+        _client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
     return _client
 
 
@@ -49,7 +49,7 @@ def _embed_batch(texts: list[str]) -> list[list[float]]:
             resp = httpx.post(
                 EMBED_URL,
                 json={"texts": texts, "collection": EMBED_COLLECTION, "mode": "index"},
-                headers={"X-API-Key": EMBED_API_KEY},
+                headers={"X-API-Key": EMBED_API_KEY} if EMBED_API_KEY else {},
                 timeout=EMBED_TIMEOUT,
             )
             resp.raise_for_status()
