@@ -14,9 +14,9 @@ MARKER="# doc-ingest-hook"
 
 # Repos to install into when no arguments are given
 DEFAULT_REPOS=(
-  "$HOME/projects/mesh-drop"
+  "$HOME/projects/flipslidersand/mesh-drop"
   "$HOME/projects/forge"
-  "$HOME/projects/fluxion"
+  "$HOME/projects/flipslidersand/fluxion"
 )
 
 # The snippet appended to (or placed in) the hook
