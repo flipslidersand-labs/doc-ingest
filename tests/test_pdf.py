@@ -45,6 +45,7 @@ class TestIngestPdf:
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
         import logging
+
         from ingest.pdf import ingest_pdf
         with caplog.at_level(logging.WARNING, logger="ingest.pdf"):
             ingest_pdf(str(pdf))
