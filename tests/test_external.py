@@ -49,6 +49,7 @@ class TestSyncExternal:
             return_value=httpx.Response(200, text=content, headers={"etag": '"abc"'})
         )
         import logging
+
         from ingest.external import sync_external
         with caplog.at_level(logging.INFO, logger="ingest.external"):
             sync_external()
@@ -72,6 +73,7 @@ class TestSyncExternal:
             return_value=httpx.Response(500)
         )
         import logging
+
         from ingest.external import sync_external
         with caplog.at_level(logging.DEBUG, logger="ingest.external"):
             sync_external()
@@ -115,6 +117,7 @@ class TestSyncExternal:
             return_value=httpx.Response(403)
         )
         import logging
+
         from ingest.external import sync_external
         with caplog.at_level(logging.WARNING, logger="ingest.external"):
             sync_external()
@@ -175,6 +178,7 @@ class TestSyncExternal:
         respx.get(jina_url).mock(return_value=httpx.Response(200, text="   "))
 
         import logging
+
         from ingest.external import sync_external
         with caplog.at_level(logging.WARNING, logger="ingest.external"):
             sync_external()

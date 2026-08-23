@@ -57,6 +57,7 @@ class TestIngestDesignDocs:
         mocker.patch("ingest.design_docs._changed_files", return_value=[])
         mocker.patch("ingest.design_docs.head_sha", return_value="abc1234")
         import logging
+
         from ingest.design_docs import ingest_design_docs
         with caplog.at_level(logging.DEBUG, logger="ingest.design_docs"):
             ingest_design_docs()
