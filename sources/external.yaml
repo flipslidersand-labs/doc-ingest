@@ -8,14 +8,14 @@
   check_interval: weekly
   tags: [anthropic, claude, api]
   last_etag: ''
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
 
 - url: https://docs.anthropic.com/en/docs/about-claude/models/overview
   type: external-api
   check_interval: weekly
   tags: [anthropic, claude, models]
   last_etag: ''
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
 
 # --- GitHub ---
 - url: https://docs.github.com/en/rest
@@ -23,7 +23,7 @@
   check_interval: weekly
   tags: [github, api]
   last_etag: ''
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
 
 # --- Qdrant ---
 - url: https://qdrant.tech/documentation/concepts/
@@ -32,7 +32,7 @@
   check_interval: weekly
   tags: [qdrant, vector-db]
   last_etag: ''
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
 
 - url: https://qdrant.tech/documentation/interfaces/
   type: external-api
@@ -40,7 +40,7 @@
   check_interval: weekly
   tags: [qdrant, api]
   last_etag: ''
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
 
 # --- Go ---
 - url: https://pkg.go.dev/net/http
@@ -48,14 +48,14 @@
   check_interval: weekly
   tags: [go, stdlib]
   last_etag: ''
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
 
 - url: https://pkg.go.dev/sync
   type: external-api
   check_interval: weekly
   tags: [go, stdlib]
   last_etag: ''
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
 
 # --- Elixir ---
 - url: https://hexdocs.pm/elixir/Kernel.html
@@ -63,33 +63,33 @@
   check_interval: weekly
   tags: [elixir, stdlib]
   last_etag: 'W/"d650e37f7da1a9f307d47eff1fe4a21d"'
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
 
 - url: https://hexdocs.pm/elixir/GenServer.html
   type: external-api
   check_interval: weekly
   tags: [elixir, otp, genserver]
   last_etag: 'W/"51ac7fd27fd588e44e6c2dd54630081f"'
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
 
 - url: https://hexdocs.pm/phoenix/overview.html
   type: external-api
   check_interval: weekly
   tags: [elixir, phoenix]
-  last_etag: 'W/"3d68880e5ed6715b145a3071f682e39d"'
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_etag: 'W/"032fde1730faf309fb9fccf57b745e26"'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
 
 - url: https://hexdocs.pm/ecto/Ecto.html
   type: external-api
   check_interval: weekly
   tags: [elixir, ecto, db]
   last_etag: 'W/"c3c4a5c9eab82af6f85f0852bcab1bee"'
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
 
 # --- Kubernetes ---
 - url: https://kubernetes.io/docs/reference/kubernetes-api/
   type: external-api
   check_interval: weekly
   tags: [kubernetes, api]
-  last_etag: '"a44829175651a264d80780d2a8b03ec4-ssl-df"'
-  last_synced: '2026-08-19T16:00:39.541104+00:00'
+  last_etag: '"09ad555d5d5c555388094b0b0e9e4fd4-ssl-df"'
+  last_synced: '2026-08-23T10:34:55.208521+00:00'
