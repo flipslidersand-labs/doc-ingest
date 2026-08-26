@@ -1,5 +1,6 @@
 """Qdrant client wrapper targeting MINIPC e5 embedding service."""
 import os
+import threading
 from typing import Any
 
 from qdrant_client import QdrantClient
@@ -20,23 +21,53 @@ EMBED_RETRIES = 3
 VECTOR_SIZE = 768  # multilingual-e5-base
 
 _client: QdrantClient | None = None
+_client_lock = threading.Lock()
+
+# Process-level cache of known collection names.
+# Populated lazily on first ensure_collection / existence check call.
+# Guards against N+1 get_collections() round-trips when syncing N sources.
+_known_collections: set[str] = set()
+_known_collections_lock = threading.Lock()
 
 
 def client() -> QdrantClient:
     global _client
-    if _client is None:
-        _client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+    if _client is None:  # fast path (no lock)
+        with _client_lock:
+            if _client is None:  # double-checked locking
+                _client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
     return _client
 
 
+def _collection_exists(name: str) -> bool:
+    """Return True if *name* exists in Qdrant, using the process-level cache."""
+    with _known_collections_lock:
+        if name in _known_collections:
+            return True
+    # Cache miss — fetch from Qdrant and warm the cache for all collections.
+    fetched = {col.name for col in client().get_collections().collections}
+    with _known_collections_lock:
+        _known_collections.update(fetched)
+        return name in _known_collections
+
+
 def ensure_collection(name: str) -> None:
+    with _known_collections_lock:
+        if name in _known_collections:
+            return
+    # Not cached yet — check remotely and create if needed.
+    fetched = {col.name for col in client().get_collections().collections}
+    with _known_collections_lock:
+        _known_collections.update(fetched)
+        if name in _known_collections:
+            return
     c = client()
-    existing = {col.name for col in c.get_collections().collections}
-    if name not in existing:
-        c.create_collection(
-            name,
-            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
-        )
+    c.create_collection(
+        name,
+        vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+    )
+    with _known_collections_lock:
+        _known_collections.add(name)
 
 
 def _embed_batch(texts: list[str]) -> list[list[float]]:
@@ -103,8 +134,7 @@ def search(collection: str, query: str, limit: int = 5) -> list[dict]:
 def delete_by_payload(collection: str, key: str, value: str) -> None:
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-    existing = {col.name for col in client().get_collections().collections}
-    if collection not in existing:
+    if not _collection_exists(collection):
         return
     client().delete(
         collection_name=collection,
@@ -118,8 +148,7 @@ def ids_by_payload(collection: str, key: str, value: str) -> list[int]:
     """Return all point IDs where payload[key] == value (scrolls to exhaustion)."""
     from qdrant_client.models import FieldCondition, Filter, MatchValue
 
-    existing = {col.name for col in client().get_collections().collections}
-    if collection not in existing:
+    if not _collection_exists(collection):
         return []
     ids: list[int] = []
     offset = None
@@ -143,8 +172,7 @@ def delete_by_ids(collection: str, ids: list[int]) -> None:
     """Delete points by explicit ID list."""
     if not ids:
         return
-    existing = {col.name for col in client().get_collections().collections}
-    if collection not in existing:
+    if not _collection_exists(collection):
         return
     client().delete(collection_name=collection, points_selector=ids)
 
