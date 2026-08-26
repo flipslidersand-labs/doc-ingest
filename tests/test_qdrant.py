@@ -1,4 +1,6 @@
 """Tests for core/qdrant.py embed batching, retry, and auth handling."""
+from unittest.mock import MagicMock, patch
+
 import httpx
 import respx
 
@@ -79,6 +81,9 @@ def test_embed_retries_on_timeout(monkeypatch):
         return httpx.Response(200, json={"vectors": [[0.0] * 768]})
 
     respx.post(q.EMBED_URL).mock(side_effect=responder)
-    vectors = q.embed(["t"])
+    mock_sleep = MagicMock()
+    with patch("time.sleep", mock_sleep):
+        vectors = q.embed(["t"])
     assert len(vectors) == 1
     assert calls["n"] == 2  # first attempt timed out, second succeeded
+    mock_sleep.assert_called_once_with(1)  # 2**0 = 1s after first failure
