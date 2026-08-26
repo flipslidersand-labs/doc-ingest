@@ -61,7 +61,7 @@ class TestIngestPdf:
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf.extract_text", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_design_doc", side_effect=lambda x: x)
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, prompt: text)
         mocker.patch("ingest.pdf.delete_by_payload")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
@@ -80,7 +80,7 @@ class TestIngestPdf:
             return_value=httpx.Response(200, content=b"%PDF-fake")
         )
         mocker.patch("ingest.pdf.extract_text", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_design_doc", side_effect=lambda x: x)
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, prompt: text)
         mocker.patch("ingest.pdf.delete_by_payload")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
@@ -104,7 +104,7 @@ class TestIngestPdf:
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf.extract_text", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_design_doc", side_effect=lambda x: x)
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, prompt: text)
         mocker.patch("ingest.pdf.delete_by_payload")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
