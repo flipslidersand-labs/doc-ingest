@@ -1,4 +1,5 @@
 """Tests for ingest/external.py"""
+
 import httpx
 import pytest
 import respx
@@ -34,12 +35,12 @@ def mock_sources(mocker, tmp_path):
 class TestSyncExternal:
     @respx.mock
     def test_304_skips_ingest(self, mock_sources, mocker):
-        respx.get("https://example.com/api").mock(
-            return_value=httpx.Response(304)
-        )
+        respx.get("https://example.com/api").mock(return_value=httpx.Response(304))
         from ingest.external import sync_external
+
         sync_external()
         import ingest.external as ext
+
         ext.upsert.assert_not_called()
 
     @respx.mock
@@ -51,9 +52,11 @@ class TestSyncExternal:
         import logging
 
         from ingest.external import sync_external
+
         with caplog.at_level(logging.INFO, logger="ingest.external"):
             sync_external()
         import ingest.external as ext
+
         ext.upsert.assert_called_once()
         assert "synced" in caplog.text
 
@@ -63,8 +66,10 @@ class TestSyncExternal:
             return_value=httpx.Response(200, text="## S\n" + "y" * 200)
         )
         from ingest.external import sync_external
+
         sync_external(dry_run=True)
         import ingest.external as ext
+
         ext.upsert.assert_not_called()
 
     @respx.mock
@@ -110,25 +115,27 @@ class TestSyncExternal:
         )
 
         from ingest.external import sync_external
+
         sync_external()
 
         import ingest.external as ext
+
         ext.upsert.assert_called_once()
 
     @respx.mock
     def test_4xx_recorded_as_failed_and_continues(self, mock_sources, mocker, caplog):
         """4xx response is recorded in failed_urls and loop continues (does not raise)."""
-        respx.get("https://example.com/api").mock(
-            return_value=httpx.Response(403)
-        )
+        respx.get("https://example.com/api").mock(return_value=httpx.Response(403))
         import logging
 
         from ingest.external import sync_external
+
         with caplog.at_level(logging.WARNING, logger="ingest.external"):
             sync_external()
         assert "failed" in caplog.text
         assert "403" in caplog.text
         import ingest.external as ext
+
         ext.upsert.assert_not_called()
 
     @respx.mock
@@ -141,10 +148,11 @@ class TestSyncExternal:
         notify = mocker.patch("ingest.external._notify_discord")
         mocker.patch.dict("os.environ", {"DISCORD_WEBHOOK_URL": "https://discord.example/hook"})
         from ingest.external import sync_external
+
         sync_external()
         notify.assert_called_once()
         args = notify.call_args[0]
-        assert args[0] == 1   # synced
+        assert args[0] == 1  # synced
         assert args[2] == []  # skipped
         assert args[3] == []  # failed
 
@@ -156,6 +164,7 @@ class TestSyncExternal:
         )
         notify = mocker.patch("ingest.external._notify_discord")
         from ingest.external import sync_external
+
         sync_external(dry_run=True)
         notify.assert_not_called()
 
@@ -210,9 +219,11 @@ class TestSyncExternal:
         import logging
 
         from ingest.external import sync_external
+
         with caplog.at_level(logging.WARNING, logger="ingest.external"):
             sync_external()
 
         import ingest.external as ext
+
         ext.upsert.assert_not_called()
         assert "skipping" in caplog.text

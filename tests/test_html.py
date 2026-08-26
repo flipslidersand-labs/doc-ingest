@@ -1,4 +1,5 @@
 """Tests for core/html.py"""
+
 from core.html import extract_markdown, looks_like_html
 
 SIMPLE_HTML = """<!DOCTYPE html>

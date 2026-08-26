@@ -4,6 +4,7 @@ Targets a private thought vault (e.g. ~/notes). Only curated directories are
 ingested — scratch dirs (00-inbox, 90-daily) are skipped to avoid polluting the
 collection with unfinished thinking.
 """
+
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -62,7 +63,9 @@ def ingest_notes(file: str | None = None) -> None:
         with ThreadPoolExecutor(max_workers=DISTILL_WORKERS) as ex:
             distilled_list = list(
                 ex.map(
-                    lambda c: distill_text(c["text"], "この Obsidian ノートの要点・決定理由・制約を200字以内で。"),
+                    lambda c: distill_text(
+                        c["text"], "この Obsidian ノートの要点・決定理由・制約を200字以内で。"
+                    ),
                     chunks,
                 )
             )

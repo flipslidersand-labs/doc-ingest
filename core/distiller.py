@@ -1,4 +1,5 @@
 """LLM distillation: Ollama → Anthropic Haiku fallback → raw text."""
+
 import json
 import os
 import urllib.request
@@ -27,6 +28,7 @@ def _ollama(prompt: str) -> str:
 
 def _anthropic(prompt: str) -> str:
     import anthropic
+
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     msg = client.messages.create(
         model=ANTHROPIC_MODEL,

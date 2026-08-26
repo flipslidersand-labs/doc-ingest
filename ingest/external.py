@@ -1,4 +1,5 @@
 """Sync external API docs with ETag-based freshness detection."""
+
 import os
 import tempfile
 import time
@@ -123,8 +124,10 @@ def _notify_discord(
     lines = [
         f"{status} doc-ingest sync 完了 ({ts})",
         f"synced: {synced} sources / {total_chunks} chunks",
-        f"skipped: {len(skipped)}" + (f" ({', '.join(skipped[:3])}{'…' if len(skipped) > 3 else ''})" if skipped else ""),
-        f"failed: {len(failed)}" + (f" ({', '.join(failed[:3])}{'…' if len(failed) > 3 else ''})" if failed else ""),
+        f"skipped: {len(skipped)}"
+        + (f" ({', '.join(skipped[:3])}{'…' if len(skipped) > 3 else ''})" if skipped else ""),
+        f"failed: {len(failed)}"
+        + (f" ({', '.join(failed[:3])}{'…' if len(failed) > 3 else ''})" if failed else ""),
     ]
     try:
         resp = httpx.post(webhook_url, json={"content": "\n".join(lines)}, timeout=10)
@@ -147,8 +150,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
     fetch_results: list[dict] = [{}] * len(sources)
     with ThreadPoolExecutor(max_workers=SYNC_WORKERS) as pool:
         future_to_idx = {
-            pool.submit(_fetch_source, source, force, now): i
-            for i, source in enumerate(sources)
+            pool.submit(_fetch_source, source, force, now): i for i, source in enumerate(sources)
         }
         for fut in as_completed(future_to_idx):
             i = future_to_idx[fut]
@@ -158,8 +160,11 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
                 url = sources[i]["url"]
                 _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, e)
                 fetch_results[i] = {
-                    "status": "failed", "url": url,
-                    "source": sources[i], "new_etag": "", "points": [],
+                    "status": "failed",
+                    "url": url,
+                    "source": sources[i],
+                    "new_etag": "",
+                    "points": [],
                 }
 
     # Phase 2: sequential upsert + metadata update (preserves source order)

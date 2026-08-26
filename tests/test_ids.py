@@ -1,4 +1,5 @@
 """Tests for core/ids.py — deterministic UUID chunk ID generation."""
+
 import uuid
 
 from core.ids import make_id
@@ -22,7 +23,11 @@ class TestMakeId:
         assert len(ids) == 10  # all distinct
 
     def test_no_collisions_at_scale(self):
-        ids = [make_id(f"https://source-{i}.example.com/doc:{j}") for i in range(100) for j in range(100)]
+        ids = [
+            make_id(f"https://source-{i}.example.com/doc:{j}")
+            for i in range(100)
+            for j in range(100)
+        ]
         assert len(ids) == len(set(ids))  # 10 000 pairs, 0 collisions
 
     def test_url_in_key_matters(self):

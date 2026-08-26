@@ -1,4 +1,5 @@
 """BM25-based nugget extraction: pull relevant sentences from Qdrant chunks."""
+
 import math
 import re
 from collections import Counter

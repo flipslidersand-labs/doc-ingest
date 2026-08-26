@@ -1,4 +1,5 @@
 """Tests for cli.py — smoke tests via click.testing.CliRunner."""
+
 from click.testing import CliRunner
 
 from cli import main
@@ -67,11 +68,16 @@ class TestSearchCommand:
         assert mock_search.call_args[0][0] == "research"
 
     def test_search_with_results_prints_source(self, mocker):
-        mocker.patch("core.qdrant.search", return_value=[{
-            "score": 0.9,
-            "source_url": "https://example.com",
-            "text": "some content",
-        }])
+        mocker.patch(
+            "core.qdrant.search",
+            return_value=[
+                {
+                    "score": 0.9,
+                    "source_url": "https://example.com",
+                    "text": "some content",
+                }
+            ],
+        )
         result = CliRunner().invoke(main, ["search", "q"])
         assert "https://example.com" in result.output
 
@@ -80,9 +86,7 @@ class TestArxivCommand:
     def test_arxiv_calls_ingest_arxiv(self, mocker):
         mock_ingest = mocker.patch("cli.ingest_arxiv")
         CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762"])
-        mock_ingest.assert_called_once_with(
-            "https://arxiv.org/abs/1706.03762", tags=[]
-        )
+        mock_ingest.assert_called_once_with("https://arxiv.org/abs/1706.03762", tags=[])
 
     def test_arxiv_tags_parsed(self, mocker):
         mock_ingest = mocker.patch("cli.ingest_arxiv")

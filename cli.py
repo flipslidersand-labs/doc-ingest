@@ -1,4 +1,5 @@
 """doc-ingest CLI entrypoint."""
+
 import logging
 
 import click
@@ -74,6 +75,7 @@ def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int)
 
     if nugget:
         from core.nugget import apply_nuggets
+
         results = apply_nuggets(query, results, top_k=nugget_k)
 
     for i, r in enumerate(results, 1):
@@ -114,6 +116,7 @@ def list_cmd():
 def pdf(path: str, tags: str):
     """Ingest a local PDF file into the research collection."""
     from ingest.pdf import ingest_pdf
+
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     try:
         ingest_pdf(path, tags=tag_list)
