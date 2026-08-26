@@ -178,17 +178,22 @@ def delete_by_ids(collection: str, ids: list[int]) -> None:
 
 
 def list_collections() -> list[dict]:
+    from qdrant_client.models import OrderBy
+
     cols = client().get_collections().collections
     result = []
     for col in sorted(cols, key=lambda c: c.name):
         info = client().get_collection(col.name)
+        # Use order_by with limit=1 to fetch only the single most-recent record.
+        # scroll(limit=50) over SHA-256-keyed points gave no ordering guarantee,
+        # so max(ingested_at) over the first 50 results was incorrect (#91).
         records, _ = client().scroll(
             collection_name=col.name,
-            limit=50,
+            limit=1,
+            order_by=OrderBy(key="ingested_at", direction="desc"),
             with_payload=["ingested_at"],
         )
-        timestamps = [r.payload.get("ingested_at", "") for r in records if r.payload]
-        last = max(timestamps, default="")
+        last = records[0].payload.get("ingested_at", "") if records and records[0].payload else ""
         result.append({
             "name": col.name,
             "points": info.points_count,

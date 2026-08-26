@@ -97,7 +97,6 @@ def test_embed_retries_on_timeout(monkeypatch):
 
 def test_client_singleton_threadsafe(monkeypatch):
     """Concurrent calls to client() must produce exactly one QdrantClient."""
-    # Reset module-level state so the test is independent.
     monkeypatch.setattr(q, "_client", None)
 
     created = []
@@ -121,15 +120,12 @@ def test_client_singleton_threadsafe(monkeypatch):
     for t in threads:
         t.join()
 
-    # All calls must return the same object.
     assert len({id(r) for r in results}) == 1
-    # QdrantClient.__init__ must have been called exactly once.
     assert len(created) == 1
 
 
 def test_ensure_collection_calls_get_collections_once(monkeypatch):
     """ensure_collection() fetches get_collections at most once for a known name."""
-    # Reset cache state.
     monkeypatch.setattr(q, "_known_collections", set())
 
     mock_col = MagicMock()
@@ -139,12 +135,10 @@ def test_ensure_collection_calls_get_collections_once(monkeypatch):
     mock_client.get_collections.return_value.collections = [mock_col]
     monkeypatch.setattr(q, "_client", mock_client)
 
-    # First call — should hit get_collections once and populate cache.
     q.ensure_collection("test-col")
     assert mock_client.get_collections.call_count == 1
     assert mock_client.create_collection.call_count == 0
 
-    # Second call — cache hit, get_collections must NOT be called again.
     q.ensure_collection("test-col")
     assert mock_client.get_collections.call_count == 1
 
@@ -172,6 +166,42 @@ def test_collection_exists_cache_miss_fetches_remote(monkeypatch):
     assert q._collection_exists("remote-col") is True
     mock_client.get_collections.assert_called_once()
 
-    # Second call must use the cache.
     assert q._collection_exists("remote-col") is True
     mock_client.get_collections.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Tests for #91: list_collections uses order_by+limit=1
+# ---------------------------------------------------------------------------
+
+def test_list_collections_uses_order_by_limit_1(monkeypatch):
+    """list_collections must use order_by desc + limit=1, not scroll(limit=50)."""
+    from types import SimpleNamespace
+
+    from qdrant_client.models import OrderBy
+
+    mock_client = MagicMock()
+
+    col = SimpleNamespace(name="test_col")
+    mock_client.get_collections.return_value = SimpleNamespace(collections=[col])
+    mock_client.get_collection.return_value = SimpleNamespace(points_count=3)
+
+    latest_record = SimpleNamespace(
+        payload={"ingested_at": "2024-06-01T12:00:00Z", "text": "hi"}
+    )
+    mock_client.scroll.return_value = ([latest_record], None)
+
+    monkeypatch.setattr(q, "_client", mock_client)
+
+    result = q.list_collections()
+
+    scroll_kwargs = mock_client.scroll.call_args.kwargs
+    assert scroll_kwargs["limit"] == 1, f"expected limit=1, got {scroll_kwargs['limit']}"
+    assert isinstance(scroll_kwargs["order_by"], OrderBy)
+    assert scroll_kwargs["order_by"].key == "ingested_at"
+    assert scroll_kwargs["order_by"].direction == "desc"
+
+    assert len(result) == 1
+    assert result[0]["name"] == "test_col"
+    assert result[0]["points"] == 3
+    assert result[0]["last_ingested"] == "2024-06-01 12:00:00"
