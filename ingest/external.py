@@ -1,5 +1,6 @@
 """Sync external API docs with ETag-based freshness detection."""
 import os
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -30,8 +31,12 @@ def _load_sources():
 
 
 def _save_sources(sources) -> None:
-    with SOURCES_FILE.open("w") as f:
+    with tempfile.NamedTemporaryFile(
+        "w", dir=SOURCES_FILE.parent, delete=False, suffix=".tmp"
+    ) as f:
         _yaml.dump(sources, f)
+        tmp = Path(f.name)
+    tmp.replace(SOURCES_FILE)  # POSIX atomic rename
 
 
 def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:

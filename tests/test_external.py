@@ -154,6 +154,31 @@ class TestSyncExternal:
         sync_external(dry_run=True)
         notify.assert_not_called()
 
+    def test_save_sources_atomic_write(self, tmp_path):
+        """_save_sources writes via temp file + atomic rename, leaving no partial file."""
+        from ingest.external import _save_sources
+
+        yaml_file = tmp_path / "external.yaml"
+
+        import ingest.external as ext
+        original = ext.SOURCES_FILE
+        ext.SOURCES_FILE = yaml_file
+
+        try:
+            sources = [{"url": "https://example.com", "type": "external-api"}]
+            _save_sources(sources)
+            assert yaml_file.exists()
+            # no leftover .tmp files
+            tmp_files = list(tmp_path.glob("*.tmp"))
+            assert tmp_files == [], f"leftover tmp files: {tmp_files}"
+            # content is valid YAML
+            from ruamel.yaml import YAML
+            y = YAML()
+            loaded = y.load(yaml_file.read_text())
+            assert loaded[0]["url"] == "https://example.com"
+        finally:
+            ext.SOURCES_FILE = original
+
     @respx.mock
     def test_render_true_empty_body_skips(self, mocker, caplog):
         """render: true + empty Jina response → skip without upsert."""
