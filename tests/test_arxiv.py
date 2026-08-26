@@ -127,7 +127,7 @@ class TestFetchPdfText:
         assert result == ""
 
     def test_network_error_returns_empty(self, mocker):
-        mocker.patch("httpx.get", side_effect=httpx.RequestError("timeout"))
+        mocker.patch("httpx.stream", side_effect=httpx.RequestError("timeout"))
         from ingest.arxiv import _fetch_pdf_text
         result = _fetch_pdf_text("1706.03762")
         assert result == ""
