@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from core.chunker import chunk_markdown
-from core.distiller import distill_design_doc
+from core.distiller import distill_text
 from core.git import changed_files, head_sha
 from core.ids import make_id
 from core.logging import get_logger
@@ -57,7 +57,7 @@ def ingest_notes(file: str | None = None) -> None:
         chunks = chunk_markdown(text, source_url=str(path))
         points = []
         for chunk in chunks:
-            distilled = distill_design_doc(chunk["text"])
+            distilled = distill_text(chunk["text"], "この Obsidian ノートの要点・決定理由・制約を200字以内で。")
             uid = make_id(f"{path}:{chunk['chunk_index']}")
             points.append(
                 {

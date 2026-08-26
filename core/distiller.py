@@ -38,16 +38,22 @@ def _anthropic(prompt: str) -> str:
 def _generate(prompt: str, source_text: str = "") -> str:
     try:
         return _ollama(prompt)
+    except (MemoryError, KeyboardInterrupt, SystemExit):
+        raise
     except Exception as e:  # noqa: BLE001
         _log.warning("Ollama unavailable (%s), trying Anthropic Haiku", e)
 
     if ANTHROPIC_API_KEY:
         try:
             return _anthropic(prompt)
+        except (MemoryError, KeyboardInterrupt, SystemExit):
+            raise
         except Exception as e:  # noqa: BLE001
             _log.warning("Anthropic unavailable (%s), using raw text fallback", e)
 
-    return source_text[:500] if source_text else prompt[:500]
+    fallback = source_text[:500] if source_text else prompt[:500]
+    _log.warning("raw text fallback used for '%s'", (source_text or prompt)[:60])
+    return fallback
 
 
 def distill_paper(abstract: str, body: str = "") -> str:
@@ -61,6 +67,12 @@ def distill_paper(abstract: str, body: str = "") -> str:
 def distill_design_doc(section: str) -> str:
     prompt = f"この設計の決定理由・制約・代替案を200字以内で。\n\n{section[:4000]}"
     return _generate(prompt, source_text=section)
+
+
+def distill_text(text: str, purpose: str) -> str:
+    """Generic distillation for any text with a caller-specified purpose."""
+    prompt = f"{purpose}\n\n{text[:4000]}"
+    return _generate(prompt, source_text=text)
 
 
 def distill_webpage(content: str) -> str:

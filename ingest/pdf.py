@@ -5,7 +5,7 @@ from pathlib import Path
 import pymupdf
 
 from core.chunker import chunk_text
-from core.distiller import distill_design_doc
+from core.distiller import distill_text
 from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import delete_by_payload, upsert
@@ -48,7 +48,7 @@ def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
     points = [
         {
             "id": make_id(f"{source_url}:{c['chunk_index']}"),
-            "text": distill_design_doc(c["text"]),
+            "text": distill_text(c["text"], "この PDF の実装に使える要点・手法・数値を200字以内で。"),
             "source": "pdf",
             "source_url": source_url,
             "chunk_index": c["chunk_index"],
