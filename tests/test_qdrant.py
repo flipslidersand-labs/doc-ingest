@@ -1,4 +1,6 @@
 """Tests for core/qdrant.py embed batching, retry, and auth handling."""
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -95,9 +97,6 @@ def test_embed_retries_on_timeout(monkeypatch):
 
 def test_client_singleton_threadsafe(monkeypatch):
     """Concurrent calls to client() must produce exactly one QdrantClient."""
-    import threading
-    import core.qdrant as q
-
     # Reset module-level state so the test is independent.
     monkeypatch.setattr(q, "_client", None)
 
@@ -105,7 +104,6 @@ def test_client_singleton_threadsafe(monkeypatch):
     original_init = q.QdrantClient.__init__
 
     def slow_init(self, *args, **kwargs):
-        import time
         time.sleep(0.05)  # simulate slow network handshake
         original_init(self, *args, **kwargs)
         created.append(self)
@@ -124,16 +122,13 @@ def test_client_singleton_threadsafe(monkeypatch):
         t.join()
 
     # All calls must return the same object.
-    assert len(set(id(r) for r in results)) == 1
+    assert len({id(r) for r in results}) == 1
     # QdrantClient.__init__ must have been called exactly once.
     assert len(created) == 1
 
 
 def test_ensure_collection_calls_get_collections_once(monkeypatch):
     """ensure_collection() fetches get_collections at most once for a known name."""
-    from unittest.mock import MagicMock
-    import core.qdrant as q
-
     # Reset cache state.
     monkeypatch.setattr(q, "_known_collections", set())
 
@@ -156,9 +151,6 @@ def test_ensure_collection_calls_get_collections_once(monkeypatch):
 
 def test_collection_exists_uses_cache(monkeypatch):
     """_collection_exists() skips network call when collection is cached."""
-    from unittest.mock import MagicMock
-    import core.qdrant as q
-
     monkeypatch.setattr(q, "_known_collections", {"cached-col"})
     mock_client = MagicMock()
     monkeypatch.setattr(q, "_client", mock_client)
@@ -169,9 +161,6 @@ def test_collection_exists_uses_cache(monkeypatch):
 
 def test_collection_exists_cache_miss_fetches_remote(monkeypatch):
     """_collection_exists() fetches from Qdrant on cache miss."""
-    from unittest.mock import MagicMock
-    import core.qdrant as q
-
     monkeypatch.setattr(q, "_known_collections", set())
 
     mock_col = MagicMock()
