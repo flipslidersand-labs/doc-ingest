@@ -3,7 +3,19 @@
 DOC_INGEST_DIR="${DOC_INGEST_DIR:-$HOME/projects/doc-ingest}"
 set -e
 cd "$(git rev-parse --show-toplevel)"
+# Load .env without shell evaluation (fixes #80: arbitrary command execution via source).
+# Only KEY=VALUE lines are accepted; comments and blank lines are skipped.
+# Values are read as literal strings — no $(…), backtick, or variable expansion occurs.
 if [ -f "$DOC_INGEST_DIR/.env" ]; then
-  set -a && source "$DOC_INGEST_DIR/.env" && set +a
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    # Skip blank lines and comment lines
+    case "$_line" in
+      ''|'#'*) continue ;;
+    esac
+    # Accept only lines of the form IDENTIFIER=... (no spaces before =)
+    if printf '%s\n' "$_line" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*='; then
+      export "$_line"
+    fi
+  done < "$DOC_INGEST_DIR/.env"
 fi
 PYTHONPATH="$DOC_INGEST_DIR" "$DOC_INGEST_DIR/.venv/bin/doc-ingest" design 2>/dev/null || true
