@@ -12,6 +12,7 @@ from core.distiller import distill_design_doc
 from core.git import changed_files, head_sha
 from core.ids import make_id
 from core.logging import get_logger
+from core.path_guard import assert_safe_path
 from core.qdrant import delete_by_payload, upsert
 
 _log = get_logger(__name__)
@@ -41,7 +42,7 @@ def ingest_notes(file: str | None = None) -> None:
     sha = head_sha()
 
     if file:
-        files = [Path(file)]
+        files = [assert_safe_path(file)]
     else:
         files = _changed_files()
 
