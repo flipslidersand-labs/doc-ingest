@@ -21,26 +21,20 @@ class TestChangedFiles:
         result = m._changed_files()
         assert any(p.name == "CLAUDE.md" for p in result)
 
-    def test_first_commit_fallback_uses_ls_files(self, mocker):
-        calls = []
-
-        def fake_run(cmd, **kwargs):
-            calls.append(cmd)
-            if "HEAD~1" in cmd:
-                return MagicMock(returncode=128, stdout="")
-            return MagicMock(returncode=0, stdout="CLAUDE.md\n")
-
-        mocker.patch("subprocess.run", side_effect=fake_run)
+    def test_first_commit_error_returns_empty(self, mocker):
+        mocker.patch(
+            "subprocess.run",
+            return_value=MagicMock(returncode=128, stdout=""),
+        )
 
         import importlib
 
         import ingest.design_docs as m
 
         importlib.reload(m)
-        m._changed_files()
+        result = m._changed_files()
 
-        cmds = [" ".join(c) for c in calls]
-        assert any("ls-files" in c for c in cmds)
+        assert result == []
 
     def test_non_design_docs_excluded(self, mocker):
         mocker.patch(
