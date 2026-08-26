@@ -1,4 +1,5 @@
 """Ingest arxiv papers and tech blog posts into Qdrant research collection."""
+
 import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime

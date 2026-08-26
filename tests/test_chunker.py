@@ -1,4 +1,5 @@
 """Tests for core/chunker.py"""
+
 import tiktoken
 
 from core.chunker import chunk_markdown, chunk_text

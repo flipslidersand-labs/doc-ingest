@@ -1,4 +1,5 @@
 """Ingest own design docs (CLAUDE.md / ADR / docs/) into Qdrant design collection."""
+
 import os
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime

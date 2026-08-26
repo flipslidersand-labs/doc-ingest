@@ -1,4 +1,5 @@
 """Tests for ingest/arxiv.py"""
+
 import httpx
 import pytest
 import respx
@@ -20,19 +21,23 @@ FAKE_PDF_BYTES = b"%PDF-1.4 fake"
 class TestArxivId:
     def test_abs_url(self):
         from ingest.arxiv import _arxiv_id
+
         assert _arxiv_id("https://arxiv.org/abs/1706.03762") == "1706.03762"
 
     def test_pdf_url(self):
         from ingest.arxiv import _arxiv_id
+
         assert _arxiv_id("https://arxiv.org/pdf/1706.03762") == "1706.03762"
 
     def test_blog_url_returns_none(self):
         from ingest.arxiv import _arxiv_id
+
         assert _arxiv_id("https://example.com/blog/post") is None
 
     def test_versioned_id_strips_version_suffix(self):
         # regex [\d.]+ stops before 'v2' — version suffix is intentionally dropped
         from ingest.arxiv import _arxiv_id
+
         assert _arxiv_id("https://arxiv.org/abs/1706.03762v2") == "1706.03762"
 
 
@@ -72,6 +77,7 @@ class TestFetchArxiv:
             return_value=httpx.Response(200, text=ARXIV_API_RESPONSE)
         )
         from ingest.arxiv import _fetch_arxiv
+
         meta = _fetch_arxiv("1706.03762")
         assert meta["title"] == "Attention Is All You Need"
         assert "Transformer" in meta["abstract"]
@@ -119,16 +125,16 @@ class TestFetchArxiv:
 class TestFetchPdfText:
     @respx.mock
     def test_fetch_failure_returns_empty(self):
-        respx.get("https://arxiv.org/pdf/1706.03762").mock(
-            return_value=httpx.Response(404)
-        )
+        respx.get("https://arxiv.org/pdf/1706.03762").mock(return_value=httpx.Response(404))
         from ingest.arxiv import _fetch_pdf_text
+
         result = _fetch_pdf_text("1706.03762")
         assert result == ""
 
     def test_network_error_returns_empty(self, mocker):
         mocker.patch("httpx.stream", side_effect=httpx.RequestError("timeout"))
         from ingest.arxiv import _fetch_pdf_text
+
         result = _fetch_pdf_text("1706.03762")
         assert result == ""
 
@@ -144,6 +150,7 @@ class TestIngestArxiv:
         mock_upsert = mocker.patch("ingest.arxiv.upsert")
 
         from ingest.arxiv import ingest_arxiv
+
         ingest_arxiv("https://arxiv.org/abs/1706.03762", tags=["ml"])
 
         mock_upsert.assert_called_once()
@@ -162,6 +169,7 @@ class TestIngestArxiv:
         mock_upsert = mocker.patch("ingest.arxiv.upsert")
 
         from ingest.arxiv import ingest_arxiv
+
         ingest_arxiv("https://example.com/blog/post")
 
         mock_upsert.assert_called_once()
@@ -179,6 +187,7 @@ class TestIngestArxiv:
         mock_upsert = mocker.patch("ingest.arxiv.upsert")
 
         from ingest.arxiv import ingest_arxiv
+
         ingest_arxiv("https://arxiv.org/abs/1706.03762")
 
         mock_distill.assert_called_once()
@@ -194,6 +203,7 @@ class TestIngestArxiv:
         mock_upsert = mocker.patch("ingest.arxiv.upsert")
 
         from ingest.arxiv import ingest_arxiv
+
         ingest_arxiv("https://arxiv.org/abs/1706.03762")
         id1 = mock_upsert.call_args[0][1][0]["id"]
 
