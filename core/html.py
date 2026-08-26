@@ -5,6 +5,7 @@ boilerplate. Feeding the raw HTML to the markdown chunker produces one giant
 low-signal chunk. trafilatura extracts the main content and emits markdown,
 which the section chunker can then split on real headings.
 """
+
 import trafilatura
 
 # Content-Type substrings that indicate HTML we should convert.

@@ -1,4 +1,5 @@
 """Ingest local or remote PDF files into Qdrant research collection."""
+
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path

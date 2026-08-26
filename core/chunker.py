@@ -1,4 +1,5 @@
 """Markdown section-level chunker and plain text chunker."""
+
 import re
 
 import tiktoken
@@ -17,7 +18,7 @@ def _count_tokens(text: str) -> int:
 def _hard_split_tokens(text: str, max_tokens: int) -> list[str]:
     """Split a single oversized text into pieces each <= max_tokens using the tokenizer."""
     ids = _enc.encode(text)
-    return [_enc.decode(ids[i:i + max_tokens]) for i in range(0, len(ids), max_tokens)]
+    return [_enc.decode(ids[i : i + max_tokens]) for i in range(0, len(ids), max_tokens)]
 
 
 def _split_by_tokens(text: str, max_tokens: int) -> list[str]:
@@ -59,13 +60,17 @@ def chunk_text(text: str, source_url: str = "", chunk_tokens: int = 200) -> list
         size += t
         if size >= chunk_tokens:
             body = "\n\n".join(current)
-            chunks.append({"text": body, "section": "", "chunk_index": idx, "source_url": source_url})
+            chunks.append(
+                {"text": body, "section": "", "chunk_index": idx, "source_url": source_url}
+            )
             idx += 1
             current, size = [], 0
     if current:
         body = "\n\n".join(current)
         if _count_tokens(body) >= 10:
-            chunks.append({"text": body, "section": "", "chunk_index": idx, "source_url": source_url})
+            chunks.append(
+                {"text": body, "section": "", "chunk_index": idx, "source_url": source_url}
+            )
     return chunks
 
 

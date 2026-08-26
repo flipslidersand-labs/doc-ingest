@@ -1,4 +1,5 @@
 """Qdrant client wrapper targeting MINIPC e5 embedding service."""
+
 import os
 import threading
 from typing import Any
@@ -88,7 +89,13 @@ def _embed_batch(texts: list[str]) -> list[list[float]]:
         except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
             if attempt == EMBED_RETRIES - 1:
                 raise
-            _log.warning("embed retry %d/%d — %d texts → %s", attempt + 1, EMBED_RETRIES, len(texts), type(e).__name__)
+            _log.warning(
+                "embed retry %d/%d — %d texts → %s",
+                attempt + 1,
+                EMBED_RETRIES,
+                len(texts),
+                type(e).__name__,
+            )
             time.sleep(2**attempt)  # 1s, 2s
     raise RuntimeError("unreachable")
 
@@ -118,9 +125,7 @@ def upsert(collection: str, points: list[dict[str, Any]]) -> None:
 def search(collection: str, query: str, limit: int = 5) -> list[dict]:
     ensure_collection(collection)
     vector = embed([query])[0]
-    hits = client().query_points(
-        collection_name=collection, query=vector, limit=limit
-    ).points
+    hits = client().query_points(collection_name=collection, query=vector, limit=limit).points
     return [
         {
             "score": round(hit.score, 4),
@@ -138,9 +143,7 @@ def delete_by_payload(collection: str, key: str, value: str) -> None:
         return
     client().delete(
         collection_name=collection,
-        points_selector=Filter(
-            must=[FieldCondition(key=key, match=MatchValue(value=value))]
-        ),
+        points_selector=Filter(must=[FieldCondition(key=key, match=MatchValue(value=value))]),
     )
 
 
@@ -194,9 +197,11 @@ def list_collections() -> list[dict]:
             with_payload=["ingested_at"],
         )
         last = records[0].payload.get("ingested_at", "") if records and records[0].payload else ""
-        result.append({
-            "name": col.name,
-            "points": info.points_count,
-            "last_ingested": last[:19].replace("T", " ") if last else "—",
-        })
+        result.append(
+            {
+                "name": col.name,
+                "points": info.points_count,
+                "last_ingested": last[:19].replace("T", " ") if last else "—",
+            }
+        )
     return result

@@ -1,4 +1,5 @@
 """Tests for ingest/pdf.py"""
+
 import httpx
 import pytest
 import respx
@@ -17,6 +18,7 @@ class TestExtractText:
         mocker.patch("pymupdf.open", return_value=mock_doc)
 
         from ingest.pdf import extract_text
+
         result = extract_text(b"%PDF-fake")
         assert result == "page one text"
         mock_doc.__exit__.assert_called_once()
@@ -32,6 +34,7 @@ class TestExtractText:
         mocker.patch("pymupdf.open", return_value=mock_doc)
 
         from ingest.pdf import extract_text
+
         result = extract_text(b"%PDF-fake")
         assert result == "page one\n\npage two"
 
@@ -39,6 +42,7 @@ class TestExtractText:
 class TestIngestPdf:
     def test_local_file_not_found_raises(self):
         from ingest.pdf import ingest_pdf
+
         with pytest.raises(FileNotFoundError):
             ingest_pdf("/nonexistent/path/file.pdf")
 
@@ -51,6 +55,7 @@ class TestIngestPdf:
         import logging
 
         from ingest.pdf import ingest_pdf
+
         with caplog.at_level(logging.WARNING, logger="ingest.pdf"):
             ingest_pdf(str(pdf))
 
@@ -66,6 +71,7 @@ class TestIngestPdf:
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
         from ingest.pdf import ingest_pdf
+
         ingest_pdf(str(pdf), tags=["research"])
 
         mock_upsert.assert_called_once()
@@ -85,6 +91,7 @@ class TestIngestPdf:
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
         from ingest.pdf import ingest_pdf
+
         ingest_pdf("https://example.com/paper.pdf")
 
         mock_upsert.assert_called_once()
@@ -93,10 +100,9 @@ class TestIngestPdf:
 
     @respx.mock
     def test_remote_404_raises(self, mocker):
-        respx.get("https://example.com/missing.pdf").mock(
-            return_value=httpx.Response(404)
-        )
+        respx.get("https://example.com/missing.pdf").mock(return_value=httpx.Response(404))
         from ingest.pdf import ingest_pdf
+
         with pytest.raises(httpx.HTTPStatusError):
             ingest_pdf("https://example.com/missing.pdf")
 
@@ -109,6 +115,7 @@ class TestIngestPdf:
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
         from ingest.pdf import ingest_pdf
+
         ingest_pdf(str(pdf))
         ids1 = [p["id"] for p in mock_upsert.call_args[0][1]]
 

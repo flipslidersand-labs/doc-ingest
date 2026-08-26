@@ -1,4 +1,5 @@
 """Deterministic UUID generation for Qdrant point IDs."""
+
 import hashlib
 import uuid
 

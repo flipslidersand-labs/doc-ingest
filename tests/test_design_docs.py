@@ -1,4 +1,5 @@
 """Tests for ingest/design_docs.py"""
+
 from unittest.mock import MagicMock
 
 
@@ -14,6 +15,7 @@ class TestChangedFiles:
         import importlib
 
         import ingest.design_docs as m
+
         importlib.reload(m)
 
         result = m._changed_files()
@@ -33,6 +35,7 @@ class TestChangedFiles:
         import importlib
 
         import ingest.design_docs as m
+
         importlib.reload(m)
         m._changed_files()
 
@@ -47,6 +50,7 @@ class TestChangedFiles:
         import importlib
 
         import ingest.design_docs as m
+
         importlib.reload(m)
         result = m._changed_files()
         assert result == []
@@ -59,6 +63,7 @@ class TestIngestDesignDocs:
         import logging
 
         from ingest.design_docs import ingest_design_docs
+
         with caplog.at_level(logging.DEBUG, logger="ingest.design_docs"):
             ingest_design_docs()
         assert "no design docs changed" in caplog.text
@@ -74,6 +79,7 @@ class TestIngestDesignDocs:
         mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")
 
         from ingest.design_docs import ingest_design_docs
+
         ingest_design_docs()
 
         mock_delete.assert_called_once_with("design", "file_path", str(md))

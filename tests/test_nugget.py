@@ -1,4 +1,5 @@
 """Tests for core.nugget BM25 extraction."""
+
 from core.nugget import apply_nuggets, extract_nuggets
 
 TEXT = (
