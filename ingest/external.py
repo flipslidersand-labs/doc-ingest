@@ -207,9 +207,8 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
         total_chunks += len(points)
         _log.info("synced %s (%d chunks) → %s", url, len(points), COLLECTION)
 
-    if changed and not dry_run:
-        _save_sources(sources)
-
     if not dry_run:
+        if changed:
+            _save_sources(sources)
         ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
         _notify_discord(synced_count, total_chunks, skipped_urls, failed_urls, ts)
