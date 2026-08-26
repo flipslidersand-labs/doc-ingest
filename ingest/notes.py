@@ -4,6 +4,8 @@ Targets a private thought vault (e.g. ~/notes). Only curated directories are
 ingested — scratch dirs (00-inbox, 90-daily) are skipped to avoid polluting the
 collection with unfinished thinking.
 """
+import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -22,6 +24,7 @@ COLLECTION = "notes"
 # Curated top-level dirs to ingest. Scratch dirs are intentionally excluded.
 NOTE_DIRS = ("10-projects", "20-areas", "30-resources")
 SKIP_DIRS = ("00-inbox", "90-daily", "_templates")
+DISTILL_WORKERS = int(os.getenv("DISTILL_WORKERS", "4"))
 
 
 def _is_note(p: Path) -> bool:
@@ -56,20 +59,24 @@ def ingest_notes(file: str | None = None) -> None:
         delete_by_payload(COLLECTION, "file_path", str(path))
         text = path.read_text()
         chunks = chunk_markdown(text, source_url=str(path))
-        points = []
-        for chunk in chunks:
-            distilled = distill_text(chunk["text"], "この Obsidian ノートの要点・決定理由・制約を200字以内で。")
-            uid = make_id(f"{path}:{chunk['chunk_index']}")
-            points.append(
-                {
-                    "id": uid,
-                    "text": distilled,
-                    "source": "obsidian-note",
-                    "file_path": str(path),
-                    "section": chunk["section"],
-                    "git_sha": sha,
-                    "ingested_at": now,
-                }
+        with ThreadPoolExecutor(max_workers=DISTILL_WORKERS) as ex:
+            distilled_list = list(
+                ex.map(
+                    lambda c: distill_text(c["text"], "この Obsidian ノートの要点・決定理由・制約を200字以内で。"),
+                    chunks,
+                )
             )
+        points = [
+            {
+                "id": make_id(f"{path}:{chunk['chunk_index']}"),
+                "text": distilled,
+                "source": "obsidian-note",
+                "file_path": str(path),
+                "section": chunk["section"],
+                "git_sha": sha,
+                "ingested_at": now,
+            }
+            for chunk, distilled in zip(chunks, distilled_list)
+        ]
         upsert(COLLECTION, points)
         _log.info("ingested %s (%d chunks) → %s", path, len(points), COLLECTION)
