@@ -12,12 +12,14 @@ class TestExtractText:
         mock_page.get_text.return_value = "page one text"
         mock_doc = mocker.MagicMock()
         mock_doc.__iter__ = mocker.Mock(return_value=iter([mock_page]))
+        mock_doc.__enter__ = mocker.Mock(return_value=mock_doc)
+        mock_doc.__exit__ = mocker.Mock(return_value=False)
         mocker.patch("pymupdf.open", return_value=mock_doc)
 
         from ingest.pdf import extract_text
         result = extract_text(b"%PDF-fake")
         assert result == "page one text"
-        mock_doc.close.assert_called_once()
+        mock_doc.__exit__.assert_called_once()
 
     def test_multipage_joined_with_double_newline(self, mocker):
         pages = [mocker.MagicMock(), mocker.MagicMock()]
@@ -25,6 +27,8 @@ class TestExtractText:
         pages[1].get_text.return_value = "page two"
         mock_doc = mocker.MagicMock()
         mock_doc.__iter__ = mocker.Mock(return_value=iter(pages))
+        mock_doc.__enter__ = mocker.Mock(return_value=mock_doc)
+        mock_doc.__exit__ = mocker.Mock(return_value=False)
         mocker.patch("pymupdf.open", return_value=mock_doc)
 
         from ingest.pdf import extract_text
