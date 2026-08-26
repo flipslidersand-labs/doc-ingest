@@ -68,16 +68,21 @@ class TestSyncExternal:
         ext.upsert.assert_not_called()
 
     @respx.mock
-    def test_retry_on_500(self, mock_sources, caplog):
+    def test_retry_on_500(self, mock_sources, mocker, caplog):
+        """500 response must trigger MAX_RETRIES attempts and log each retry."""
         respx.get("https://example.com/api").mock(
             return_value=httpx.Response(500)
         )
+        mocker.patch("ingest.external.time.sleep")  # avoid real waits
         import logging
 
-        from ingest.external import sync_external
+        from ingest.external import MAX_RETRIES, sync_external
         with caplog.at_level(logging.DEBUG, logger="ingest.external"):
             sync_external()
-        assert "retry" in caplog.text or "failed" in caplog.text
+        assert respx.calls.call_count == MAX_RETRIES, (
+            f"expected {MAX_RETRIES} HTTP attempts, got {respx.calls.call_count}"
+        )
+        assert "retry" in caplog.text
 
     @respx.mock
     def test_render_true_fetches_via_jina(self, mocker):
