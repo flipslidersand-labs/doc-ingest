@@ -1,5 +1,6 @@
 """Tests for ingest/arxiv.py"""
 import httpx
+import pytest
 import respx
 
 ARXIV_API_RESPONSE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -7,8 +8,8 @@ ARXIV_API_RESPONSE = """<?xml version="1.0" encoding="UTF-8"?>
   <entry>
     <title>Attention Is All You Need</title>
     <summary>We propose a new architecture called the Transformer.</summary>
-    <name>Ashish Vaswani</name>
-    <name>Noam Shazeer</name>
+    <author><name>Ashish Vaswani</name></author>
+    <author><name>Noam Shazeer</name></author>
     <published>2017-06-12T00:00:00Z</published>
   </entry>
 </feed>"""
@@ -35,6 +36,35 @@ class TestArxivId:
         assert _arxiv_id("https://arxiv.org/abs/1706.03762v2") == "1706.03762"
 
 
+class TestValidateArxivId:
+    def test_valid_short_id(self):
+        from ingest.arxiv import _validate_arxiv_id
+        assert _validate_arxiv_id("1706.03762") == "1706.03762"
+
+    def test_valid_long_id(self):
+        from ingest.arxiv import _validate_arxiv_id
+        assert _validate_arxiv_id("2301.12345") == "2301.12345"
+
+    def test_valid_versioned_id(self):
+        from ingest.arxiv import _validate_arxiv_id
+        assert _validate_arxiv_id("1706.03762v2") == "1706.03762v2"
+
+    def test_invalid_id_raises(self):
+        from ingest.arxiv import _validate_arxiv_id
+        with pytest.raises(ValueError, match="不正な arxiv_id"):
+            _validate_arxiv_id("../../etc/passwd")
+
+    def test_empty_id_raises(self):
+        from ingest.arxiv import _validate_arxiv_id
+        with pytest.raises(ValueError, match="不正な arxiv_id"):
+            _validate_arxiv_id("")
+
+    def test_id_with_spaces_raises(self):
+        from ingest.arxiv import _validate_arxiv_id
+        with pytest.raises(ValueError, match="不正な arxiv_id"):
+            _validate_arxiv_id("1706.03762 extra")
+
+
 class TestFetchArxiv:
     @respx.mock
     def test_parses_metadata(self):
@@ -49,16 +79,41 @@ class TestFetchArxiv:
         assert meta["published_date"] == "2017-06-12"
 
     @respx.mock
-    def test_missing_fields_default_to_empty(self):
+    def test_empty_feed_raises_value_error(self):
+        """Empty feed (no entry elements) should raise ValueError immediately."""
         respx.get("https://export.arxiv.org/api/query?id_list=0000.00000").mock(
-            return_value=httpx.Response(200, text="<feed></feed>")
+            return_value=httpx.Response(200, text='<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>')
         )
         from ingest.arxiv import _fetch_arxiv
-        meta = _fetch_arxiv("0000.00000")
-        assert meta["title"] == ""
-        assert meta["abstract"] == ""
-        assert meta["authors"] == []
-        assert meta["published_date"] == ""
+        with pytest.raises(ValueError, match="0000.00000 が見つかりません"):
+            _fetch_arxiv("0000.00000")
+
+    @respx.mock
+    def test_invalid_id_rejected_before_request(self):
+        """Malformed arxiv_id should raise before any HTTP call is made."""
+        from ingest.arxiv import _fetch_arxiv
+        with pytest.raises(ValueError, match="不正な arxiv_id"):
+            _fetch_arxiv("bad/id/../etc")
+
+    @respx.mock
+    def test_cdata_and_entities_parsed_correctly(self):
+        """xml.etree handles XML entities correctly unlike regex."""
+        xml_with_entities = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <title>A &amp; B &lt;paper&gt;</title>
+    <summary>Uses &lt;attention&gt; mechanism.</summary>
+    <author><name>Author One</name></author>
+    <published>2023-01-15T00:00:00Z</published>
+  </entry>
+</feed>"""
+        respx.get("https://export.arxiv.org/api/query?id_list=2301.00001").mock(
+            return_value=httpx.Response(200, text=xml_with_entities)
+        )
+        from ingest.arxiv import _fetch_arxiv
+        meta = _fetch_arxiv("2301.00001")
+        assert meta["title"] == "A & B <paper>"
+        assert "<attention>" in meta["abstract"]
 
 
 class TestFetchPdfText:
