@@ -35,9 +35,8 @@ class TestChangedFiles:
     def test_error_emits_warning(self, caplog):
         import logging
         result = _make_result(128, "", "fatal: bad revision 'HEAD~1'")
-        with patch("subprocess.run", return_value=result):
-            with caplog.at_level(logging.WARNING, logger="core.git"):
-                changed_files("/repo")
+        with patch("subprocess.run", return_value=result), caplog.at_level(logging.WARNING, logger="core.git"):
+            changed_files("/repo")
         assert any("returncode=128" in r.message for r in caplog.records)
 
     def test_empty_output_returns_empty_list(self):
@@ -60,7 +59,6 @@ class TestHeadSha:
     def test_error_emits_warning(self, caplog):
         import logging
         result = _make_result(128, "", "fatal: not a git repository")
-        with patch("subprocess.run", return_value=result):
-            with caplog.at_level(logging.WARNING, logger="core.git"):
-                head_sha("/repo")
+        with patch("subprocess.run", return_value=result), caplog.at_level(logging.WARNING, logger="core.git"):
+            head_sha("/repo")
         assert any("returncode=128" in r.message for r in caplog.records)
