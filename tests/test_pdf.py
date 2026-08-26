@@ -45,7 +45,7 @@ class TestIngestPdf:
     def test_empty_pdf_skips_upsert(self, mocker, tmp_path, caplog):
         pdf = tmp_path / "empty.pdf"
         pdf.write_bytes(b"%PDF-fake")
-        mocker.patch("ingest.pdf.extract_text", return_value="   ")
+        mocker.patch("ingest.pdf._extract_text_from_path", return_value="   ")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
         import logging
@@ -60,8 +60,8 @@ class TestIngestPdf:
     def test_local_pdf_upserted(self, mocker, tmp_path):
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-fake")
-        mocker.patch("ingest.pdf.extract_text", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, prompt: text)
+        mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+        mocker.patch("ingest.pdf.distill_design_doc", side_effect=lambda x: x)
         mocker.patch("ingest.pdf.delete_by_payload")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
@@ -79,8 +79,8 @@ class TestIngestPdf:
         respx.get("https://example.com/paper.pdf").mock(
             return_value=httpx.Response(200, content=b"%PDF-fake")
         )
-        mocker.patch("ingest.pdf.extract_text", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, prompt: text)
+        mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+        mocker.patch("ingest.pdf.distill_design_doc", side_effect=lambda x: x)
         mocker.patch("ingest.pdf.delete_by_payload")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
@@ -103,8 +103,8 @@ class TestIngestPdf:
     def test_deterministic_chunk_ids(self, mocker, tmp_path):
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-fake")
-        mocker.patch("ingest.pdf.extract_text", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, prompt: text)
+        mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+        mocker.patch("ingest.pdf.distill_design_doc", side_effect=lambda x: x)
         mocker.patch("ingest.pdf.delete_by_payload")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
