@@ -47,9 +47,8 @@ def _fetch_pdf_text(arxiv_id: str) -> str:
             follow_redirects=True,
         )
         resp.raise_for_status()
-        doc = pymupdf.open(stream=resp.content, filetype="pdf")
-        pages = [page.get_text() for page in doc]
-        doc.close()
+        with pymupdf.open(stream=resp.content, filetype="pdf") as doc:
+            pages = [page.get_text() for page in doc]
         return "\n\n".join(pages)[:8000]
     except Exception as e:  # noqa: BLE001
         _log.warning("PDF fetch failed (%s), using abstract only", e)
