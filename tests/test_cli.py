@@ -90,3 +90,66 @@ class TestArxivCommand:
         mock_ingest.assert_called_once_with(
             "https://arxiv.org/abs/1706.03762", tags=["ml", "nlp"]
         )
+
+
+class TestArxivValidation:
+    def test_arxiv_rejects_no_scheme(self):
+        result = CliRunner().invoke(main, ["arxiv", "arxiv.org/abs/1706.03762"])
+        assert result.exit_code != 0
+        assert "http" in result.output.lower() or "url" in result.output.lower()
+
+    def test_arxiv_rejects_bare_id(self):
+        result = CliRunner().invoke(main, ["arxiv", "1706.03762"])
+        assert result.exit_code != 0
+
+    def test_arxiv_accepts_https(self, mocker):
+        mock_ingest = mocker.patch("cli.ingest_arxiv")
+        result = CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762"])
+        assert result.exit_code == 0
+        mock_ingest.assert_called_once()
+
+    def test_arxiv_accepts_http(self, mocker):
+        mock_ingest = mocker.patch("cli.ingest_arxiv")
+        result = CliRunner().invoke(main, ["arxiv", "http://example.com/paper"])
+        assert result.exit_code == 0
+        mock_ingest.assert_called_once()
+
+
+class TestSearchLimitValidation:
+    def test_search_limit_zero_rejected(self, mocker):
+        mocker.patch("core.qdrant.search", return_value=[])
+        result = CliRunner().invoke(main, ["search", "q", "--limit", "0"])
+        assert result.exit_code != 0
+
+    def test_search_limit_negative_rejected(self, mocker):
+        mocker.patch("core.qdrant.search", return_value=[])
+        result = CliRunner().invoke(main, ["search", "q", "--limit", "-1"])
+        assert result.exit_code != 0
+
+    def test_search_limit_over_100_rejected(self, mocker):
+        mocker.patch("core.qdrant.search", return_value=[])
+        result = CliRunner().invoke(main, ["search", "q", "--limit", "101"])
+        assert result.exit_code != 0
+
+    def test_search_limit_1_accepted(self, mocker):
+        mocker.patch("core.qdrant.search", return_value=[])
+        result = CliRunner().invoke(main, ["search", "q", "--limit", "1"])
+        assert result.exit_code == 0
+
+    def test_search_limit_100_accepted(self, mocker):
+        mocker.patch("core.qdrant.search", return_value=[])
+        result = CliRunner().invoke(main, ["search", "q", "--limit", "100"])
+        assert result.exit_code == 0
+
+
+class TestPdfValidation:
+    def test_pdf_missing_file_shows_error(self, mocker):
+        mocker.patch("ingest.pdf.ingest_pdf", side_effect=FileNotFoundError)
+        result = CliRunner().invoke(main, ["pdf", "/nonexistent/path.pdf"])
+        assert result.exit_code != 0
+        assert "ファイルが見つかりません" in result.output or "Error" in result.output
+
+    def test_pdf_calls_ingest_pdf(self, mocker):
+        mock_ingest = mocker.patch("ingest.pdf.ingest_pdf")
+        CliRunner().invoke(main, ["pdf", "/some/file.pdf"])
+        mock_ingest.assert_called_once_with("/some/file.pdf", tags=[])
