@@ -1,6 +1,5 @@
 """Ingest local or remote PDF files into Qdrant research collection."""
 from datetime import UTC, datetime
-from pathlib import Path
 
 import pymupdf
 
@@ -8,6 +7,7 @@ from core.chunker import chunk_text
 from core.distiller import distill_design_doc
 from core.ids import make_id
 from core.logging import get_logger
+from core.path_guard import assert_https_url, assert_safe_path
 from core.qdrant import delete_by_payload, upsert
 
 _log = get_logger(__name__)
@@ -29,13 +29,15 @@ def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
     source_url = source
 
     if source.startswith("http"):
+        assert_https_url(source)
         import httpx
         resp = httpx.get(source, timeout=60, follow_redirects=True)
         resp.raise_for_status()
         pdf_bytes = resp.content
     else:
-        pdf_bytes = Path(source).read_bytes()
-        source_url = str(Path(source).resolve())
+        resolved = assert_safe_path(source)
+        pdf_bytes = resolved.read_bytes()
+        source_url = str(resolved)
 
     text = extract_text(pdf_bytes)
     if not text.strip():
