@@ -1,5 +1,6 @@
 """Ingest arxiv papers and tech blog posts into Qdrant research collection."""
 import re
+import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
 import httpx
@@ -13,6 +14,8 @@ from core.qdrant import upsert
 _log = get_logger(__name__)
 
 COLLECTION = "research"
+_ATOM_NS = "http://www.w3.org/2005/Atom"
+_ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
 
 
 def _arxiv_id(url: str) -> str | None:
@@ -20,22 +23,42 @@ def _arxiv_id(url: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _validate_arxiv_id(arxiv_id: str) -> str:
+    """Validate arxiv_id format before use in URL to prevent injection."""
+    if not _ARXIV_ID_RE.fullmatch(arxiv_id):
+        raise ValueError(f"不正な arxiv_id フォーマット: {arxiv_id!r}")
+    return arxiv_id
+
+
 def _fetch_arxiv(arxiv_id: str) -> dict:
+    _validate_arxiv_id(arxiv_id)
     resp = httpx.get(
         f"https://export.arxiv.org/api/query?id_list={arxiv_id}",
         timeout=30,
     )
     resp.raise_for_status()
-    text = resp.text
-    title = re.search(r"<title>([^<]+)</title>", text)
-    summary = re.search(r"<summary>([^<]+)</summary>", text, re.DOTALL)
-    authors = re.findall(r"<name>([^<]+)</name>", text)
-    published = re.search(r"<published>([^<]+)</published>", text)
+    root = ET.fromstring(resp.text)
+    entries = root.findall(f"{{{_ATOM_NS}}}entry")
+    if not entries:
+        raise ValueError(f"{arxiv_id} が見つかりません")
+    entry = entries[0]
+
+    def _text(tag: str) -> str:
+        el = entry.find(f"{{{_ATOM_NS}}}{tag}")
+        return el.text.strip() if el is not None and el.text else ""
+
+    authors = [
+        name.text.strip()
+        for author in entry.findall(f"{{{_ATOM_NS}}}author")
+        for name in author.findall(f"{{{_ATOM_NS}}}name")
+        if name.text
+    ]
+    published_raw = _text("published")
     return {
-        "title": title.group(1).strip() if title else "",
-        "abstract": summary.group(1).strip() if summary else "",
+        "title": _text("title"),
+        "abstract": _text("summary"),
         "authors": authors,
-        "published_date": published.group(1)[:10] if published else "",
+        "published_date": published_raw[:10] if published_raw else "",
     }
 
 
