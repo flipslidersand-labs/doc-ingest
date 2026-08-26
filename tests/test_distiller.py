@@ -48,6 +48,30 @@ class TestGenerate:
         assert len(out) == 500
 
 
+
+    def test_memory_error_not_swallowed_ollama(self, mocker):
+        mocker.patch("urllib.request.urlopen", side_effect=MemoryError("oom"))
+        import pytest
+        with pytest.raises(MemoryError):
+            distiller._generate("prompt", source_text="raw")
+
+    def test_keyboard_interrupt_not_swallowed_anthropic(self, mocker):
+        mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
+        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "sk-fake")
+        mocker.patch.object(distiller, "_anthropic", side_effect=KeyboardInterrupt)
+        import pytest
+        with pytest.raises(KeyboardInterrupt):
+            distiller._generate("prompt", source_text="raw")
+
+    def test_fallback_emits_warning(self, mocker, caplog):
+        mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
+        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "")
+        import logging
+        with caplog.at_level(logging.WARNING):
+            distiller._generate("prompt", source_text="fallback text")
+        assert any("raw text fallback used" in r.message for r in caplog.records)
+
+
 class TestDistillFunctions:
     def test_distill_paper_calls_generate(self, mocker):
         mock_gen = mocker.patch.object(distiller, "_generate", return_value="distilled")
@@ -68,3 +92,11 @@ class TestDistillFunctions:
         distiller.distill_webpage("article content")
         prompt = mock_gen.call_args[0][0]
         assert "article content" in prompt
+
+    def test_distill_text_calls_generate(self, mocker):
+        mock_gen = mocker.patch.object(distiller, "_generate", return_value="ok")
+        distiller.distill_text("some text", "extract key points")
+        prompt = mock_gen.call_args[0][0]
+        assert "extract key points" in prompt
+        assert "some text" in prompt
+
