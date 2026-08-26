@@ -26,6 +26,8 @@ def main(verbose: bool):
 @click.option("--tags", default="", help="Comma-separated project tags (e.g. forge,fluxion)")
 def arxiv(url: str, tags: str):
     """Ingest an arxiv paper or tech blog post."""
+    if not url.startswith(("http://", "https://")):
+        raise click.BadParameter("http(s):// で始まる URL を指定してください", param_hint="'URL'")
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     ingest_arxiv(url, tags=tag_list)
 
@@ -57,7 +59,8 @@ def sync(force: bool, dry_run: bool):
 @click.option("--collection", default="external-docs",
               type=click.Choice(["external-docs", "research", "design", "notes"]),
               help="Qdrant collection to search")
-@click.option("--limit", default=5, show_default=True, help="Number of results")
+@click.option("--limit", default=5, show_default=True, help="Number of results (1-100)",
+              type=click.IntRange(min=1, max=100))
 @click.option("--nugget", is_flag=True, help="Extract BM25 nugget sentences instead of full chunks")
 @click.option("--nugget-k", default=3, show_default=True, help="Sentences per chunk when --nugget")
 def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int):
@@ -112,7 +115,10 @@ def pdf(path: str, tags: str):
     """Ingest a local PDF file into the research collection."""
     from ingest.pdf import ingest_pdf
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    ingest_pdf(path, tags=tag_list)
+    try:
+        ingest_pdf(path, tags=tag_list)
+    except FileNotFoundError:
+        raise click.ClickException(f"ファイルが見つかりません: {path}")
 
 
 if __name__ == "__main__":
