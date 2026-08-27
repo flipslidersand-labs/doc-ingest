@@ -7,10 +7,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from ingest.arxiv import ingest_arxiv  # noqa: E402
-from ingest.design_docs import ingest_design_docs  # noqa: E402
-from ingest.external import sync_external  # noqa: E402
-from ingest.notes import ingest_notes  # noqa: E402
+from ingest.arxiv import ingest_arxiv
+from ingest.design_docs import ingest_design_docs
+from ingest.external import sync_external
+from ingest.notes import ingest_notes
 
 
 @click.group()
