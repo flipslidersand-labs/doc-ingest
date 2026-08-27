@@ -11,7 +11,7 @@ from core.git import changed_files, head_sha
 from core.ids import make_id
 from core.logging import get_logger
 from core.path_guard import assert_safe_path
-from core.qdrant import delete_by_payload, upsert
+from core.qdrant import delete_by_ids, ids_by_payload, upsert
 
 _log = get_logger(__name__)
 
@@ -44,7 +44,7 @@ def ingest_design_docs(file: str | None = None) -> None:
     for path in files:
         if not path.exists():
             continue
-        delete_by_payload(COLLECTION, "file_path", str(path))
+        old_ids = ids_by_payload(COLLECTION, "file_path", str(path))
         text = path.read_text()
         chunks = chunk_markdown(text, source_url=str(path))
         with ThreadPoolExecutor(max_workers=DISTILL_WORKERS) as ex:
@@ -62,4 +62,7 @@ def ingest_design_docs(file: str | None = None) -> None:
             for chunk, distilled in zip(chunks, distilled_list)
         ]
         upsert(COLLECTION, points)
+        stale = [i for i in old_ids if i not in {p["id"] for p in points}]
+        if stale:
+            delete_by_ids(COLLECTION, stale)
         _log.info("ingested %s (%d chunks) → %s", path, len(points), COLLECTION)

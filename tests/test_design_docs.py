@@ -62,19 +62,42 @@ class TestIngestDesignDocs:
             ingest_design_docs()
         assert "no design docs changed" in caplog.text
 
-    def test_delete_called_before_upsert(self, mocker, tmp_path):
+    def test_upsert_before_delete_and_stale_removed(self, mocker, tmp_path):
         md = tmp_path / "CLAUDE.md"
         md.write_text("## Section\n" + "x" * 100)
 
+        old_id = 9999
         mocker.patch("ingest.design_docs._changed_files", return_value=[md])
         mocker.patch("ingest.design_docs.head_sha", return_value="abc")
-        mock_delete = mocker.patch("ingest.design_docs.delete_by_payload")
+        mocker.patch("ingest.design_docs.ids_by_payload", return_value=[old_id])
         mock_upsert = mocker.patch("ingest.design_docs.upsert")
+        mock_delete_ids = mocker.patch("ingest.design_docs.delete_by_ids")
         mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")
 
         from ingest.design_docs import ingest_design_docs
 
         ingest_design_docs()
 
-        mock_delete.assert_called_once_with("design", "file_path", str(md))
-        assert mock_upsert.call_count == 1
+        mock_upsert.assert_called_once()
+        # old_id is not in new points → should be deleted
+        mock_delete_ids.assert_called_once()
+        deleted = mock_delete_ids.call_args[0][1]
+        assert old_id in deleted
+
+    def test_no_stale_ids_skips_delete(self, mocker, tmp_path):
+        md = tmp_path / "CLAUDE.md"
+        md.write_text("## Section\n" + "x" * 100)
+
+        mocker.patch("ingest.design_docs._changed_files", return_value=[md])
+        mocker.patch("ingest.design_docs.head_sha", return_value="abc")
+        mocker.patch("ingest.design_docs.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("ingest.design_docs.upsert")
+        mock_delete_ids = mocker.patch("ingest.design_docs.delete_by_ids")
+        mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")
+
+        from ingest.design_docs import ingest_design_docs
+
+        ingest_design_docs()
+
+        mock_upsert.assert_called_once()
+        mock_delete_ids.assert_not_called()
