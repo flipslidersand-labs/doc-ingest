@@ -1,4 +1,5 @@
 """Tests for core/qdrant.py embed batching, retry, and auth handling."""
+
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -95,6 +96,7 @@ def test_embed_retries_on_timeout(monkeypatch):
 # Tests for #81: thread-safe client() singleton and _collection_exists cache
 # ---------------------------------------------------------------------------
 
+
 def test_client_singleton_threadsafe(monkeypatch):
     """Concurrent calls to client() must produce exactly one QdrantClient."""
     monkeypatch.setattr(q, "_client", None)
@@ -174,6 +176,7 @@ def test_collection_exists_cache_miss_fetches_remote(monkeypatch):
 # Tests for #91: list_collections uses order_by+limit=1
 # ---------------------------------------------------------------------------
 
+
 def test_list_collections_uses_order_by_limit_1(monkeypatch):
     """list_collections must use order_by desc + limit=1, not scroll(limit=50)."""
     from types import SimpleNamespace
@@ -186,9 +189,7 @@ def test_list_collections_uses_order_by_limit_1(monkeypatch):
     mock_client.get_collections.return_value = SimpleNamespace(collections=[col])
     mock_client.get_collection.return_value = SimpleNamespace(points_count=3)
 
-    latest_record = SimpleNamespace(
-        payload={"ingested_at": "2024-06-01T12:00:00Z", "text": "hi"}
-    )
+    latest_record = SimpleNamespace(payload={"ingested_at": "2024-06-01T12:00:00Z", "text": "hi"})
     mock_client.scroll.return_value = ([latest_record], None)
 
     monkeypatch.setattr(q, "_client", mock_client)

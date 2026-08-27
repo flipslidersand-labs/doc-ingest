@@ -6,6 +6,7 @@ Resolves a candidate path and verifies it lives inside *allowed_base*
 
 Also provides ``assert_https_url`` which rejects plain ``http://`` URLs.
 """
+
 from __future__ import annotations
 
 import os

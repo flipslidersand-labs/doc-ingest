@@ -91,9 +91,7 @@ class TestArxivCommand:
     def test_arxiv_tags_parsed(self, mocker):
         mock_ingest = mocker.patch("cli.ingest_arxiv")
         CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762", "--tags", "ml,nlp"])
-        mock_ingest.assert_called_once_with(
-            "https://arxiv.org/abs/1706.03762", tags=["ml", "nlp"]
-        )
+        mock_ingest.assert_called_once_with("https://arxiv.org/abs/1706.03762", tags=["ml", "nlp"])
 
 
 class TestArxivValidation:
