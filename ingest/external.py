@@ -15,6 +15,7 @@ from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
+from core.url_guard import UnsafeURLError, assert_safe_url
 
 _log = get_logger(__name__)
 
@@ -57,6 +58,11 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
 def _fetch_source(source: dict, force: bool, now: str) -> dict:
     """Fetch + extract content for one source. Thread-safe: reads source, never writes it."""
     url = source["url"]
+    try:
+        assert_safe_url(url)
+    except UnsafeURLError as exc:
+        _log.warning("blocked unsafe URL: %s", exc)
+        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
     stored_etag = source.get("last_etag", "")
     headers: dict[str, str] = {}
     if stored_etag and not force:
