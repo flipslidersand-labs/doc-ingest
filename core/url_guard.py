@@ -1,4 +1,5 @@
 """URL safety guard: reject non-HTTPS and private/reserved addresses."""
+
 import ipaddress
 import socket
 from urllib.parse import urlparse
@@ -36,6 +37,4 @@ def assert_safe_url(url: str) -> None:
         ip = ipaddress.ip_address(sockaddr[0])
         for network in _BLOCKED_NETWORKS:
             if ip in network:
-                raise UnsafeURLError(
-                    f"URL resolves to blocked address {ip} ({network}): {url!r}"
-                )
+                raise UnsafeURLError(f"URL resolves to blocked address {ip} ({network}): {url!r}")

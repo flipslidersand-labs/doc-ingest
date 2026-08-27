@@ -1,4 +1,5 @@
 """Tests for core/url_guard.py"""
+
 import socket
 
 import pytest
