@@ -172,6 +172,40 @@ def test_collection_exists_cache_miss_fetches_remote(monkeypatch):
     mock_client.get_collections.assert_called_once()
 
 
+def test_ensure_collection_creates_datetime_index(monkeypatch):
+    """ensure_collection() creates ingested_at datetime index on new collections."""
+    from qdrant_client.models import PayloadSchemaType
+
+    monkeypatch.setattr(q, "_known_collections", set())
+
+    mock_client = MagicMock()
+    mock_client.get_collections.return_value.collections = []
+    monkeypatch.setattr(q, "_client", mock_client)
+
+    q.ensure_collection("new-col")
+
+    mock_client.create_collection.assert_called_once()
+    mock_client.create_payload_index.assert_called_once_with(
+        "new-col", "ingested_at", field_schema=PayloadSchemaType.DATETIME
+    )
+
+
+def test_ensure_collection_skips_index_on_existing(monkeypatch):
+    """ensure_collection() does NOT create index when collection already exists."""
+    monkeypatch.setattr(q, "_known_collections", set())
+
+    mock_col = MagicMock()
+    mock_col.name = "existing-col"
+    mock_client = MagicMock()
+    mock_client.get_collections.return_value.collections = [mock_col]
+    monkeypatch.setattr(q, "_client", mock_client)
+
+    q.ensure_collection("existing-col")
+
+    mock_client.create_collection.assert_not_called()
+    mock_client.create_payload_index.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Tests for #91: list_collections uses order_by+limit=1
 # ---------------------------------------------------------------------------

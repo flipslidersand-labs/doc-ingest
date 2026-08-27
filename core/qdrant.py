@@ -5,7 +5,7 @@ import threading
 from typing import Any
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
 from core.logging import get_logger
 
@@ -67,6 +67,7 @@ def ensure_collection(name: str) -> None:
         name,
         vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
     )
+    c.create_payload_index(name, "ingested_at", field_schema=PayloadSchemaType.DATETIME)
     with _known_collections_lock:
         _known_collections.add(name)
 
