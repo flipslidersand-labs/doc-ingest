@@ -57,11 +57,19 @@ def sync(force: bool, dry_run: bool):
 
 @main.command()
 @click.argument("query")
-@click.option("--collection", default="external-docs",
-              type=click.Choice(["external-docs", "research", "design", "notes"]),
-              help="Qdrant collection to search")
-@click.option("--limit", default=5, show_default=True, help="Number of results (1-100)",
-              type=click.IntRange(min=1, max=100))
+@click.option(
+    "--collection",
+    default="external-docs",
+    type=click.Choice(["external-docs", "research", "design", "notes"]),
+    help="Qdrant collection to search",
+)
+@click.option(
+    "--limit",
+    default=5,
+    show_default=True,
+    help="Number of results (1-100)",
+    type=click.IntRange(min=1, max=100),
+)
 @click.option("--nugget", is_flag=True, help="Extract BM25 nugget sentences instead of full chunks")
 @click.option("--nugget-k", default=3, show_default=True, help="Sentences per chunk when --nugget")
 def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int):
