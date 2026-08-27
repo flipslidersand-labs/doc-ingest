@@ -1,4 +1,5 @@
 """Shared pytest fixtures for doc-ingest tests."""
+
 import pytest
 
 

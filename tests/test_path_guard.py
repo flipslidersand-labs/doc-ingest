@@ -1,4 +1,5 @@
 """Tests for core/path_guard.py — path traversal prevention."""
+
 import pytest
 
 from core.path_guard import assert_https_url, assert_safe_path

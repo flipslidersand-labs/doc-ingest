@@ -75,13 +75,12 @@ class TestSyncExternal:
     @respx.mock
     def test_retry_on_500(self, mock_sources, mocker, caplog):
         """500 response must trigger MAX_RETRIES attempts and log each retry."""
-        respx.get("https://example.com/api").mock(
-            return_value=httpx.Response(500)
-        )
+        respx.get("https://example.com/api").mock(return_value=httpx.Response(500))
         mocker.patch("ingest.external.time.sleep")  # avoid real waits
         import logging
 
         from ingest.external import MAX_RETRIES, sync_external
+
         with caplog.at_level(logging.DEBUG, logger="ingest.external"):
             sync_external()
         assert respx.calls.call_count == MAX_RETRIES, (
@@ -175,6 +174,7 @@ class TestSyncExternal:
         yaml_file = tmp_path / "external.yaml"
 
         import ingest.external as ext
+
         original = ext.SOURCES_FILE
         ext.SOURCES_FILE = yaml_file
 
@@ -187,6 +187,7 @@ class TestSyncExternal:
             assert tmp_files == [], f"leftover tmp files: {tmp_files}"
             # content is valid YAML
             from ruamel.yaml import YAML
+
             y = YAML()
             loaded = y.load(yaml_file.read_text())
             assert loaded[0]["url"] == "https://example.com"

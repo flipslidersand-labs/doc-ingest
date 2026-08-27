@@ -44,28 +44,34 @@ class TestArxivId:
 class TestValidateArxivId:
     def test_valid_short_id(self):
         from ingest.arxiv import _validate_arxiv_id
+
         assert _validate_arxiv_id("1706.03762") == "1706.03762"
 
     def test_valid_long_id(self):
         from ingest.arxiv import _validate_arxiv_id
+
         assert _validate_arxiv_id("2301.12345") == "2301.12345"
 
     def test_valid_versioned_id(self):
         from ingest.arxiv import _validate_arxiv_id
+
         assert _validate_arxiv_id("1706.03762v2") == "1706.03762v2"
 
     def test_invalid_id_raises(self):
         from ingest.arxiv import _validate_arxiv_id
+
         with pytest.raises(ValueError, match="不正な arxiv_id"):
             _validate_arxiv_id("../../etc/passwd")
 
     def test_empty_id_raises(self):
         from ingest.arxiv import _validate_arxiv_id
+
         with pytest.raises(ValueError, match="不正な arxiv_id"):
             _validate_arxiv_id("")
 
     def test_id_with_spaces_raises(self):
         from ingest.arxiv import _validate_arxiv_id
+
         with pytest.raises(ValueError, match="不正な arxiv_id"):
             _validate_arxiv_id("1706.03762 extra")
 
@@ -88,9 +94,12 @@ class TestFetchArxiv:
     def test_empty_feed_raises_value_error(self):
         """Empty feed (no entry elements) should raise ValueError immediately."""
         respx.get("https://export.arxiv.org/api/query?id_list=0000.00000").mock(
-            return_value=httpx.Response(200, text='<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>')
+            return_value=httpx.Response(
+                200, text='<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>'
+            )
         )
         from ingest.arxiv import _fetch_arxiv
+
         with pytest.raises(ValueError, match="0000.00000 が見つかりません"):
             _fetch_arxiv("0000.00000")
 
@@ -98,6 +107,7 @@ class TestFetchArxiv:
     def test_invalid_id_rejected_before_request(self):
         """Malformed arxiv_id should raise before any HTTP call is made."""
         from ingest.arxiv import _fetch_arxiv
+
         with pytest.raises(ValueError, match="不正な arxiv_id"):
             _fetch_arxiv("bad/id/../etc")
 
@@ -117,6 +127,7 @@ class TestFetchArxiv:
             return_value=httpx.Response(200, text=xml_with_entities)
         )
         from ingest.arxiv import _fetch_arxiv
+
         meta = _fetch_arxiv("2301.00001")
         assert meta["title"] == "A & B <paper>"
         assert "<attention>" in meta["abstract"]

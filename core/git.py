@@ -1,4 +1,5 @@
 """Git utilities shared across ingest modules."""
+
 import logging
 import subprocess
 from pathlib import Path
@@ -15,7 +16,9 @@ def changed_files(repo_path: str | Path = ".") -> list[Path]:
     """
     r = subprocess.run(
         ["git", "-C", str(repo_path), "diff", "--name-only", "HEAD~1"],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if r.returncode != 0:
         _log.warning(
@@ -32,7 +35,9 @@ def head_sha(repo_path: str | Path = ".") -> str:
     """Return the short SHA of HEAD, or empty string on error."""
     r = subprocess.run(
         ["git", "-C", str(repo_path), "rev-parse", "--short", "HEAD"],
-        capture_output=True, text=True, check=False,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if r.returncode != 0:
         _log.warning(
