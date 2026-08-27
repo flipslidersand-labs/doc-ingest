@@ -11,6 +11,7 @@ from core.distiller import distill_paper, distill_webpage
 from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import upsert
+from core.url_guard import assert_safe_url
 
 _log = get_logger(__name__)
 
@@ -102,7 +103,8 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
             }
         ]
     else:
-        # tech blog
+        # tech blog — validate before fetching to prevent SSRF
+        assert_safe_url(url)
         resp = httpx.get(url, timeout=30)
         resp.raise_for_status()
         distilled = distill_webpage(resp.text)
