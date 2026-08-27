@@ -18,7 +18,7 @@ class TestAssertSafeUrl:
 
     def test_private_ip_rfc1918_192(self):
         with pytest.raises(UnsafeURLError, match="blocked"):
-            assert_safe_url("https://192.168.68.1/admin")
+            assert_safe_url("https://192.168.1.1/admin")
 
     def test_loopback_ipv4(self):
         with pytest.raises(UnsafeURLError, match="blocked"):
@@ -76,7 +76,7 @@ class TestExternalSsrf:
 
     def test_private_url_in_source_is_blocked(self, mocker):
         source = {
-            "url": "https://192.168.68.100/internal",
+            "url": "https://192.168.1.100/internal",
             "type": "external-api",
             "render": False,
             "check_interval": "weekly",
