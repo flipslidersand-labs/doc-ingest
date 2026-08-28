@@ -21,6 +21,15 @@ EMBED_BATCH = int(os.getenv("EMBED_BATCH", "16"))  # 1 POST あたりの最大�
 EMBED_RETRIES = 3
 VECTOR_SIZE = 768  # multilingual-e5-base
 
+# EMBED_BACKEND=onnx_gpu: bypass HTTP and infer locally with onnxruntime CUDA EP.
+# Requires: ONNX_MODEL_PATH, LD_LIBRARY_PATH with CUDA/cuDNN libs (see .env.example).
+EMBED_BACKEND = os.getenv("EMBED_BACKEND", "http")  # "http" | "onnx_gpu"
+ONNX_MODEL_PATH = os.getenv("ONNX_MODEL_PATH", "")
+
+# Lazy ONNX session — initialized once on first embed call.
+_onnx_sess = None
+_onnx_lock = threading.Lock()
+
 _client: QdrantClient | None = None
 _client_lock = threading.Lock()
 
@@ -72,6 +81,52 @@ def ensure_collection(name: str) -> None:
         _known_collections.add(name)
 
 
+def _onnx_session():
+    """Return (or lazily initialize) the ONNX InferenceSession for GPU inference."""
+    global _onnx_sess
+    if _onnx_sess is not None:
+        return _onnx_sess
+    with _onnx_lock:
+        if _onnx_sess is not None:
+            return _onnx_sess
+        import onnxruntime as ort
+
+        if not ONNX_MODEL_PATH:
+            raise RuntimeError("ONNX_MODEL_PATH is not set. Cannot use EMBED_BACKEND=onnx_gpu.")
+        _log.info("Loading ONNX model from %s …", ONNX_MODEL_PATH)
+        _onnx_sess = ort.InferenceSession(
+            ONNX_MODEL_PATH,
+            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+        )
+        active = _onnx_sess.get_providers()[0]
+        _log.info("ONNX session ready — active EP: %s", active)
+        return _onnx_sess
+
+
+def _embed_batch_onnx(texts: list[str]) -> list[list[float]]:
+    """Embed texts locally using onnxruntime (CUDA EP on dev-nodee GTX1080)."""
+    import numpy as np
+    from transformers import AutoTokenizer
+
+    sess = _onnx_session()
+
+    # Tokenize — use the model directory that contains tokenizer_config.json
+    model_dir = os.path.dirname(ONNX_MODEL_PATH)
+    tok = AutoTokenizer.from_pretrained(model_dir)
+    enc = tok(texts, padding=True, truncation=True, max_length=512, return_tensors="np")
+
+    input_names = {i.name for i in sess.get_inputs()}
+    feed = {k: v.astype(np.int64) for k, v in enc.items() if k in input_names}
+    out = sess.run(None, feed)[0]  # (batch, seq, 768)
+
+    # Mean-pool over non-padding tokens then L2-normalize (e5 convention).
+    mask = feed["attention_mask"].astype(np.float32)  # (batch, seq)
+    pooled = (out * mask[:, :, None]).sum(axis=1) / mask.sum(axis=1, keepdims=True)
+    norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+    pooled = pooled / np.maximum(norms, 1e-9)
+    return pooled.tolist()
+
+
 def _embed_batch(texts: list[str]) -> list[list[float]]:
     import time
 
@@ -103,9 +158,10 @@ def _embed_batch(texts: list[str]) -> list[list[float]]:
 
 def embed(texts: list[str]) -> list[list[float]]:
     """Embed texts in bounded sub-batches so a single POST stays within timeout."""
+    batch_fn = _embed_batch_onnx if EMBED_BACKEND == "onnx_gpu" else _embed_batch
     vectors: list[list[float]] = []
     for i in range(0, len(texts), EMBED_BATCH):
-        vectors.extend(_embed_batch(texts[i : i + EMBED_BATCH]))
+        vectors.extend(batch_fn(texts[i : i + EMBED_BATCH]))
     return vectors
 
 
