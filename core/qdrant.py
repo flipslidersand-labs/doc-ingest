@@ -26,8 +26,10 @@ VECTOR_SIZE = 768  # multilingual-e5-base
 EMBED_BACKEND = os.getenv("EMBED_BACKEND", "http")  # "http" | "onnx_gpu"
 ONNX_MODEL_PATH = os.getenv("ONNX_MODEL_PATH", "")
 
-# Lazy ONNX session — initialized once on first embed call.
+# Lazy ONNX session + tokenizer — initialized once on first embed call.
 _onnx_sess = None
+_onnx_tok = None
+_onnx_input_names: frozenset[str] = frozenset()
 _onnx_lock = threading.Lock()
 
 _client: QdrantClient | None = None
@@ -81,49 +83,52 @@ def ensure_collection(name: str) -> None:
         _known_collections.add(name)
 
 
-def _onnx_session():
-    """Return (or lazily initialize) the ONNX InferenceSession for GPU inference."""
-    global _onnx_sess
-    if _onnx_sess is not None:
-        return _onnx_sess
-    with _onnx_lock:
-        if _onnx_sess is not None:
-            return _onnx_sess
-        import onnxruntime as ort
+def _onnx_init() -> None:
+    """Lazily initialize ONNX session + tokenizer (called once, under lock)."""
+    global _onnx_sess, _onnx_tok, _onnx_input_names
+    import onnxruntime as ort
+    from transformers import AutoTokenizer
 
-        if not ONNX_MODEL_PATH:
-            raise RuntimeError("ONNX_MODEL_PATH is not set. Cannot use EMBED_BACKEND=onnx_gpu.")
-        _log.info("Loading ONNX model from %s …", ONNX_MODEL_PATH)
-        _onnx_sess = ort.InferenceSession(
-            ONNX_MODEL_PATH,
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-        )
-        active = _onnx_sess.get_providers()[0]
-        _log.info("ONNX session ready — active EP: %s", active)
-        return _onnx_sess
+    if not ONNX_MODEL_PATH:
+        raise RuntimeError("ONNX_MODEL_PATH is not set. Cannot use EMBED_BACKEND=onnx_gpu.")
+    model_dir = os.path.dirname(os.path.abspath(ONNX_MODEL_PATH))
+    _log.info("Loading ONNX model from %s …", ONNX_MODEL_PATH)
+    _onnx_sess = ort.InferenceSession(
+        ONNX_MODEL_PATH,
+        providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+    )
+    _onnx_input_names = frozenset(i.name for i in _onnx_sess.get_inputs())
+    _log.info("ONNX session ready — active EP: %s", _onnx_sess.get_providers()[0])
+    _log.info("Loading tokenizer from %s …", model_dir)
+    _onnx_tok = AutoTokenizer.from_pretrained(model_dir)
+    _log.info("Tokenizer ready")
+
+
+def _onnx_resources() -> tuple:
+    """Return cached (session, tokenizer, input_names), initializing on first call."""
+    if _onnx_sess is not None:
+        return _onnx_sess, _onnx_tok, _onnx_input_names
+    with _onnx_lock:
+        if _onnx_sess is None:
+            _onnx_init()
+    return _onnx_sess, _onnx_tok, _onnx_input_names
 
 
 def _embed_batch_onnx(texts: list[str]) -> list[list[float]]:
     """Embed texts locally using onnxruntime (CUDA EP on dev-nodee GTX1080)."""
     import numpy as np
-    from transformers import AutoTokenizer
 
-    sess = _onnx_session()
-
-    # Tokenize — use the model directory that contains tokenizer_config.json
-    model_dir = os.path.dirname(ONNX_MODEL_PATH)
-    tok = AutoTokenizer.from_pretrained(model_dir)
+    sess, tok, input_names = _onnx_resources()
     enc = tok(texts, padding=True, truncation=True, max_length=512, return_tensors="np")
 
-    input_names = {i.name for i in sess.get_inputs()}
+    # Always keep attention_mask from enc (may be absent from ONNX input_names).
+    mask = enc["attention_mask"].astype(np.float32)  # (batch, seq)
     feed = {k: v.astype(np.int64) for k, v in enc.items() if k in input_names}
-    out = sess.run(None, feed)[0]  # (batch, seq, 768)
+    out = sess.run(None, feed)[0]  # (batch, seq, hidden)
 
     # Mean-pool over non-padding tokens then L2-normalize (e5 convention).
-    mask = feed["attention_mask"].astype(np.float32)  # (batch, seq)
     pooled = (out * mask[:, :, None]).sum(axis=1) / mask.sum(axis=1, keepdims=True)
-    norms = np.linalg.norm(pooled, axis=1, keepdims=True)
-    pooled = pooled / np.maximum(norms, 1e-9)
+    pooled /= np.maximum(np.linalg.norm(pooled, axis=1, keepdims=True), 1e-9)
     return pooled.tolist()
 
 
