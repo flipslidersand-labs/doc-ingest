@@ -14,9 +14,14 @@ _log = get_logger(__name__)
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None  # None → unauthenticated (dev/localhost)
 EMBED_URL = os.getenv("EMBED_URL", "http://localhost:9092/embed/batch")
+# C plan: GPU primary on dev-nodee. When set, _embed_batch tries this first and falls
+# back to EMBED_URL on any connection/timeout error (dev-nodee may not be always-on).
+EMBED_URL_FALLBACK = os.getenv("EMBED_URL_FALLBACK") or None
 EMBED_API_KEY = os.getenv("EMBED_API_KEY") or None  # None → no X-API-Key header sent
+EMBED_API_KEY_FALLBACK = os.getenv("EMBED_API_KEY_FALLBACK") or EMBED_API_KEY
 EMBED_COLLECTION = os.getenv("EMBED_COLLECTION", "sessions")  # embedding-svc のモデルルーティング用
 EMBED_TIMEOUT = float(os.getenv("EMBED_TIMEOUT", "180"))  # CPU e5 のコールドロードを許容
+EMBED_TIMEOUT_PRIMARY = float(os.getenv("EMBED_TIMEOUT_PRIMARY", "10"))  # GPU primary probe timeout
 EMBED_BATCH = int(os.getenv("EMBED_BATCH", "16"))  # 1 POST あたりの最大テキスト数
 EMBED_RETRIES = 3
 VECTOR_SIZE = 768  # multilingual-e5-base
@@ -132,22 +137,37 @@ def _embed_batch_onnx(texts: list[str]) -> list[list[float]]:
     return pooled.tolist()
 
 
+def _post_embed(url: str, api_key: str | None, texts: list[str], timeout: float) -> list[list[float]]:
+    import httpx
+
+    resp = httpx.post(
+        url,
+        json={"texts": texts, "collection": EMBED_COLLECTION, "mode": "index"},
+        headers={"X-API-Key": api_key} if api_key else {},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    return resp.json()["vectors"]
+
+
 def _embed_batch(texts: list[str]) -> list[list[float]]:
     import time
 
-    import httpx
+    # C plan: try GPU primary (dev-nodee) first, fall back to EMBED_URL on failure.
+    if EMBED_URL_FALLBACK:
+        try:
+            vectors = _post_embed(EMBED_URL, EMBED_API_KEY, texts, EMBED_TIMEOUT_PRIMARY)
+            return vectors
+        except Exception as e:
+            _log.warning("GPU primary %s failed (%s) — falling back to %s", EMBED_URL, type(e).__name__, EMBED_URL_FALLBACK)
+        primary_url, primary_key = EMBED_URL_FALLBACK, EMBED_API_KEY_FALLBACK
+    else:
+        primary_url, primary_key = EMBED_URL, EMBED_API_KEY
 
     for attempt in range(EMBED_RETRIES):
         try:
-            resp = httpx.post(
-                EMBED_URL,
-                json={"texts": texts, "collection": EMBED_COLLECTION, "mode": "index"},
-                headers={"X-API-Key": EMBED_API_KEY} if EMBED_API_KEY else {},
-                timeout=EMBED_TIMEOUT,
-            )
-            resp.raise_for_status()
-            return resp.json()["vectors"]
-        except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            return _post_embed(primary_url, primary_key, texts, EMBED_TIMEOUT)
+        except Exception as e:
             if attempt == EMBED_RETRIES - 1:
                 raise
             _log.warning(
