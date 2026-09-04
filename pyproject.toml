@@ -28,6 +28,10 @@ include = ["core*", "ingest*", "sources*"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-mock>=3", "respx>=0.21", "pytest-cov>=5", "ruff>=0.5", "pytest-timeout>=2.3"]
+onnx-gpu = [
+    "onnxruntime-gpu==1.19.2",
+    "transformers>=4.40",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

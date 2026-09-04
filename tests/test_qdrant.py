@@ -12,6 +12,7 @@ import core.qdrant as q
 
 @respx.mock
 def test_embed_subbatches(monkeypatch):
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
     monkeypatch.setattr(q, "EMBED_BATCH", 4)
     seen = []
 
@@ -43,6 +44,7 @@ def test_embed_api_key_none_when_unset(monkeypatch):
 @respx.mock
 def test_embed_omits_auth_header_when_key_unset(monkeypatch):
     """No X-API-Key header is sent when EMBED_API_KEY is None."""
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
     monkeypatch.setattr(q, "EMBED_API_KEY", None)
     monkeypatch.setattr(q, "EMBED_BATCH", 16)
     received_headers = {}
@@ -59,6 +61,7 @@ def test_embed_omits_auth_header_when_key_unset(monkeypatch):
 @respx.mock
 def test_embed_sends_auth_header_when_key_set(monkeypatch):
     """X-API-Key header is sent when EMBED_API_KEY is set."""
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
     monkeypatch.setattr(q, "EMBED_API_KEY", "secret-key")
     monkeypatch.setattr(q, "EMBED_BATCH", 16)
     received_headers = {}
@@ -74,6 +77,7 @@ def test_embed_sends_auth_header_when_key_set(monkeypatch):
 
 @respx.mock
 def test_embed_retries_on_timeout(monkeypatch):
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
     monkeypatch.setattr(q, "EMBED_BATCH", 16)
     calls = {"n": 0}
 
