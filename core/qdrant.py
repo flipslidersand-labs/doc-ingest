@@ -14,6 +14,10 @@ _log = get_logger(__name__)
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None  # None → unauthenticated (dev/localhost)
 EMBED_URL = os.getenv("EMBED_URL", "http://localhost:9092/embed/batch")
+# EMBED_FALLBACK_URL: secondary endpoint used when EMBED_URL is unreachable or returns 501.
+# Unset by default — when absent, behaviour is identical to before this change.
+# C案: EMBED_URL=dev-nodee:9093 (GPU primary), EMBED_FALLBACK_URL=MINIPC:9092 (INT8 fallback)
+EMBED_FALLBACK_URL = os.getenv("EMBED_FALLBACK_URL", "")
 EMBED_API_KEY = os.getenv("EMBED_API_KEY") or None  # None → no X-API-Key header sent
 EMBED_COLLECTION = os.getenv("EMBED_COLLECTION", "sessions")  # embedding-svc のモデルルーティング用
 EMBED_TIMEOUT = float(os.getenv("EMBED_TIMEOUT", "180"))  # CPU e5 のコールドロードを許容
@@ -132,33 +136,59 @@ def _embed_batch_onnx(texts: list[str]) -> list[list[float]]:
     return pooled.tolist()
 
 
+def _post_embed(url: str, texts: list[str]) -> list[list[float]]:
+    """POST to *url* and return vectors. Raises on network error or non-2xx."""
+    import httpx
+
+    resp = httpx.post(
+        url,
+        json={"texts": texts, "collection": EMBED_COLLECTION, "mode": "index"},
+        headers={"X-API-Key": EMBED_API_KEY} if EMBED_API_KEY else {},
+        timeout=EMBED_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.json()["vectors"]
+
+
 def _embed_batch(texts: list[str]) -> list[list[float]]:
     import time
 
     import httpx
 
-    for attempt in range(EMBED_RETRIES):
-        try:
-            resp = httpx.post(
-                EMBED_URL,
-                json={"texts": texts, "collection": EMBED_COLLECTION, "mode": "index"},
-                headers={"X-API-Key": EMBED_API_KEY} if EMBED_API_KEY else {},
-                timeout=EMBED_TIMEOUT,
-            )
-            resp.raise_for_status()
-            return resp.json()["vectors"]
-        except (httpx.TimeoutException, httpx.HTTPStatusError) as e:
-            if attempt == EMBED_RETRIES - 1:
-                raise
-            _log.warning(
-                "embed retry %d/%d — %d texts → %s",
-                attempt + 1,
-                EMBED_RETRIES,
-                len(texts),
-                type(e).__name__,
-            )
-            time.sleep(2**attempt)  # 1s, 2s
-    raise RuntimeError("unreachable")
+    urls = [u for u in [EMBED_URL, EMBED_FALLBACK_URL] if u]
+    last_exc: Exception = RuntimeError("no EMBED_URL configured")
+    for url in urls:
+        for attempt in range(EMBED_RETRIES):
+            try:
+                vectors = _post_embed(url, texts)
+                if url != EMBED_URL:
+                    _log.warning("embed: using fallback %s (primary unavailable)", url)
+                return vectors
+            except httpx.HTTPStatusError as e:
+                # 501 = collection not served by this backend → try fallback immediately
+                if e.response.status_code == 501:
+                    _log.info("embed: primary returned 501, switching to fallback")
+                    last_exc = e
+                    break  # skip retries, move to next url
+                if attempt == EMBED_RETRIES - 1:
+                    last_exc = e
+                    break
+                _log.warning(
+                    "embed retry %d/%d — %d texts → %s (url=%s)",
+                    attempt + 1, EMBED_RETRIES, len(texts), type(e).__name__, url,
+                )
+                time.sleep(2**attempt)
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                if attempt == EMBED_RETRIES - 1:
+                    _log.warning("embed: %s unreachable (%s), trying fallback", url, type(e).__name__)
+                    last_exc = e
+                    break
+                _log.warning(
+                    "embed retry %d/%d — %d texts → %s (url=%s)",
+                    attempt + 1, EMBED_RETRIES, len(texts), type(e).__name__, url,
+                )
+                time.sleep(2**attempt)
+    raise last_exc
 
 
 def embed(texts: list[str]) -> list[list[float]]:
