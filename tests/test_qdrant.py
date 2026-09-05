@@ -97,6 +97,94 @@ def test_embed_retries_on_timeout(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Tests for #21: primary→fallback routing
+# ---------------------------------------------------------------------------
+
+PRIMARY_URL = "http://primary:9093/embed/batch"
+FALLBACK_URL = "http://fallback:9092/embed/batch"
+
+
+@respx.mock
+def test_fallback_on_connect_error(monkeypatch):
+    """When primary is unreachable, fallback URL is used."""
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
+    monkeypatch.setattr(q, "EMBED_BATCH", 16)
+    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
+    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", FALLBACK_URL)
+    monkeypatch.setattr(q, "EMBED_RETRIES", 1)
+
+    respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
+    respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.1] * 768]}))
+
+    with patch("time.sleep"):
+        vecs = q.embed(["test"])
+    assert len(vecs) == 1
+
+
+@respx.mock
+def test_fallback_on_501(monkeypatch):
+    """When primary returns 501 (collection not served), fallback is tried immediately."""
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
+    monkeypatch.setattr(q, "EMBED_BATCH", 16)
+    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
+    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", FALLBACK_URL)
+    monkeypatch.setattr(q, "EMBED_RETRIES", 3)
+
+    primary_calls = {"n": 0}
+
+    def primary_responder(request):
+        primary_calls["n"] += 1
+        return httpx.Response(501, json={"detail": "not served"})
+
+    respx.post(PRIMARY_URL).mock(side_effect=primary_responder)
+    respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.2] * 768]}))
+
+    with patch("time.sleep"):
+        vecs = q.embed(["snippet code"])
+    assert len(vecs) == 1
+    assert primary_calls["n"] == 1  # no retry on 501
+
+
+@respx.mock
+def test_no_fallback_when_unset(monkeypatch):
+    """When EMBED_FALLBACK_URL is empty, error propagates as before."""
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
+    monkeypatch.setattr(q, "EMBED_BATCH", 16)
+    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
+    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", "")
+    monkeypatch.setattr(q, "EMBED_RETRIES", 1)
+
+    respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
+
+    import pytest
+
+    with patch("time.sleep"), pytest.raises(httpx.ConnectError):
+        q.embed(["test"])
+
+
+@respx.mock
+def test_primary_used_when_available(monkeypatch):
+    """When primary is healthy, fallback URL is never called."""
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
+    monkeypatch.setattr(q, "EMBED_BATCH", 16)
+    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
+    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", FALLBACK_URL)
+
+    fallback_calls = {"n": 0}
+
+    def fallback_responder(request):
+        fallback_calls["n"] += 1
+        return httpx.Response(200, json={"vectors": [[0.3] * 768]})
+
+    respx.post(PRIMARY_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.4] * 768]}))
+    respx.post(FALLBACK_URL).mock(side_effect=fallback_responder)
+
+    vecs = q.embed(["test"])
+    assert len(vecs) == 1
+    assert fallback_calls["n"] == 0
+
+
+# ---------------------------------------------------------------------------
 # Tests for #81: thread-safe client() singleton and _collection_exists cache
 # ---------------------------------------------------------------------------
 
