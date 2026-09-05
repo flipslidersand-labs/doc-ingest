@@ -137,6 +137,10 @@ def _embed_batch_onnx(texts: list[str]) -> list[list[float]]:
     return pooled.tolist()
 
 
+class _FallbackNeeded(Exception):
+    """Raised by _post_embed when the primary should be bypassed without retry."""
+
+
 def _post_embed(url: str, api_key: str | None, texts: list[str], timeout: float) -> list[list[float]]:
     import httpx
 
@@ -146,6 +150,10 @@ def _post_embed(url: str, api_key: str | None, texts: list[str], timeout: float)
         headers={"X-API-Key": api_key} if api_key else {},
         timeout=timeout,
     )
+    # 501: GPU service doesn't support this collection (e.g. snippets/codebert).
+    # Signal immediate fallback without retry — no point retrying the same endpoint.
+    if resp.status_code == 501:
+        raise _FallbackNeeded(f"501 from {url} (collection not supported by GPU primary)")
     resp.raise_for_status()
     return resp.json()["vectors"]
 
@@ -154,10 +162,13 @@ def _embed_batch(texts: list[str]) -> list[list[float]]:
     import time
 
     # C plan: try GPU primary (dev-nodee) first, fall back to EMBED_URL on failure.
+    # Triggers: connection error, timeout, HTTP 501 (collection unsupported by GPU svc).
     if EMBED_URL_FALLBACK:
         try:
             vectors = _post_embed(EMBED_URL, EMBED_API_KEY, texts, EMBED_TIMEOUT_PRIMARY)
             return vectors
+        except _FallbackNeeded as e:
+            _log.info("GPU primary: %s — using fallback", e)
         except Exception as e:
             _log.warning("GPU primary %s failed (%s) — falling back to %s", EMBED_URL, type(e).__name__, EMBED_URL_FALLBACK)
         primary_url, primary_key = EMBED_URL_FALLBACK, EMBED_API_KEY_FALLBACK
