@@ -141,7 +141,9 @@ class _FallbackNeeded(Exception):
     """Raised by _post_embed when the primary should be bypassed without retry."""
 
 
-def _post_embed(url: str, api_key: str | None, texts: list[str], timeout: float) -> list[list[float]]:
+def _post_embed(
+    url: str, api_key: str | None, texts: list[str], timeout: float
+) -> list[list[float]]:
     import httpx
 
     resp = httpx.post(
@@ -170,7 +172,12 @@ def _embed_batch(texts: list[str]) -> list[list[float]]:
         except _FallbackNeeded as e:
             _log.info("GPU primary: %s — using fallback", e)
         except Exception as e:
-            _log.warning("GPU primary %s failed (%s) — falling back to %s", EMBED_URL, type(e).__name__, EMBED_URL_FALLBACK)
+            _log.warning(
+                "GPU primary %s failed (%s) — falling back to %s",
+                EMBED_URL,
+                type(e).__name__,
+                EMBED_URL_FALLBACK,
+            )
         primary_url, primary_key = EMBED_URL_FALLBACK, EMBED_API_KEY_FALLBACK
     else:
         primary_url, primary_key = EMBED_URL, EMBED_API_KEY
