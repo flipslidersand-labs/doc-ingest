@@ -157,6 +157,7 @@ def test_no_fallback_when_unset(monkeypatch):
     respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
 
     import pytest
+
     with patch("time.sleep"), pytest.raises(httpx.ConnectError):
         q.embed(["test"])
 

@@ -175,17 +175,27 @@ def _embed_batch(texts: list[str]) -> list[list[float]]:
                     break
                 _log.warning(
                     "embed retry %d/%d — %d texts → %s (url=%s)",
-                    attempt + 1, EMBED_RETRIES, len(texts), type(e).__name__, url,
+                    attempt + 1,
+                    EMBED_RETRIES,
+                    len(texts),
+                    type(e).__name__,
+                    url,
                 )
                 time.sleep(2**attempt)
             except (httpx.TimeoutException, httpx.ConnectError) as e:
                 if attempt == EMBED_RETRIES - 1:
-                    _log.warning("embed: %s unreachable (%s), trying fallback", url, type(e).__name__)
+                    _log.warning(
+                        "embed: %s unreachable (%s), trying fallback", url, type(e).__name__
+                    )
                     last_exc = e
                     break
                 _log.warning(
                     "embed retry %d/%d — %d texts → %s (url=%s)",
-                    attempt + 1, EMBED_RETRIES, len(texts), type(e).__name__, url,
+                    attempt + 1,
+                    EMBED_RETRIES,
+                    len(texts),
+                    type(e).__name__,
+                    url,
                 )
                 time.sleep(2**attempt)
     raise last_exc
