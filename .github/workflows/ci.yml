@@ -30,4 +30,8 @@ jobs:
         run: pytest --cov --cov-report=term-missing --tb=short -q --timeout=60
 
   reviewdog:
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
     uses: flipslidersand-labs/qa-workflows/.github/workflows/reviewdog-python.yml@main
