@@ -20,11 +20,22 @@ DEFAULT_REPOS=(
 )
 
 # The snippet appended to (or placed in) the hook
+# Loads .env without shell evaluation (fixes #80/#129: arbitrary command
+# execution via source). Only KEY=VALUE lines are accepted; comments and
+# blank lines are skipped. Values are read as literal strings — no $(…),
+# backtick, or variable expansion occurs.
 read -r -d '' SNIPPET << 'SNIPPET' || true
 # doc-ingest-hook
 _DOC_INGEST_DIR="${DOC_INGEST_DIR:-$HOME/projects/doc-ingest}"
 if [ -f "$_DOC_INGEST_DIR/.env" ]; then
-  set -a && source "$_DOC_INGEST_DIR/.env" && set +a
+  while IFS= read -r _line || [ -n "$_line" ]; do
+    case "$_line" in
+      ''|'#'*) continue ;;
+    esac
+    if printf '%s\n' "$_line" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*='; then
+      export "$_line"
+    fi
+  done < "$_DOC_INGEST_DIR/.env"
 fi
 PYTHONPATH="$_DOC_INGEST_DIR" "$_DOC_INGEST_DIR/.venv/bin/doc-ingest" design 2>/dev/null || true
 SNIPPET
