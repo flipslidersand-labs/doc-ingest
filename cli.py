@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from core.url_guard import UnsafeURLError, assert_safe_url
 from ingest.arxiv import ingest_arxiv
 from ingest.design_docs import ingest_design_docs
 from ingest.external import sync_external
@@ -27,8 +28,10 @@ def main(verbose: bool):
 @click.option("--tags", default="", help="Comma-separated project tags (e.g. forge,fluxion)")
 def arxiv(url: str, tags: str):
     """Ingest an arxiv paper or tech blog post."""
-    if not url.startswith(("http://", "https://")):
-        raise click.BadParameter("http(s):// で始まる URL を指定してください", param_hint="'URL'")
+    try:
+        assert_safe_url(url)
+    except UnsafeURLError as exc:
+        raise click.BadParameter(str(exc), param_hint="'URL'") from exc
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     ingest_arxiv(url, tags=tag_list)
 
