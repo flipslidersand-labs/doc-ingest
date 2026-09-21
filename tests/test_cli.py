@@ -3,6 +3,7 @@
 from click.testing import CliRunner
 
 from cli import main
+from core.url_guard import UnsafeURLError
 
 
 class TestHelp:
@@ -84,11 +85,13 @@ class TestSearchCommand:
 
 class TestArxivCommand:
     def test_arxiv_calls_ingest_arxiv(self, mocker):
+        mocker.patch("cli.assert_safe_url")
         mock_ingest = mocker.patch("cli.ingest_arxiv")
         CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762"])
         mock_ingest.assert_called_once_with("https://arxiv.org/abs/1706.03762", tags=[])
 
     def test_arxiv_tags_parsed(self, mocker):
+        mocker.patch("cli.assert_safe_url")
         mock_ingest = mocker.patch("cli.ingest_arxiv")
         CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762", "--tags", "ml,nlp"])
         mock_ingest.assert_called_once_with("https://arxiv.org/abs/1706.03762", tags=["ml", "nlp"])
@@ -105,16 +108,24 @@ class TestArxivValidation:
         assert result.exit_code != 0
 
     def test_arxiv_accepts_https(self, mocker):
+        mocker.patch("cli.assert_safe_url")
         mock_ingest = mocker.patch("cli.ingest_arxiv")
         result = CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once()
 
-    def test_arxiv_accepts_http(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_arxiv")
+    def test_arxiv_rejects_http(self):
+        # http:// is no longer accepted — cli now shares core.url_guard.assert_safe_url
+        # with ingest_arxiv (#134), which requires https.
         result = CliRunner().invoke(main, ["arxiv", "http://example.com/paper"])
-        assert result.exit_code == 0
-        mock_ingest.assert_called_once()
+        assert result.exit_code != 0
+        assert "https" in result.output.lower()
+
+    def test_arxiv_rejects_private_address(self, mocker):
+        mocker.patch("cli.assert_safe_url", side_effect=UnsafeURLError("blocked"))
+        result = CliRunner().invoke(main, ["arxiv", "https://internal.example/paper"])
+        assert result.exit_code != 0
+        assert "blocked" in result.output
 
 
 class TestSearchLimitValidation:
