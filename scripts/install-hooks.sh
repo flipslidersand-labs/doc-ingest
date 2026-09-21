@@ -12,11 +12,14 @@ set -euo pipefail
 DOC_INGEST_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MARKER="# doc-ingest-hook"
 
-# Repos to install into when no arguments are given
+# Repos to install into when no arguments are given.
+# NOTE: mesh-drop and fluxion moved from the flipslidersand org to
+# flipslidersand-labs on 2026-09-15. If repos move org/path again, update
+# this list (or pass explicit paths as arguments instead).
 DEFAULT_REPOS=(
-  "$HOME/projects/flipslidersand/mesh-drop"
+  "$HOME/projects/flipslidersand-labs/mesh-drop"
   "$HOME/projects/forge"
-  "$HOME/projects/flipslidersand/fluxion"
+  "$HOME/projects/flipslidersand-labs/fluxion"
 )
 
 # The snippet appended to (or placed in) the hook
