@@ -138,6 +138,23 @@ class TestSearchLimitValidation:
         result = CliRunner().invoke(main, ["search", "q", "--limit", "1"])
         assert result.exit_code == 0
 
+
+class TestSearchNuggetKValidation:
+    def test_nugget_k_zero_rejected(self, mocker):
+        mocker.patch("core.qdrant.search", return_value=[])
+        result = CliRunner().invoke(main, ["search", "q", "--nugget", "--nugget-k", "0"])
+        assert result.exit_code != 0
+
+    def test_nugget_k_negative_rejected(self, mocker):
+        mocker.patch("core.qdrant.search", return_value=[])
+        result = CliRunner().invoke(main, ["search", "q", "--nugget", "--nugget-k", "-1"])
+        assert result.exit_code != 0
+
+    def test_nugget_k_1_accepted(self, mocker):
+        mocker.patch("core.qdrant.search", return_value=[])
+        result = CliRunner().invoke(main, ["search", "q", "--nugget", "--nugget-k", "1"])
+        assert result.exit_code == 0
+
     def test_search_limit_100_accepted(self, mocker):
         mocker.patch("core.qdrant.search", return_value=[])
         result = CliRunner().invoke(main, ["search", "q", "--limit", "100"])
