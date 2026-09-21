@@ -71,7 +71,13 @@ def sync(force: bool, dry_run: bool):
     type=click.IntRange(min=1, max=100),
 )
 @click.option("--nugget", is_flag=True, help="Extract BM25 nugget sentences instead of full chunks")
-@click.option("--nugget-k", default=3, show_default=True, help="Sentences per chunk when --nugget")
+@click.option(
+    "--nugget-k",
+    default=3,
+    show_default=True,
+    help="Sentences per chunk when --nugget",
+    type=click.IntRange(min=1),
+)
 def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int):
     """Search ingested documents by semantic similarity."""
     from core.qdrant import search as qdrant_search
