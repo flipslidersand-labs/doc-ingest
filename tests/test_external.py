@@ -1,5 +1,7 @@
 """Tests for ingest/external.py"""
 
+from typing import ClassVar
+
 import httpx
 import pytest
 import respx
@@ -228,3 +230,105 @@ class TestSyncExternal:
 
         ext.upsert.assert_not_called()
         assert "skipping" in caplog.text
+
+
+class TestSyncExternalExceptionIsolation:
+    """One source's exception must not stop the others (#144)."""
+
+    TWO_SOURCES: ClassVar = [
+        {
+            "url": "https://example.com/broken",
+            "type": "external-api",
+            "check_interval": "weekly",
+            "tags": ["test"],
+            "last_etag": "",
+            "last_synced": "",
+        },
+        {
+            "url": "https://example.com/ok",
+            "type": "external-api",
+            "check_interval": "weekly",
+            "tags": ["test"],
+            "last_etag": "",
+            "last_synced": "",
+        },
+    ]
+
+    def test_phase1_fetch_exception_marks_source_failed_and_continues(self, mocker, caplog):
+        """future.result() raising in the Phase 1 as_completed loop must be caught,
+        the source marked failed, and the remaining sources still processed."""
+        import logging
+
+        mocker.patch("ingest.external._load_sources", return_value=list(self.TWO_SOURCES))
+        mocker.patch("ingest.external._save_sources")
+        mocker.patch("ingest.external.ids_by_payload", return_value=[])
+        mocker.patch("ingest.external.delete_by_ids")
+        mock_upsert = mocker.patch("ingest.external.upsert")
+
+        def fake_fetch_source(source, force, now):
+            if source["url"] == "https://example.com/broken":
+                raise RuntimeError("boom")
+            return {
+                "status": "ready",
+                "url": source["url"],
+                "source": source,
+                "new_etag": "",
+                "points": [{"id": "x", "text": "ok"}],
+            }
+
+        mocker.patch("ingest.external._fetch_source", side_effect=fake_fetch_source)
+
+        from ingest.external import sync_external
+
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            sync_external()
+
+        # The broken source never reaches upsert; the ok source still does.
+        mock_upsert.assert_called_once()
+        assert "boom" in caplog.text or "RuntimeError" in caplog.text
+
+    def test_phase2_upsert_exception_marks_source_failed_and_continues(self, mocker, caplog):
+        """upsert() raising in the Phase 2 loop must be caught for that source,
+        while the remaining sources are still written."""
+        import logging
+
+        mocker.patch("ingest.external._load_sources", return_value=list(self.TWO_SOURCES))
+        saved = []
+        mocker.patch("ingest.external._save_sources", side_effect=lambda s: saved.extend(s))
+        mocker.patch("ingest.external.ids_by_payload", return_value=[])
+        mocker.patch("ingest.external.delete_by_ids")
+
+        def fake_upsert(collection, points):
+            if points and points[0]["source_url"] == "https://example.com/broken":
+                raise RuntimeError("qdrant unavailable")
+
+        mocker.patch("ingest.external.upsert", side_effect=fake_upsert)
+
+        def fake_fetch_source(source, force, now):
+            return {
+                "status": "ready",
+                "url": source["url"],
+                "source": source,
+                "new_etag": "",
+                "points": [
+                    {
+                        "id": f"{source['url']}:0",
+                        "text": "content",
+                        "source_url": source["url"],
+                    }
+                ],
+            }
+
+        mocker.patch("ingest.external._fetch_source", side_effect=fake_fetch_source)
+
+        from ingest.external import sync_external
+
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            sync_external()
+
+        assert "qdrant unavailable" in caplog.text or "RuntimeError" in caplog.text
+        broken = next(s for s in saved if s["url"] == "https://example.com/broken")
+        ok = next(s for s in saved if s["url"] == "https://example.com/ok")
+        assert "failed_at" in broken
+        assert "failed_at" not in ok
+        assert ok["last_synced"]
