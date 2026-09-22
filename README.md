@@ -15,6 +15,7 @@ Document ingestion pipeline — feeds external API docs, design docs, and arxiv 
 | `ingest/design_docs.py` | CLAUDE.md / ADR / docs/ | post-commit git hook |
 | `ingest/notes.py` | Obsidian vault (10-projects/20-areas/30-resources) | post-commit git hook |
 | `ingest/arxiv.py` | arxiv papers / tech blogs | CLI manual |
+| `ingest/pdf.py` | Local PDF files | CLI manual |
 
 ### Setup
 
@@ -43,6 +44,9 @@ doc-ingest design CLAUDE.md
 # Search ingested content
 doc-ingest search "Claude API streaming"
 doc-ingest search "qdrant vector" --collection external-docs --limit 3
+
+# Ingest a local PDF file
+doc-ingest pdf ./paper.pdf --tags forge
 ```
 
 ### Git Hook
@@ -100,6 +104,7 @@ LLM distillation pipeline: **Ollama** (`qwen2.5:7b`) → **Anthropic Haiku** (if
 | `ingest/design_docs.py` | CLAUDE.md / ADR / docs/ | post-commit git フック |
 | `ingest/notes.py` | Obsidian ノート（10-projects/20-areas/30-resources） | post-commit git フック |
 | `ingest/arxiv.py` | arxiv 論文 / 技術ブログ | CLI 手動実行 |
+| `ingest/pdf.py` | ローカル PDF ファイル | CLI 手動実行 |
 
 ### セットアップ
 
@@ -128,6 +133,9 @@ doc-ingest design CLAUDE.md
 # 取り込み済みコンテンツを検索
 doc-ingest search "Claude API streaming"
 doc-ingest search "qdrant vector" --collection external-docs --limit 3
+
+# ローカル PDF ファイルを取り込む
+doc-ingest pdf ./paper.pdf --tags forge
 ```
 
 ### Git フック
