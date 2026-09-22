@@ -2,9 +2,11 @@
 
 import socket
 
+import httpx
 import pytest
+import respx
 
-from core.url_guard import UnsafeURLError, assert_safe_url
+from core.url_guard import MAX_REDIRECTS, UnsafeURLError, assert_safe_url, safe_get
 
 
 class TestAssertSafeUrl:
@@ -119,6 +121,81 @@ class TestExternalSsrf:
         import ingest.external as ext
 
         ext.upsert.assert_not_called()
+
+
+class TestSafeGet:
+    """safe_get() manually follows redirects, re-validating every hop (#149)."""
+
+    @respx.mock
+    def test_no_redirect_passes_through(self):
+        respx.get("https://example.com/api").mock(return_value=httpx.Response(200, text="ok"))
+        resp = safe_get("https://example.com/api")
+        assert resp.status_code == 200
+        assert resp.text == "ok"
+
+    @respx.mock
+    def test_redirect_to_safe_host_is_followed(self):
+        respx.get("https://example.com/old").mock(
+            return_value=httpx.Response(302, headers={"location": "https://example.com/new"})
+        )
+        respx.get("https://example.com/new").mock(return_value=httpx.Response(200, text="moved"))
+        resp = safe_get("https://example.com/old")
+        assert resp.status_code == 200
+        assert resp.text == "moved"
+
+    @respx.mock
+    def test_redirect_to_private_ip_is_blocked(self):
+        respx.get("https://example.com/redir").mock(
+            return_value=httpx.Response(302, headers={"location": "https://192.168.1.1/internal"})
+        )
+        with pytest.raises(UnsafeURLError, match="blocked"):
+            safe_get("https://example.com/redir")
+
+    @respx.mock
+    def test_redirect_downgrading_to_http_is_blocked(self):
+        respx.get("https://example.com/redir").mock(
+            return_value=httpx.Response(302, headers={"location": "http://example.com/plain"})
+        )
+        with pytest.raises(UnsafeURLError, match="https scheme"):
+            safe_get("https://example.com/redir")
+
+    @respx.mock
+    def test_redirect_with_no_location_header_is_blocked(self):
+        respx.get("https://example.com/redir").mock(return_value=httpx.Response(302))
+        with pytest.raises(UnsafeURLError, match="no Location"):
+            safe_get("https://example.com/redir")
+
+    @respx.mock
+    def test_relative_redirect_location_resolved_against_current_url(self):
+        respx.get("https://example.com/a/old").mock(
+            return_value=httpx.Response(302, headers={"location": "/a/new"})
+        )
+        respx.get("https://example.com/a/new").mock(return_value=httpx.Response(200, text="ok"))
+        resp = safe_get("https://example.com/a/old")
+        assert resp.status_code == 200
+
+    @respx.mock
+    def test_redirect_chain_within_limit_succeeds(self):
+        respx.get("https://example.com/hop0").mock(
+            return_value=httpx.Response(302, headers={"location": "https://example.com/hop1"})
+        )
+        respx.get("https://example.com/hop1").mock(
+            return_value=httpx.Response(302, headers={"location": "https://example.com/hop2"})
+        )
+        respx.get("https://example.com/hop2").mock(return_value=httpx.Response(200, text="done"))
+        resp = safe_get("https://example.com/hop0", max_redirects=3)
+        assert resp.text == "done"
+
+    @respx.mock
+    def test_too_many_redirects_raises(self):
+        for i in range(MAX_REDIRECTS + 1):
+            respx.get(f"https://example.com/hop{i}").mock(
+                return_value=httpx.Response(
+                    302, headers={"location": f"https://example.com/hop{i + 1}"}
+                )
+            )
+        with pytest.raises(UnsafeURLError, match="too many redirects"):
+            safe_get("https://example.com/hop0")
 
 
 class TestArxivSsrf:
