@@ -3,8 +3,6 @@
 Resolves a candidate path and verifies it lives inside *allowed_base*
 (default: cwd, overridable via DOC_INGEST_BASE_DIR).  Raises
 ``PermissionError`` for paths that escape the base directory.
-
-Also provides ``assert_https_url`` which rejects plain ``http://`` URLs.
 """
 
 from __future__ import annotations
@@ -50,12 +48,3 @@ def assert_safe_path(path: str | Path, base: Path | None = None) -> Path:
             "Set DOC_INGEST_BASE_DIR to extend the allowed root."
         )
     return resolved
-
-
-def assert_https_url(url: str) -> None:
-    """Raise ``ValueError`` if *url* is not an ``https://`` URL."""
-    if not url.startswith("https://"):
-        raise ValueError(
-            f"Only https:// URLs are permitted; got '{url}'. "
-            "Plain http:// is rejected to prevent credential interception."
-        )

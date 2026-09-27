@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.path_guard import assert_https_url, assert_safe_path
+from core.path_guard import assert_safe_path
 
 
 class TestAssertSafePath:
@@ -51,21 +51,3 @@ class TestAssertSafePath:
         (allowed / "b.txt").write_text("x")
         result = assert_safe_path(target, base=allowed)
         assert result == (allowed / "b.txt").resolve()
-
-
-class TestAssertHttpsUrl:
-    def test_https_is_accepted(self):
-        # Should not raise
-        assert_https_url("https://example.com/paper.pdf")
-
-    def test_http_raises_value_error(self):
-        with pytest.raises(ValueError, match="https://"):
-            assert_https_url("http://example.com/paper.pdf")
-
-    def test_ftp_raises_value_error(self):
-        with pytest.raises(ValueError):
-            assert_https_url("ftp://example.com/paper.pdf")
-
-    def test_empty_string_raises(self):
-        with pytest.raises(ValueError):
-            assert_https_url("")
