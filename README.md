@@ -167,4 +167,4 @@ LLM 蒸留パイプライン: **Ollama**（`qwen2.5:7b`）→ **Anthropic Haiku*
 
 ## License
 
-MIT
+MIT — see [NOTICE.md](NOTICE.md) for a third-party (GPL-3.0) dependency note.
