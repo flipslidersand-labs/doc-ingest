@@ -15,7 +15,7 @@ from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
-from core.url_guard import UnsafeURLError, assert_safe_url
+from core.url_guard import UnsafeURLError, assert_safe_url, safe_get
 
 _log = get_logger(__name__)
 
@@ -44,10 +44,13 @@ def _save_sources(sources) -> None:
 def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
     for attempt in range(MAX_RETRIES):
         try:
-            resp = httpx.get(url, headers=headers, timeout=30, follow_redirects=True)
+            resp = safe_get(url, headers=headers, timeout=30)
             if resp.status_code < 500:
                 return resp
             _log.debug("retry %d/%d %s → HTTP %d", attempt + 1, MAX_RETRIES, url, resp.status_code)
+        except UnsafeURLError as e:
+            _log.warning("blocked unsafe redirect from %s: %s", url, e)
+            return None
         except httpx.RequestError as e:
             _log.debug("retry %d/%d %s → %s", attempt + 1, MAX_RETRIES, url, e)
         if attempt < MAX_RETRIES - 1:
