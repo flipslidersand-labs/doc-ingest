@@ -67,6 +67,25 @@ class TestChunkMarkdown:
         chunks = chunk_markdown("## S\n" + "word " * 30, max_section_tokens=400)
         assert len(chunks) == 1
 
+    def test_normal_paragraph_flushed_before_oversized_paragraph(self):
+        # A normal-sized paragraph followed by one that alone exceeds
+        # max_tokens must flush the pending buffer as its own piece
+        # *before* hard-splitting the oversized one (core/chunker.py:38-40).
+        small_para = "word " * 10
+        giant_para = "word " * 300
+        body = "## H\n" + small_para + "\n\n" + giant_para
+        chunks = chunk_markdown(body, max_section_tokens=100)
+
+        assert all(_tokens(c["text"]) <= 100 for c in chunks)
+        # The small paragraph must survive as its own flushed piece (with the
+        # section heading prefix chunk_markdown adds to a section's first
+        # piece), not get merged into / lost by the giant paragraph's
+        # hard-split — i.e. exactly one piece has word-count == 10.
+        word_counts = [c["text"].count("word") for c in chunks]
+        assert word_counts.count(10) == 1
+        # No content is dropped: every word from both paragraphs reappears.
+        assert sum(word_counts) == 10 + 300
+
 
 class TestChunkText:
     def test_splits_by_paragraph(self):
