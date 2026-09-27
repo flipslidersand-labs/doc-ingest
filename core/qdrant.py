@@ -5,6 +5,7 @@ import threading
 from typing import Any
 
 from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
 from core.logging import get_logger
@@ -78,11 +79,20 @@ def ensure_collection(name: str) -> None:
         if name in _known_collections:
             return
     c = client()
-    c.create_collection(
-        name,
-        vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
-    )
-    c.create_payload_index(name, "ingested_at", field_schema=PayloadSchemaType.DATETIME)
+    try:
+        c.create_collection(
+            name,
+            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+        )
+        c.create_payload_index(name, "ingested_at", field_schema=PayloadSchemaType.DATETIME)
+    except UnexpectedResponse as e:
+        # 409 = another process (a concurrent hook/cron run against the same
+        # Qdrant) created *name* between our existence check and this call —
+        # treat that as success rather than crashing the whole ingest (#150).
+        if e.status_code == 409:
+            _log.info("ensure_collection: %s already created by another process", name)
+        else:
+            raise
     with _known_collections_lock:
         _known_collections.add(name)
 
