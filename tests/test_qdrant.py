@@ -298,6 +298,49 @@ def test_ensure_collection_skips_index_on_existing(monkeypatch):
     mock_client.create_payload_index.assert_not_called()
 
 
+def test_ensure_collection_409_race_is_idempotent(monkeypatch):
+    """A concurrent process creating the same collection first (#150) must
+    not crash ensure_collection() — a 409 from create_collection() is
+    treated as success, and the name still gets cached."""
+    from qdrant_client.http.exceptions import UnexpectedResponse
+
+    monkeypatch.setattr(q, "_known_collections", set())
+
+    mock_client = MagicMock()
+    mock_client.get_collections.return_value.collections = []
+    mock_client.create_collection.side_effect = UnexpectedResponse(
+        409, "Conflict", b"already exists", httpx.Headers({})
+    )
+    monkeypatch.setattr(q, "_client", mock_client)
+
+    q.ensure_collection("racy-col")  # must not raise
+
+    assert "racy-col" in q._known_collections
+    mock_client.create_payload_index.assert_not_called()  # skipped after the 409
+
+
+def test_ensure_collection_non_409_error_propagates(monkeypatch):
+    """A create_collection() failure that isn't a same-name race (e.g. a
+    genuine server error) must still surface, not be silently swallowed."""
+    from qdrant_client.http.exceptions import UnexpectedResponse
+
+    monkeypatch.setattr(q, "_known_collections", set())
+
+    mock_client = MagicMock()
+    mock_client.get_collections.return_value.collections = []
+    mock_client.create_collection.side_effect = UnexpectedResponse(
+        500, "Internal Server Error", b"boom", httpx.Headers({})
+    )
+    monkeypatch.setattr(q, "_client", mock_client)
+
+    import pytest
+
+    with pytest.raises(UnexpectedResponse):
+        q.ensure_collection("broken-col")
+
+    assert "broken-col" not in q._known_collections
+
+
 # ---------------------------------------------------------------------------
 # Tests for #91: list_collections uses order_by+limit=1
 # ---------------------------------------------------------------------------
