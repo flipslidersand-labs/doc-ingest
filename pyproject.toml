@@ -42,6 +42,8 @@ source = ["core", "ingest", "sources", "cli"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
+# Keep in sync with coverage-threshold in .github/workflows/ci.yml (CI's
+# --cov-fail-under overrides this value there).
 fail_under = 70
 
 [tool.ruff]
