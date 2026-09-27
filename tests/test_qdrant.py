@@ -332,3 +332,179 @@ def test_list_collections_uses_order_by_limit_1(monkeypatch):
     assert result[0]["name"] == "test_col"
     assert result[0]["points"] == 3
     assert result[0]["last_ingested"] == "2024-06-01 12:00:00"
+
+
+# ---------------------------------------------------------------------------
+# Tests for #153: upsert/search/delete CRUD functions
+# ---------------------------------------------------------------------------
+
+
+class TestUpsert:
+    def test_upsert_empty_points_is_noop_call(self, monkeypatch):
+        """upsert() with an empty points list still calls client().upsert with
+        an empty structs list — no crash on the empty zip()."""
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        monkeypatch.setattr(q, "embed", lambda texts: [])
+        mock_client = MagicMock()
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        q.upsert("col", [])
+
+        mock_client.upsert.assert_called_once_with(collection_name="col", points=[])
+
+    def test_upsert_builds_point_structs_without_id_in_payload(self, monkeypatch):
+        """upsert() must pass id= separately and never leak 'id' back into payload."""
+        from qdrant_client.models import PointStruct
+
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        monkeypatch.setattr(q, "embed", lambda texts: [[0.1] * 768])
+        mock_client = MagicMock()
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        q.upsert("col", [{"id": "abc123", "text": "hello", "tags": ["x"]}])
+
+        _, kwargs = mock_client.upsert.call_args
+        structs = kwargs["points"]
+        assert len(structs) == 1
+        point = structs[0]
+        assert isinstance(point, PointStruct)
+        assert point.id == "abc123"
+        assert point.vector == [0.1] * 768
+        assert point.payload == {"text": "hello", "tags": ["x"]}
+        assert "id" not in point.payload
+
+
+class TestSearch:
+    def test_search_handles_none_payload(self, monkeypatch):
+        """A hit with payload=None must not raise — falls back to {} via `or {}`."""
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        monkeypatch.setattr(q, "embed", lambda texts: [[0.1] * 768])
+        mock_client = MagicMock()
+        hit = SimpleNamespace(score=0.987654, id="pt1", payload=None)
+        mock_client.query_points.return_value = SimpleNamespace(points=[hit])
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        results = q.search("col", "query text")
+
+        assert results == [{"score": 0.9877, "id": "pt1"}]
+
+    def test_search_merges_payload_into_result(self, monkeypatch):
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        monkeypatch.setattr(q, "embed", lambda texts: [[0.1] * 768])
+        mock_client = MagicMock()
+        hit = SimpleNamespace(score=0.5, id="pt2", payload={"text": "hi", "source": "x"})
+        mock_client.query_points.return_value = SimpleNamespace(points=[hit])
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        results = q.search("col", "query text")
+
+        assert results == [{"score": 0.5, "id": "pt2", "text": "hi", "source": "x"}]
+
+
+class TestDeleteByPayload:
+    def test_noop_when_collection_does_not_exist(self, monkeypatch):
+        monkeypatch.setattr(q, "_known_collections", set())
+        mock_client = MagicMock()
+        mock_client.get_collections.return_value.collections = []
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        q.delete_by_payload("missing-col", "source_url", "https://x")
+
+        mock_client.delete.assert_not_called()
+
+    def test_deletes_by_filter_when_collection_exists(self, monkeypatch):
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        mock_client = MagicMock()
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        q.delete_by_payload("col", "source_url", "https://x")
+
+        mock_client.delete.assert_called_once()
+        assert mock_client.delete.call_args.kwargs["collection_name"] == "col"
+
+
+class TestIdsByPayload:
+    def test_noop_when_collection_does_not_exist(self, monkeypatch):
+        monkeypatch.setattr(q, "_known_collections", set())
+        mock_client = MagicMock()
+        mock_client.get_collections.return_value.collections = []
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        assert q.ids_by_payload("missing-col", "source_url", "https://x") == []
+        mock_client.scroll.assert_not_called()
+
+    def test_single_page_under_limit(self, monkeypatch):
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        mock_client = MagicMock()
+        records = [SimpleNamespace(id=f"id{i}") for i in range(3)]
+        mock_client.scroll.return_value = (records, None)
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        ids = q.ids_by_payload("col", "source_url", "https://x")
+
+        assert ids == ["id0", "id1", "id2"]
+        assert mock_client.scroll.call_count == 1
+
+    def test_paginates_across_multiple_pages_over_256(self, monkeypatch):
+        """A >256-hit result set must be paginated across scroll() calls, not
+        silently truncated to the first page (regression guard for #153)."""
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        mock_client = MagicMock()
+
+        page1 = [SimpleNamespace(id=f"id{i}") for i in range(256)]
+        page2 = [SimpleNamespace(id=f"id{i}") for i in range(256, 300)]
+        mock_client.scroll.side_effect = [
+            (page1, "page2-offset"),
+            (page2, None),
+        ]
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        ids = q.ids_by_payload("col", "source_url", "https://x")
+
+        assert len(ids) == 300
+        assert ids[0] == "id0"
+        assert ids[-1] == "id299"
+        assert mock_client.scroll.call_count == 2
+        # second call must pass the offset returned by the first
+        second_call_kwargs = mock_client.scroll.call_args_list[1].kwargs
+        assert second_call_kwargs["offset"] == "page2-offset"
+
+
+class TestDeleteByIds:
+    def test_empty_ids_is_early_return_noop(self, monkeypatch):
+        mock_client = MagicMock()
+        monkeypatch.setattr(q, "_client", mock_client)
+        # No _collection_exists stubbing needed — empty ids returns before that check.
+
+        q.delete_by_ids("col", [])
+
+        mock_client.delete.assert_not_called()
+
+    def test_noop_when_collection_does_not_exist(self, monkeypatch):
+        monkeypatch.setattr(q, "_known_collections", set())
+        mock_client = MagicMock()
+        mock_client.get_collections.return_value.collections = []
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        q.delete_by_ids("missing-col", ["id1"])
+
+        mock_client.delete.assert_not_called()
+
+    def test_deletes_by_id_list_when_collection_exists(self, monkeypatch):
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        mock_client = MagicMock()
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        q.delete_by_ids("col", ["id1", "id2"])
+
+        mock_client.delete.assert_called_once_with(
+            collection_name="col", points_selector=["id1", "id2"]
+        )
