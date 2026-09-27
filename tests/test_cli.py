@@ -81,6 +81,67 @@ class TestSearchCommand:
         result = CliRunner().invoke(main, ["search", "q"])
         assert "https://example.com" in result.output
 
+    def test_search_nugget_flag_calls_apply_nuggets(self, mocker):
+        mocker.patch(
+            "core.qdrant.search",
+            return_value=[
+                {"score": 0.5, "source_url": "https://example.com", "text": "full chunk"}
+            ],
+        )
+        mock_nuggets = mocker.patch(
+            "core.nugget.apply_nuggets",
+            return_value=[
+                {"score": 0.5, "source_url": "https://example.com", "text": "nugget only"}
+            ],
+        )
+        result = CliRunner().invoke(main, ["search", "q", "--nugget", "--nugget-k", "2"])
+
+        mock_nuggets.assert_called_once()
+        args, kwargs = mock_nuggets.call_args
+        assert args[0] == "q"
+        assert kwargs.get("top_k") == 2
+        assert "nugget only" in result.output
+
+    def test_search_without_nugget_flag_skips_apply_nuggets(self, mocker):
+        mocker.patch(
+            "core.qdrant.search",
+            return_value=[
+                {"score": 0.5, "source_url": "https://example.com", "text": "full chunk"}
+            ],
+        )
+        mock_nuggets = mocker.patch("core.nugget.apply_nuggets")
+        CliRunner().invoke(main, ["search", "q"])
+        mock_nuggets.assert_not_called()
+
+    def test_search_section_is_displayed_when_present(self, mocker):
+        mocker.patch(
+            "core.qdrant.search",
+            return_value=[
+                {
+                    "score": 0.9,
+                    "source_url": "https://example.com",
+                    "section": "Introduction",
+                    "text": "some content",
+                }
+            ],
+        )
+        result = CliRunner().invoke(main, ["search", "q"])
+        assert "section: Introduction" in result.output
+
+    def test_search_section_line_omitted_when_absent(self, mocker):
+        mocker.patch(
+            "core.qdrant.search",
+            return_value=[
+                {
+                    "score": 0.9,
+                    "source_url": "https://example.com",
+                    "text": "some content",
+                }
+            ],
+        )
+        result = CliRunner().invoke(main, ["search", "q"])
+        assert "section:" not in result.output
+
 
 class TestArxivCommand:
     def test_arxiv_calls_ingest_arxiv(self, mocker):
