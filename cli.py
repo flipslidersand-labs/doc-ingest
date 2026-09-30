@@ -120,7 +120,7 @@ def list_cmd():
         click.echo("No collections found.")
         return
 
-    col_w = max(len(r["name"]) for r in rows)
+    col_w = max(len("collection"), *(len(r["name"]) for r in rows))
     click.echo(f"{'collection':<{col_w}}  {'points':>6}  last_ingested")
     click.echo(f"{'-' * col_w}  {'------':>6}  {'-------------------'}")
     for r in rows:
