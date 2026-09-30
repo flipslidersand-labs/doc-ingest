@@ -11,7 +11,9 @@ jobs:
     uses: flipslidersand-labs/qa-workflows/.github/workflows/python-test.yml@main
     with:
       python-version: "3.12"
-      coverage-threshold: 60
+      # Passed as --cov-fail-under, which overrides pyproject.toml's
+      # [tool.coverage.report] fail_under — keep the two in sync.
+      coverage-threshold: 70
       pytest-args: "--timeout=60"
 
   reviewdog:
