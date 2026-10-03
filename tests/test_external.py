@@ -85,9 +85,8 @@ class TestSyncExternal:
 
         with caplog.at_level(logging.DEBUG, logger="ingest.external"):
             sync_external()
-        assert respx.calls.call_count == MAX_RETRIES, (
-            f"expected {MAX_RETRIES} HTTP attempts, got {respx.calls.call_count}"
-        )
+        attempts = respx.calls.call_count
+        assert attempts == MAX_RETRIES, f"expected {MAX_RETRIES} HTTP attempts, got {attempts}"
         assert "retry" in caplog.text
 
     @respx.mock
