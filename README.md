@@ -230,3 +230,8 @@ LLM 蒸留パイプライン: ローカル **llama-server**（OpenAI 互換 `/v1
 ## License
 
 MIT — see [NOTICE.md](NOTICE.md) for a third-party (GPL-3.0) dependency note.
+
+
+## 設計判断 / Architecture decisions
+
+[ADR 一覧](docs/adr/README.md) — 設計判断、根拠資料、未決定事項。
