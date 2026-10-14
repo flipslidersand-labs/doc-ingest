@@ -5,6 +5,7 @@ import time
 from unittest.mock import MagicMock, patch
 
 import httpx
+import pytest
 import respx
 
 import core.qdrant as q
@@ -551,3 +552,45 @@ class TestDeleteByIds:
         mock_client.delete.assert_called_once_with(
             collection_name="col", points_selector=["id1", "id2"]
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests for #135: EMBED_BATCH must be validated at import time
+# ---------------------------------------------------------------------------
+
+
+class TestEmbedBatchValidation:
+    """core.qdrant is a shared module object (sys.modules-cached) across every
+    test file, and importlib.reload() executes top-to-bottom in-place —  a
+    raised exception mid-reload still leaves EMBED_BATCH set to the bad
+    value. Always reload back to a clean default afterward so other tests
+    (in this file and others) don't inherit a broken module."""
+
+    @pytest.fixture(autouse=True)
+    def _restore_qdrant_module(self, monkeypatch):
+        import importlib
+
+        yield
+        monkeypatch.delenv("EMBED_BATCH", raising=False)
+        importlib.reload(q)
+
+    def test_zero_raises_at_import(self, monkeypatch):
+        import importlib
+
+        monkeypatch.setenv("EMBED_BATCH", "0")
+        with pytest.raises(ValueError, match="EMBED_BATCH must be >= 1"):
+            importlib.reload(q)
+
+    def test_negative_raises_at_import(self, monkeypatch):
+        import importlib
+
+        monkeypatch.setenv("EMBED_BATCH", "-1")
+        with pytest.raises(ValueError, match="EMBED_BATCH must be >= 1"):
+            importlib.reload(q)
+
+    def test_valid_value_does_not_raise(self, monkeypatch):
+        import importlib
+
+        monkeypatch.setenv("EMBED_BATCH", "32")
+        importlib.reload(q)
+        assert q.EMBED_BATCH == 32

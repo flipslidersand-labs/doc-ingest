@@ -23,6 +23,12 @@ EMBED_API_KEY = os.getenv("EMBED_API_KEY") or None  # None → no X-API-Key head
 EMBED_COLLECTION = os.getenv("EMBED_COLLECTION", "sessions")  # embedding-svc のモデルルーティング用
 EMBED_TIMEOUT = float(os.getenv("EMBED_TIMEOUT", "180"))  # CPU e5 のコールドロードを許容
 EMBED_BATCH = int(os.getenv("EMBED_BATCH", "16"))  # 1 POST あたりの最大テキスト数
+if EMBED_BATCH < 1:
+    # embed()'s range(0, len(texts), EMBED_BATCH) raises an opaque ValueError
+    # for 0 and silently returns an empty batch list for negative values
+    # (upsert() then zips 0 vectors against N points, dropping payloads
+    # silently) — fail loudly and immediately at import time instead (#135).
+    raise ValueError(f"EMBED_BATCH must be >= 1, got {EMBED_BATCH}")
 EMBED_RETRIES = 3
 VECTOR_SIZE = 768  # multilingual-e5-base
 
