@@ -20,9 +20,13 @@ Document ingestion pipeline — feeds external API docs, design docs, and arxiv 
 ### Setup
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"
+bash scripts/install-precommit.sh  # required once per clone (use this instead of `pre-commit install`)
 cp .env.example .env  # fill in QDRANT_URL, EMBED_URL, EMBED_API_KEY
 ```
+
+Hook results are appended to `~/.local/state/precommit-metrics/events.jsonl` (`pass` / `fixed` / `fail`).
+Do not run `pre-commit install` afterwards; re-run `scripts/install-precommit.sh` instead (it is idempotent).
 
 ### Usage
 
@@ -109,9 +113,13 @@ LLM distillation pipeline: **Ollama** (`qwen2.5:7b`) → **Anthropic Haiku** (if
 ### セットアップ
 
 ```bash
-pip install -e .
+pip install -e ".[dev]"
+bash scripts/install-precommit.sh  # クローンごとに 1 回必須（`pre-commit install` の代わり）。未実行だとコミット時に lint されない
 cp .env.example .env  # QDRANT_URL, EMBED_URL, EMBED_API_KEY を設定
 ```
+
+フックの結果は `~/.local/state/precommit-metrics/events.jsonl` に追記されます（`pass` / `fixed` / `fail`）。
+以降に `pre-commit install` を実行しないでください（ラッパーが外れる）。やり直すときは `scripts/install-precommit.sh` を再実行します（何度実行しても同じ状態になります）。
 
 ### 使い方
 
