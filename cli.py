@@ -7,11 +7,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from core.url_guard import UnsafeURLError, assert_safe_url
-from ingest.arxiv import ingest_arxiv
-from ingest.design_docs import ingest_design_docs
-from ingest.external import sync_external
-from ingest.notes import ingest_notes
+# 環境変数を import 時に読むモジュールがあるため、load_dotenv() の後で import する(E402 は意図的)
+from core.url_guard import UnsafeURLError, assert_safe_url  # noqa: E402
+from ingest.arxiv import ingest_arxiv  # noqa: E402
+from ingest.design_docs import ingest_design_docs  # noqa: E402
+from ingest.external import sync_external  # noqa: E402
+from ingest.notes import ingest_notes  # noqa: E402
 
 
 @click.group()
