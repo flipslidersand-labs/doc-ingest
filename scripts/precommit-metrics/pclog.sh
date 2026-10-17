@@ -3,7 +3,7 @@
 # result: pass / fixed(Failed + files were modified) / fail(Failed + exit code) / skipped
 # 記録先: $PRECOMMIT_METRICS_LOG(既定: ~/.local/state/precommit-metrics/events.jsonl)。記録に失敗してもコミットは止めない。
 log="${PRECOMMIT_METRICS_LOG:-$HOME/.local/state/precommit-metrics/events.jsonl}"
-repo="$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")"; host="$(hostname)"
+repo="$(basename "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)")")"; host="$(hostname)"
 mkdir -p "$(dirname "$log")" 2>/dev/null
 sed -E 's/\x1b\[[0-9;]*m//g' | awk -v repo="$repo" -v host="$host" '
 function flush() { if (name != "") { printf "{\"ts\":\"%s\",\"repo\":\"%s\",\"host\":\"%s\",\"source\":\"local\",\"hook\":\"%s\",\"result\":\"%s\",\"rc\":%d}\n", ts, repo, host, name, res, rc; name="" } }
