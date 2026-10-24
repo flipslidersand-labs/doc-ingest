@@ -244,3 +244,41 @@ class TestPdfValidation:
         mock_ingest = mocker.patch("ingest.pdf.ingest_pdf")
         CliRunner().invoke(main, ["pdf", "/some/file.pdf"])
         mock_ingest.assert_called_once_with("/some/file.pdf", tags=[])
+
+
+class TestListCommand:
+    def test_empty_prints_no_collections(self, mocker):
+        mocker.patch("core.qdrant.list_collections", return_value=[])
+        result = CliRunner().invoke(main, ["list"])
+        assert result.exit_code == 0
+        assert "No collections found." in result.output
+
+    @staticmethod
+    def _points_col(line: str) -> int:
+        # index where the right-aligned points column (2nd field) ends
+        second = line.split()[1]
+        return line.index(second) + len(second)
+
+    def test_columns_align_with_uneven_names(self, mocker):
+        rows = [
+            {"name": "docs", "points": 7, "last_ingested": "2026-09-01 00:00:00"},
+            {"name": "external-docs-long", "points": 1234, "last_ingested": "—"},
+        ]
+        mocker.patch("core.qdrant.list_collections", return_value=rows)
+        result = CliRunner().invoke(main, ["list"])
+        assert result.exit_code == 0
+        lines = result.output.splitlines()
+        assert lines[0].startswith("collection")
+        ends = {self._points_col(line) for line in (lines[0], lines[2], lines[3])}
+        assert len(ends) == 1  # header/rows share the same points column end
+
+    def test_header_aligns_when_all_names_shorter_than_header(self, mocker):
+        rows = [
+            {"name": "docs", "points": 3, "last_ingested": "—"},
+            {"name": "notes", "points": 42, "last_ingested": "—"},
+        ]
+        mocker.patch("core.qdrant.list_collections", return_value=rows)
+        result = CliRunner().invoke(main, ["list"])
+        lines = result.output.splitlines()
+        ends = {self._points_col(line) for line in (lines[0], lines[2], lines[3])}
+        assert len(ends) == 1
