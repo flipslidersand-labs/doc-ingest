@@ -15,6 +15,8 @@ jobs:
       # [tool.coverage.report] fail_under — keep the two in sync.
       coverage-threshold: 70
       pytest-args: "--timeout=60"
+      # Keep in sync with rev in .pre-commit-config.yaml (ruff-pre-commit).
+      ruff-version: "0.17.3"
 
   reviewdog:
     permissions:
