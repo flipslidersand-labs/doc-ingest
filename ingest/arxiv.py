@@ -8,10 +8,11 @@ import httpx
 import pymupdf
 
 from core.distiller import distill_paper, distill_webpage
+from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import upsert
-from core.url_guard import assert_safe_url
+from core.url_guard import assert_safe_url, safe_get
 
 _log = get_logger(__name__)
 
@@ -21,7 +22,12 @@ _ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
 
 
 def _arxiv_id(url: str) -> str | None:
-    m = re.search(r"arxiv\.org/(?:abs|pdf)/([\d.]+)", url)
+    """New-style arXiv id from an abs/pdf URL. The version (``v2``) and ``.pdf`` are dropped.
+
+    The id is matched exactly (``YYMM.NNNNN``) so a trailing ``.`` from ``….pdf`` is not
+    swallowed into it (#219) and an over-long digit run is not silently truncated.
+    """
+    m = re.search(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})(?!\d)", url)
     return m.group(1) if m else None
 
 
@@ -103,11 +109,20 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
             }
         ]
     else:
-        # tech blog — validate before fetching to prevent SSRF
+        # tech blog — validate before fetching to prevent SSRF; safe_get re-validates every
+        # redirect hop (httpx.get does not follow redirects, so a 301 to the canonical URL failed)
         assert_safe_url(url)
-        resp = httpx.get(url, timeout=30)
+        resp = safe_get(url, timeout=30)
         resp.raise_for_status()
-        distilled = distill_webpage(resp.text)
+        body = resp.text
+        if looks_like_html(resp.headers.get("content-type", ""), body):
+            # Summarise the article, not <head>/scripts/CSS (distill_webpage truncates to 5000 chars)
+            body = extract_markdown(body)
+            if not body:
+                raise ValueError(
+                    f"本文を抽出できませんでした (HTML から記事本文が見つからない): {url}"
+                )
+        distilled = distill_webpage(body)
         uid = make_id(url)
         points = [
             {

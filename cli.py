@@ -32,7 +32,10 @@ def arxiv(url: str, tags: str):
     except UnsafeURLError as exc:
         raise click.BadParameter(str(exc), param_hint="'URL'") from exc
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    ingest_arxiv(url, tags=tag_list)
+    try:
+        ingest_arxiv(url, tags=tag_list)
+    except ValueError as exc:  # 不正な arXiv ID・論文が見つからない・本文を抽出できない
+        raise click.ClickException(str(exc)) from exc
 
 
 @main.command()
