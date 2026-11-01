@@ -11,6 +11,7 @@ from pathlib import Path
 
 from core.chunker import chunk_markdown
 from core.distiller import DistillError
+from core.doc_key import doc_key
 from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
@@ -19,6 +20,8 @@ _log = get_logger(__name__)
 
 # llama-server は 1 台で複数スロットが n_ctx を共有し、長い入力の並列は全滅する。既定は直列。
 DISTILL_WORKERS = int(os.getenv("DISTILL_WORKERS", "1"))
+# git 管理外のファイルの repo。空にすると scripts/migrate_doc_keys.py が「未移行」と見分けられない。
+NO_REPO = "-"
 
 
 def _distill_or_none(distill_fn: Callable[[str], str], text: str) -> str | None:
@@ -43,23 +46,27 @@ def ingest_markdown_files(
     for path in files:
         if not path.exists():
             continue
-        old_ids = ids_by_payload(collection, "file_path", str(path))
-        chunks = chunk_markdown(path.read_text(), source_url=str(path))
+        # 識別子は <repo>/<リポ内の相対パス>。フック(相対パス)と手動(絶対パス)で同じになり、
+        # 別リポの同名ファイルとは衝突しない (#216)。
+        repo, key = doc_key(path)
+        old_ids = ids_by_payload(collection, "file_path", key)
+        chunks = chunk_markdown(path.read_text(), source_url=key)
         with ThreadPoolExecutor(max_workers=DISTILL_WORKERS) as ex:
             distilled_list = list(ex.map(lambda c: _distill_or_none(distill_fn, c["text"]), chunks))
         # 要約に失敗したチャンクは埋め込まず、既存の point も消さない(一時障害でデータを失わない)
         failed_ids = {
-            make_id(f"{path}:{c['chunk_index']}")
+            make_id(f"{key}:{c['chunk_index']}")
             for c, d in zip(chunks, distilled_list)
             if d is None
         }
         failed += len(failed_ids)
         points = [
             {
-                "id": make_id(f"{path}:{chunk['chunk_index']}"),
+                "id": make_id(f"{key}:{chunk['chunk_index']}"),
                 "text": distilled,
                 "source": source_label,
-                "file_path": str(path),
+                "file_path": key,
+                "repo": repo or NO_REPO,
                 "section": chunk["section"],
                 "git_sha": git_sha,
                 "ingested_at": now,
@@ -72,7 +79,7 @@ def ingest_markdown_files(
         stale = [i for i in old_ids if i not in keep]
         if stale:
             delete_by_ids(collection, stale)
-        _log.info("ingested %s (%d chunks) → %s", path, len(points), collection)
+        _log.info("ingested %s (%d chunks) → %s", key, len(points), collection)
         if failed_ids:
-            _log.warning("%s: distill failed for %d chunk(s), skipped", path, len(failed_ids))
+            _log.warning("%s: distill failed for %d chunk(s), skipped", key, len(failed_ids))
     return failed
