@@ -48,6 +48,10 @@ _onnx_input_names: frozenset[str] = frozenset()
 _onnx_lock = threading.Lock()
 
 
+class EmbeddingError(RuntimeError):
+    """埋め込みの応答が不正 (ベクトル数が入力と合わない等)。"""
+
+
 def _onnx_init() -> None:
     """Lazily initialize ONNX session + tokenizer (called once, under lock)."""
     global _onnx_sess, _onnx_tok, _onnx_input_names
@@ -127,7 +131,7 @@ def _embed_retryable(e: Exception) -> bool:
     if isinstance(e, httpx.HTTPStatusError):
         # 501 = collection not served by this backend → no retry, move to the next url
         return e.response.status_code != 501
-    return isinstance(e, (httpx.TimeoutException, httpx.ConnectError))
+    return isinstance(e, httpx.TransportError)
 
 
 def _embed_batch(texts: list[str], mode: Mode = "index") -> list[list[float]]:
@@ -160,7 +164,7 @@ def _embed_batch(texts: list[str], mode: Mode = "index") -> list[list[float]]:
             if e.response.status_code == 501:
                 _log.info("embed: primary returned 501, switching to fallback")
             last_exc = e
-        except (httpx.TimeoutException, httpx.ConnectError) as e:
+        except httpx.TransportError as e:  # timeout / connect / read / protocol / proxy ...
             _log.warning("embed: %s unreachable (%s), trying fallback", url, type(e).__name__)
             last_exc = e
         else:
@@ -180,5 +184,10 @@ def embed(texts: list[str], mode: Mode = "index") -> list[list[float]]:
     batch_fn = _embed_batch_onnx if EMBED_BACKEND == "onnx_gpu" else _embed_batch
     vectors: list[list[float]] = []
     for i in range(0, len(texts), EMBED_BATCH):
-        vectors.extend(batch_fn(texts[i : i + EMBED_BATCH], mode))
+        batch = texts[i : i + EMBED_BATCH]
+        got = batch_fn(batch, mode)
+        if len(got) != len(batch):
+            # 少なく返ると、呼び出し側の zip が後ろの文書を黙って落とす (ペイロードの欠損)
+            raise EmbeddingError(f"embedding returned {len(got)} vectors for {len(batch)} texts")
+        vectors.extend(got)
     return vectors

@@ -218,17 +218,35 @@ def test_list_collections_uses_order_by_limit_1(monkeypatch):
 
 
 class TestUpsert:
-    def test_upsert_empty_points_is_noop_call(self, monkeypatch):
-        """upsert() with an empty points list still calls client().upsert with
-        an empty structs list — no crash on the empty zip()."""
+    def test_upsert_empty_points_does_not_touch_qdrant_or_the_embedder(self, monkeypatch):
+        """#229: 空リスト (全チャンクの要約失敗など) は何もしない。Qdrant が空リストを受け付けるかは
+        実機未確認なので送らない。embed も呼ばない。"""
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts, **kw: [])
+        monkeypatch.setattr(q, "embed", lambda texts, **kw: pytest.fail("embed must not be called"))
         mock_client = MagicMock()
         monkeypatch.setattr(q, "_client", mock_client)
 
         q.upsert("col", [])
 
-        mock_client.upsert.assert_called_once_with(collection_name="col", points=[])
+        mock_client.upsert.assert_not_called()
+        mock_client.get_collections.assert_not_called()
+
+    def test_upsert_raises_instead_of_silently_dropping_points_on_a_short_embedding(
+        self, monkeypatch
+    ):
+        """#229: ベクトルが入力より少ないとき、zip が後ろの point を黙って落としていた。"""
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        monkeypatch.setattr(q, "embed", lambda texts, **kw: [[0.1] * 768])  # 3 件に 1 件だけ
+        mock_client = MagicMock()
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        with pytest.raises(ValueError):
+            q.upsert(
+                "col",
+                [{"id": "a", "text": "x"}, {"id": "b", "text": "y"}, {"id": "c", "text": "z"}],
+            )
+
+        mock_client.upsert.assert_not_called()  # 部分的な保存もしない
 
     def test_upsert_builds_point_structs_without_id_in_payload(self, monkeypatch):
         """upsert() must pass id= separately and never leak 'id' back into payload."""
@@ -428,3 +446,55 @@ class TestDeleteByIds:
 # ---------------------------------------------------------------------------
 # #154: retry semantics preserved after moving to core.retry.with_retry
 # ---------------------------------------------------------------------------
+
+
+class TestListCollectionsIsolatesAFailingCollection:
+    """#229: 共有 Qdrant には ingested_at の index が無いコレクションがあり、order_by が失敗しうる。
+    1 件の失敗で一覧全体 (doc-ingest list) を落とさない。"""
+
+    @staticmethod
+    def _client(fail_for):
+        from types import SimpleNamespace
+
+        c = MagicMock()
+        c.get_collections.return_value = SimpleNamespace(
+            collections=[SimpleNamespace(name=n) for n in ("alpha", "sessions", "zeta")]
+        )
+        c.get_collection.side_effect = lambda name: SimpleNamespace(points_count=len(name))
+
+        def scroll(collection_name, **kw):
+            if collection_name in fail_for:
+                raise RuntimeError("Bad request: Index required but not found for ingested_at")
+            return ([SimpleNamespace(payload={"ingested_at": "2026-11-01T09:30:00+00:00"})], None)
+
+        c.scroll.side_effect = scroll
+        return c
+
+    def test_other_collections_are_still_listed(self, monkeypatch):
+        monkeypatch.setattr(q, "_client", self._client(fail_for={"sessions"}))
+        rows = q.list_collections()
+        assert [r["name"] for r in rows] == ["alpha", "sessions", "zeta"]
+        by = {r["name"]: r for r in rows}
+        assert by["alpha"]["last_ingested"] == "2026-11-01 09:30:00"
+        assert by["zeta"]["last_ingested"] == "2026-11-01 09:30:00"
+
+    def test_the_failing_collection_is_marked_not_hidden(self, monkeypatch):
+        monkeypatch.setattr(q, "_client", self._client(fail_for={"sessions"}))
+        by = {r["name"]: r for r in q.list_collections()}
+        assert by["sessions"]["last_ingested"] == "?"  # 空 ("—") と区別する
+        assert by["sessions"]["points"] == len("sessions")  # 件数は取れている
+
+    def test_the_failure_is_logged_with_the_collection_name(self, monkeypatch, caplog):
+        import logging
+
+        monkeypatch.setattr(q, "_client", self._client(fail_for={"sessions"}))
+        with caplog.at_level(logging.WARNING, logger="core.qdrant"):
+            q.list_collections()
+        assert "sessions" in caplog.text and "RuntimeError" in caplog.text
+
+    def test_a_keyboard_interrupt_is_not_swallowed(self, monkeypatch):
+        c = self._client(fail_for=set())
+        c.scroll.side_effect = KeyboardInterrupt
+        monkeypatch.setattr(q, "_client", c)
+        with pytest.raises(KeyboardInterrupt):
+            q.list_collections()

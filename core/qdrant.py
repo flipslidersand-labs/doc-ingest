@@ -78,6 +78,9 @@ def ensure_collection(name: str) -> None:
 
 
 def upsert(collection: str, points: list[dict[str, Any]]) -> None:
+    if not points:
+        # 全チャンクの要約に失敗した場合など。空リストを Qdrant に送らない (受理されるかは実機未確認)
+        return
     ensure_collection(collection)
     vectors = embed([p["text"] for p in points])
     structs = [
@@ -86,7 +89,7 @@ def upsert(collection: str, points: list[dict[str, Any]]) -> None:
             vector=vec,
             payload={k: v for k, v in p.items() if k != "id"},
         )
-        for p, vec in zip(points, vectors)
+        for p, vec in zip(points, vectors, strict=True)  # 件数不一致で後ろを黙って落とさない
     ]
     client().upsert(collection_name=collection, points=structs)
 
@@ -159,18 +162,22 @@ def list_collections() -> list[dict]:
         # Use order_by with limit=1 to fetch only the single most-recent record.
         # scroll(limit=50) over SHA-256-keyed points gave no ordering guarantee,
         # so max(ingested_at) over the first 50 results was incorrect (#91).
-        records, _ = client().scroll(
-            collection_name=col.name,
-            limit=1,
-            order_by=OrderBy(key="ingested_at", direction="desc"),
-            with_payload=["ingested_at"],
-        )
-        last = records[0].payload.get("ingested_at", "") if records and records[0].payload else ""
+        try:
+            records, _ = client().scroll(
+                collection_name=col.name,
+                limit=1,
+                order_by=OrderBy(key="ingested_at", direction="desc"),
+                with_payload=["ingested_at"],
+            )
+            last = (
+                records[0].payload.get("ingested_at", "") if records and records[0].payload else ""
+            )
+            last_ingested = last[:19].replace("T", " ") if last else "—"
+        except Exception as e:  # noqa: BLE001 — 共有 Qdrant の他ツールのコレクションには ingested_at の index が無い
+            # order_by は index の無い payload では失敗しうる。1 件の失敗で一覧全体を落とさない
+            _log.warning("list: cannot read last ingested of %s (%s)", col.name, type(e).__name__)
+            last_ingested = "?"
         result.append(
-            {
-                "name": col.name,
-                "points": info.points_count,
-                "last_ingested": last[:19].replace("T", " ") if last else "—",
-            }
+            {"name": col.name, "points": info.points_count, "last_ingested": last_ingested}
         )
     return result
