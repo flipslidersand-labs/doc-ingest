@@ -2,32 +2,12 @@
 
 import threading
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
-import respx
 
 import core.qdrant as q
-
-
-@respx.mock
-def test_embed_subbatches(monkeypatch):
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 4)
-    seen = []
-
-    def responder(request):
-        import json
-
-        n = len(json.loads(request.content)["texts"])
-        seen.append(n)
-        return httpx.Response(200, json={"vectors": [[0.0] * 768] * n})
-
-    respx.post(q.EMBED_URL).mock(side_effect=responder)
-    vectors = q.embed(["t"] * 10)
-    assert len(vectors) == 10
-    assert seen == [4, 4, 2]  # 10 texts → 4+4+2 across three POSTs
 
 
 def test_qdrant_api_key_none_when_unset(monkeypatch):
@@ -36,153 +16,9 @@ def test_qdrant_api_key_none_when_unset(monkeypatch):
     assert q.QDRANT_API_KEY is None
 
 
-def test_embed_api_key_none_when_unset(monkeypatch):
-    """EMBED_API_KEY resolves to None when env var is absent or empty."""
-    monkeypatch.setattr(q, "EMBED_API_KEY", None)
-    assert q.EMBED_API_KEY is None
-
-
-@respx.mock
-def test_embed_omits_auth_header_when_key_unset(monkeypatch):
-    """No X-API-Key header is sent when EMBED_API_KEY is None."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_API_KEY", None)
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    received_headers = {}
-
-    def responder(request):
-        received_headers.update(dict(request.headers))
-        return httpx.Response(200, json={"vectors": [[0.0] * 768]})
-
-    respx.post(q.EMBED_URL).mock(side_effect=responder)
-    q.embed(["t"])
-    assert "x-api-key" not in received_headers
-
-
-@respx.mock
-def test_embed_sends_auth_header_when_key_set(monkeypatch):
-    """X-API-Key header is sent when EMBED_API_KEY is set."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_API_KEY", "secret-key")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    received_headers = {}
-
-    def responder(request):
-        received_headers.update(dict(request.headers))
-        return httpx.Response(200, json={"vectors": [[0.0] * 768]})
-
-    respx.post(q.EMBED_URL).mock(side_effect=responder)
-    q.embed(["t"])
-    assert received_headers.get("x-api-key") == "secret-key"
-
-
-@respx.mock
-def test_embed_retries_on_timeout(monkeypatch):
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    calls = {"n": 0}
-
-    def responder(request):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise httpx.ReadTimeout("timed out", request=request)
-        return httpx.Response(200, json={"vectors": [[0.0] * 768]})
-
-    respx.post(q.EMBED_URL).mock(side_effect=responder)
-    mock_sleep = MagicMock()
-    with patch("time.sleep", mock_sleep):
-        vectors = q.embed(["t"])
-    assert len(vectors) == 1
-    assert calls["n"] == 2  # first attempt timed out, second succeeded
-    mock_sleep.assert_called_once_with(1)  # 2**0 = 1s after first failure
-
-
 # ---------------------------------------------------------------------------
 # Tests for #21: primary→fallback routing
 # ---------------------------------------------------------------------------
-
-PRIMARY_URL = "http://primary:9093/embed/batch"
-FALLBACK_URL = "http://fallback:9092/embed/batch"
-
-
-@respx.mock
-def test_fallback_on_connect_error(monkeypatch):
-    """When primary is unreachable, fallback URL is used."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", FALLBACK_URL)
-    monkeypatch.setattr(q, "EMBED_RETRIES", 1)
-
-    respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
-    respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.1] * 768]}))
-
-    with patch("time.sleep"):
-        vecs = q.embed(["test"])
-    assert len(vecs) == 1
-
-
-@respx.mock
-def test_fallback_on_501(monkeypatch):
-    """When primary returns 501 (collection not served), fallback is tried immediately."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", FALLBACK_URL)
-    monkeypatch.setattr(q, "EMBED_RETRIES", 3)
-
-    primary_calls = {"n": 0}
-
-    def primary_responder(request):
-        primary_calls["n"] += 1
-        return httpx.Response(501, json={"detail": "not served"})
-
-    respx.post(PRIMARY_URL).mock(side_effect=primary_responder)
-    respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.2] * 768]}))
-
-    with patch("time.sleep"):
-        vecs = q.embed(["snippet code"])
-    assert len(vecs) == 1
-    assert primary_calls["n"] == 1  # no retry on 501
-
-
-@respx.mock
-def test_no_fallback_when_unset(monkeypatch):
-    """When EMBED_FALLBACK_URL is empty, error propagates as before."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", "")
-    monkeypatch.setattr(q, "EMBED_RETRIES", 1)
-
-    respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
-
-    import pytest
-
-    with patch("time.sleep"), pytest.raises(httpx.ConnectError):
-        q.embed(["test"])
-
-
-@respx.mock
-def test_primary_used_when_available(monkeypatch):
-    """When primary is healthy, fallback URL is never called."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", FALLBACK_URL)
-
-    fallback_calls = {"n": 0}
-
-    def fallback_responder(request):
-        fallback_calls["n"] += 1
-        return httpx.Response(200, json={"vectors": [[0.3] * 768]})
-
-    respx.post(PRIMARY_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.4] * 768]}))
-    respx.post(FALLBACK_URL).mock(side_effect=fallback_responder)
-
-    vecs = q.embed(["test"])
-    assert len(vecs) == 1
-    assert fallback_calls["n"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -334,8 +170,6 @@ def test_ensure_collection_non_409_error_propagates(monkeypatch):
     )
     monkeypatch.setattr(q, "_client", mock_client)
 
-    import pytest
-
     with pytest.raises(UnexpectedResponse):
         q.ensure_collection("broken-col")
 
@@ -448,6 +282,23 @@ class TestSearch:
 
         assert results == [{"score": 0.5, "id": "pt2", "text": "hi", "source": "x"}]
 
+    def test_search_embeds_the_query_and_queries_with_that_vector(self, monkeypatch):
+        """#155: ベクトルは core.embedding.embed() から来る。クエリを embed し、その結果で検索する。"""
+        from types import SimpleNamespace
+
+        calls = []
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        monkeypatch.setattr(q, "embed", lambda texts: calls.append(texts) or [[0.25] * 768])
+        mock_client = MagicMock()
+        mock_client.query_points.return_value = SimpleNamespace(points=[])
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        q.search("col", "my query", limit=3)
+
+        assert calls == [["my query"]]
+        kwargs = mock_client.query_points.call_args.kwargs
+        assert kwargs["query"] == [0.25] * 768 and kwargs["limit"] == 3
+
 
 class TestDeleteByPayload:
     def test_noop_when_collection_does_not_exist(self, monkeypatch):
@@ -559,106 +410,6 @@ class TestDeleteByIds:
 # ---------------------------------------------------------------------------
 
 
-class TestEmbedBatchValidation:
-    """core.qdrant is a shared module object (sys.modules-cached) across every
-    test file, and importlib.reload() executes top-to-bottom in-place —  a
-    raised exception mid-reload still leaves EMBED_BATCH set to the bad
-    value. Always reload back to a clean default afterward so other tests
-    (in this file and others) don't inherit a broken module."""
-
-    @pytest.fixture(autouse=True)
-    def _restore_qdrant_module(self, monkeypatch):
-        import importlib
-
-        yield
-        monkeypatch.delenv("EMBED_BATCH", raising=False)
-        importlib.reload(q)
-
-    def test_zero_raises_at_import(self, monkeypatch):
-        import importlib
-
-        monkeypatch.setenv("EMBED_BATCH", "0")
-        with pytest.raises(ValueError, match="EMBED_BATCH must be >= 1"):
-            importlib.reload(q)
-
-    def test_negative_raises_at_import(self, monkeypatch):
-        import importlib
-
-        monkeypatch.setenv("EMBED_BATCH", "-1")
-        with pytest.raises(ValueError, match="EMBED_BATCH must be >= 1"):
-            importlib.reload(q)
-
-    def test_valid_value_does_not_raise(self, monkeypatch):
-        import importlib
-
-        monkeypatch.setenv("EMBED_BATCH", "32")
-        importlib.reload(q)
-        assert q.EMBED_BATCH == 32
-
-
 # ---------------------------------------------------------------------------
 # #154: retry semantics preserved after moving to core.retry.with_retry
 # ---------------------------------------------------------------------------
-
-
-@respx.mock
-def test_embed_retries_on_http_500_then_succeeds(monkeypatch):
-    """501 以外の HTTP エラーはリトライ対象(501 だけが即フォールバック)。"""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_RETRIES", 3)
-    calls = {"n": 0}
-
-    def responder(request):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            return httpx.Response(500)
-        return httpx.Response(200, json={"vectors": [[0.0] * 768]})
-
-    respx.post(q.EMBED_URL).mock(side_effect=responder)
-    with patch("time.sleep") as sleep:
-        assert len(q.embed(["t"])) == 1
-    assert calls["n"] == 2
-    sleep.assert_called_once_with(1)
-
-
-@respx.mock
-def test_embed_http_500_exhausted_raises_status_error(monkeypatch):
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_RETRIES", 3)
-    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", "")
-    route = respx.post(q.EMBED_URL).mock(return_value=httpx.Response(500))
-    with patch("time.sleep"), pytest.raises(httpx.HTTPStatusError):
-        q.embed(["t"])
-    assert route.call_count == 3
-
-
-@respx.mock
-def test_embed_fallback_use_is_logged(monkeypatch, caplog):
-    import logging
-
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", FALLBACK_URL)
-    monkeypatch.setattr(q, "EMBED_RETRIES", 1)
-    respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
-    respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.1] * 768]}))
-    with patch("time.sleep"), caplog.at_level(logging.WARNING, logger="core.qdrant"):
-        q.embed(["t"])
-    assert "using fallback" in caplog.text
-    assert "unreachable" in caplog.text
-
-
-@respx.mock
-def test_embed_non_http_error_is_not_retried(monkeypatch):
-    """想定外の例外(壊れたレスポンス等)は握りつぶさず即座に伝播する。"""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_RETRIES", 3)
-    route = respx.post(q.EMBED_URL).mock(return_value=httpx.Response(200, json={"nope": 1}))
-    with patch("time.sleep") as sleep, pytest.raises(KeyError):
-        q.embed(["t"])
-    assert route.call_count == 1
-    sleep.assert_not_called()

@@ -11,7 +11,7 @@ import types
 import numpy as np
 import pytest
 
-import core.qdrant as q
+import core.embedding as emb
 
 HIDDEN = 4
 
@@ -63,21 +63,21 @@ class FakeSess:
 @pytest.fixture
 def onnx(monkeypatch):
     tok, sess = FakeTok(), FakeSess()
-    monkeypatch.setattr(q, "_onnx_sess", sess)
-    monkeypatch.setattr(q, "_onnx_tok", tok)
-    monkeypatch.setattr(q, "_onnx_input_names", frozenset(sess._names))
+    monkeypatch.setattr(emb, "_onnx_sess", sess)
+    monkeypatch.setattr(emb, "_onnx_tok", tok)
+    monkeypatch.setattr(emb, "_onnx_input_names", frozenset(sess._names))
     return tok, sess
 
 
 def test_every_text_gets_passage_prefix_like_the_http_service(onnx):
     tok, _ = onnx
-    q._embed_batch_onnx(["alpha beta", "gamma"])
+    emb._embed_batch_onnx(["alpha beta", "gamma"])
     assert tok.seen == ["passage: alpha beta", "passage: gamma"]
 
 
 def test_mean_pool_ignores_padding_and_is_l2_normalized(onnx):
     # トークン数は "passage:" を含めて 3 と 2。短い方の後ろは 1e6 のパディング。
-    out = np.array(q._embed_batch_onnx(["alpha beta", "gamma"]))
+    out = np.array(emb._embed_batch_onnx(["alpha beta", "gamma"]))
     assert out.shape == (2, HIDDEN)
     assert np.allclose(np.linalg.norm(out, axis=1), 1.0)
     d = np.arange(1, HIDDEN + 1)
@@ -88,13 +88,13 @@ def test_mean_pool_ignores_padding_and_is_l2_normalized(onnx):
 
 def test_feed_only_contains_model_inputs_as_int64(onnx):
     _, sess = onnx
-    q._embed_batch_onnx(["alpha"])
+    emb._embed_batch_onnx(["alpha"])
     assert set(sess.feed) == {"input_ids", "attention_mask"}  # token_type_ids は除外
     assert all(v.dtype == np.int64 for v in sess.feed.values())
 
 
 def test_returns_plain_python_lists(onnx):
-    out = q._embed_batch_onnx(["alpha"])
+    out = emb._embed_batch_onnx(["alpha"])
     assert isinstance(out, list) and isinstance(out[0], list) and isinstance(out[0][0], float)
 
 
@@ -105,11 +105,11 @@ def test_embed_dispatches_to_onnx_in_batches(monkeypatch):
         sizes.append(len(batch))
         return [[0.0] * HIDDEN for _ in batch]
 
-    monkeypatch.setattr(q, "EMBED_BACKEND", "onnx_gpu")
-    monkeypatch.setattr(q, "EMBED_BATCH", 2)
-    monkeypatch.setattr(q, "_embed_batch_onnx", fake_onnx)
-    monkeypatch.setattr(q, "_embed_batch", lambda b: pytest.fail("HTTP path must not be used"))
-    assert len(q.embed(["a", "b", "c", "d", "e"])) == 5
+    monkeypatch.setattr(emb, "EMBED_BACKEND", "onnx_gpu")
+    monkeypatch.setattr(emb, "EMBED_BATCH", 2)
+    monkeypatch.setattr(emb, "_embed_batch_onnx", fake_onnx)
+    monkeypatch.setattr(emb, "_embed_batch", lambda b: pytest.fail("HTTP path must not be used"))
+    assert len(emb.embed(["a", "b", "c", "d", "e"])) == 5
     assert sizes == [2, 2, 1]
 
 
@@ -132,34 +132,34 @@ def _install_fake_runtime(monkeypatch, providers):
         ("_onnx_tok", None),
         ("_onnx_input_names", frozenset()),
     ):
-        monkeypatch.setattr(q, name, val)
+        monkeypatch.setattr(emb, name, val)
     return created
 
 
 def test_init_requires_model_path(monkeypatch):
-    monkeypatch.setattr(q, "ONNX_MODEL_PATH", "")
+    monkeypatch.setattr(emb, "ONNX_MODEL_PATH", "")
     _install_fake_runtime(monkeypatch, ["CUDAExecutionProvider"])
     with pytest.raises(RuntimeError, match="ONNX_MODEL_PATH"):
-        q._onnx_init()
+        emb._onnx_init()
 
 
 def test_init_requests_cuda_then_cpu_and_stays_quiet_when_cuda_is_active(monkeypatch, caplog):
-    monkeypatch.setattr(q, "ONNX_MODEL_PATH", "/m/model.onnx")
+    monkeypatch.setattr(emb, "ONNX_MODEL_PATH", "/m/model.onnx")
     created = _install_fake_runtime(monkeypatch, ["CUDAExecutionProvider", "CPUExecutionProvider"])
-    with caplog.at_level(logging.INFO, logger="core.qdrant"):
-        q._onnx_init()
+    with caplog.at_level(logging.INFO, logger="core.embedding"):
+        emb._onnx_init()
     assert created["path"] == "/m/model.onnx"
     assert created["providers"] == ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    assert q._onnx_input_names == frozenset({"input_ids", "attention_mask"})
+    assert emb._onnx_input_names == frozenset({"input_ids", "attention_mask"})
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 def test_init_warns_loudly_when_it_silently_fell_back_to_cpu(monkeypatch, caplog):
     """CUDA ライブラリ不足だと onnxruntime は黙って CPU に落ちる。気づけること。"""
-    monkeypatch.setattr(q, "ONNX_MODEL_PATH", "/m/model.onnx")
+    monkeypatch.setattr(emb, "ONNX_MODEL_PATH", "/m/model.onnx")
     _install_fake_runtime(monkeypatch, ["CPUExecutionProvider"])
-    with caplog.at_level(logging.INFO, logger="core.qdrant"):
-        q._onnx_init()
+    with caplog.at_level(logging.INFO, logger="core.embedding"):
+        emb._onnx_init()
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1 and "NOT active" in warnings[0].getMessage()
 
@@ -169,12 +169,12 @@ def test_resources_initialize_once(monkeypatch):
 
     def fake_init():
         calls.append(1)
-        monkeypatch.setattr(q, "_onnx_sess", "S")
-        monkeypatch.setattr(q, "_onnx_tok", "T")
-        monkeypatch.setattr(q, "_onnx_input_names", frozenset({"x"}))
+        monkeypatch.setattr(emb, "_onnx_sess", "S")
+        monkeypatch.setattr(emb, "_onnx_tok", "T")
+        monkeypatch.setattr(emb, "_onnx_input_names", frozenset({"x"}))
 
-    monkeypatch.setattr(q, "_onnx_sess", None)
-    monkeypatch.setattr(q, "_onnx_init", fake_init)
-    assert q._onnx_resources() == ("S", "T", frozenset({"x"}))
-    assert q._onnx_resources() == ("S", "T", frozenset({"x"}))
+    monkeypatch.setattr(emb, "_onnx_sess", None)
+    monkeypatch.setattr(emb, "_onnx_init", fake_init)
+    assert emb._onnx_resources() == ("S", "T", frozenset({"x"}))
+    assert emb._onnx_resources() == ("S", "T", frozenset({"x"}))
     assert len(calls) == 1
