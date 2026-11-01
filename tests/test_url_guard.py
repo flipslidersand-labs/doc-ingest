@@ -73,6 +73,72 @@ class TestAssertSafeUrl:
         assert_safe_url("https://1.1.1.1/")  # should not raise
 
 
+class TestBlockedAddressRanges:
+    """#218: 列挙型のブロックリストから抜けていたアドレス。getaddrinfo の結果で判定する。"""
+
+    @staticmethod
+    def _resolve_to(mocker, addr):
+        family = socket.AF_INET6 if ":" in addr else socket.AF_INET
+        mocker.patch("socket.getaddrinfo", return_value=[(family, None, None, None, (addr, 0))])
+
+    @pytest.mark.parametrize(
+        "addr",
+        [
+            "::ffff:127.0.0.1",  # IPv4-mapped loopback
+            "::ffff:169.254.169.254",  # IPv4-mapped metadata
+            "::ffff:10.0.0.5",  # IPv4-mapped private
+            "::",  # unspecified (Linux では localhost に接続される)
+            "0.0.0.0",
+            "100.64.0.1",  # CGNAT (Tailscale)
+            "100.127.255.254",
+            "198.18.0.1",  # benchmark
+            "224.0.0.1",  # multicast
+            "ff02::1",  # IPv6 multicast
+            "240.0.0.1",  # reserved
+            "64:ff9b::7f00:1",  # NAT64
+            "64:ff9b:1::1",  # NAT64 local-use
+            "2002:7f00:1::",  # 6to4 → 127.0.0.1
+            "2002:0a00:0001::",  # 6to4 → 10.0.0.1
+            "2001:0:4136:e378:8000:63bf:3fff:fdd2",  # Teredo
+            "fe80::1",
+            "fc00::1",
+            "::1",
+        ],
+    )
+    def test_blocked(self, mocker, addr):
+        self._resolve_to(mocker, addr)
+        with pytest.raises(UnsafeURLError, match="blocked"):
+            assert_safe_url("https://example.com/")
+
+    @pytest.mark.parametrize(
+        "addr",
+        [
+            "93.184.216.34",
+            "1.1.1.1",
+            "2606:4700:4700::1111",  # public IPv6
+            "::ffff:93.184.216.34",  # IPv4-mapped but public
+            "2002:5db8:d822::",  # 6to4 → 93.184.216.34 (public)
+            "100.63.255.255",  # CGNAT の直前 (公開)
+            "100.128.0.1",  # CGNAT の直後 (公開)
+        ],
+    )
+    def test_public_addresses_still_pass(self, mocker, addr):
+        self._resolve_to(mocker, addr)
+        assert_safe_url("https://example.com/")  # should not raise
+
+    def test_any_blocked_answer_among_several_blocks_the_url(self, mocker):
+        """DNS が公開 IP と内部 IP を両方返すとき、1 つでも内部なら拒否する。"""
+        mocker.patch(
+            "socket.getaddrinfo",
+            return_value=[
+                (socket.AF_INET, None, None, None, ("93.184.216.34", 0)),
+                (socket.AF_INET6, None, None, None, ("::ffff:127.0.0.1", 0, 0, 0)),
+            ],
+        )
+        with pytest.raises(UnsafeURLError, match="blocked"):
+            assert_safe_url("https://example.com/")
+
+
 class TestExternalSsrf:
     """Integration-level: _fetch_source rejects unsafe source URLs."""
 
