@@ -46,7 +46,7 @@ class TestIngestNotesNoFiles:
 
         mocker.patch("ingest.notes._changed_files", return_value=[])
         mocker.patch("ingest.notes.head_sha", return_value="abc1234")
-        mock_upsert = mocker.patch("ingest.notes.upsert")
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
 
         from ingest.notes import ingest_notes
 
@@ -62,8 +62,8 @@ class TestIngestNotesFileArg:
         missing = tmp_path / "10-projects" / "ghost.md"  # never created
         mocker.patch("ingest.notes.assert_safe_path", return_value=missing)
         mocker.patch("ingest.notes.head_sha", return_value="abc")
-        mock_upsert = mocker.patch("ingest.notes.upsert")
-        mock_ids = mocker.patch("ingest.notes.ids_by_payload")
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
+        mock_ids = mocker.patch("core.ingest_pipeline.ids_by_payload")
 
         from ingest.notes import ingest_notes
 
@@ -79,9 +79,9 @@ class TestIngestNotesFileArg:
 
         mocker.patch("ingest.notes.assert_safe_path", return_value=note)
         mocker.patch("ingest.notes.head_sha", return_value="abc")
-        mocker.patch("ingest.notes.ids_by_payload", return_value=[])
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
         mocker.patch("ingest.notes.distill_text", return_value="distilled")
-        mock_upsert = mocker.patch("ingest.notes.upsert")
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
 
         from ingest.notes import ingest_notes
 
@@ -103,10 +103,10 @@ class TestIngestNotesStaleCleanup:
         stale_id = "stale-id-from-before"
         mocker.patch("ingest.notes._changed_files", return_value=[note])
         mocker.patch("ingest.notes.head_sha", return_value="abc")
-        mocker.patch("ingest.notes.ids_by_payload", return_value=[stale_id])
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[stale_id])
         mocker.patch("ingest.notes.distill_text", return_value="distilled")
-        mocker.patch("ingest.notes.upsert")
-        mock_delete = mocker.patch("ingest.notes.delete_by_ids")
+        mocker.patch("core.ingest_pipeline.upsert")
+        mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
 
         from ingest.notes import ingest_notes
 
@@ -123,10 +123,10 @@ class TestIngestNotesStaleCleanup:
 
         mocker.patch("ingest.notes._changed_files", return_value=[note])
         mocker.patch("ingest.notes.head_sha", return_value="abc")
-        mocker.patch("ingest.notes.ids_by_payload", return_value=[])
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
         mocker.patch("ingest.notes.distill_text", return_value="distilled")
-        mocker.patch("ingest.notes.upsert")
-        mock_delete = mocker.patch("ingest.notes.delete_by_ids")
+        mocker.patch("core.ingest_pipeline.upsert")
+        mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
 
         from ingest.notes import ingest_notes
 
@@ -147,9 +147,9 @@ class TestIngestNotesParallelDistillOrder:
 
         mocker.patch("ingest.notes._changed_files", return_value=[note])
         mocker.patch("ingest.notes.head_sha", return_value="abc")
-        mocker.patch("ingest.notes.ids_by_payload", return_value=[])
-        mock_upsert = mocker.patch("ingest.notes.upsert")
-        mocker.patch("ingest.notes.delete_by_ids")
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
+        mocker.patch("core.ingest_pipeline.delete_by_ids")
 
         # Distill deterministically based on input content so we can verify
         # each output landed on the chunk it actually came from.
