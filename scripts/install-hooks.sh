@@ -6,6 +6,7 @@
 #   bash scripts/install-hooks.sh /path/to/repo ...     # explicit repos
 #   bash scripts/install-hooks.sh --dry-run             # preview without writing
 #   bash scripts/install-hooks.sh --uninstall           # remove from all repos
+#   bash scripts/install-hooks.sh --notes [/path/to/vault]   # Obsidian vault: run `notes` (default ~/notes)
 
 set -euo pipefail
 
@@ -46,15 +47,26 @@ SNIPPET
 # --- parse flags ---
 DRY_RUN=0
 UNINSTALL=0
+NOTES=0
 REPOS=()
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run)   DRY_RUN=1 ;;
     --uninstall) UNINSTALL=1 ;;
+    --notes)     NOTES=1 ;;
     *)           REPOS+=("$arg") ;;
   esac
 done
+
+if [ "$NOTES" -eq 1 ]; then
+  # Obsidian vault: same safe .env loading as the design hook, but runs `notes`.
+  # A separate marker lets both hooks live in one post-commit file.
+  MARKER="# doc-ingest-notes-hook"
+  SNIPPET="${SNIPPET/doc-ingest-hook/doc-ingest-notes-hook}"
+  SNIPPET="${SNIPPET/doc-ingest\" design /doc-ingest\" notes }"
+  DEFAULT_REPOS=("$HOME/notes")
+fi
 
 if [ ${#REPOS[@]} -eq 0 ]; then
   REPOS=("${DEFAULT_REPOS[@]}")
@@ -94,6 +106,13 @@ PY
 
   if grep -qF "$MARKER" "$hook" 2>/dev/null; then
     echo "skip  $repo  (already installed)"
+    continue
+  fi
+
+  # The old README recipe wrote a hand-made hook that `source`d .env (arbitrary command
+  # execution, #80/#221). Appending ours would run doc-ingest twice, so ask for removal instead.
+  if grep -qE '^[^#]*(^|[ ;{])\. +"?\$_?D(OC_INGEST_DIR)?/\.env' "$hook" 2>/dev/null; then
+    echo "legacy $repo  (unsafe hand-written hook sources .env: remove $hook, then re-run)" >&2
     continue
   fi
 
