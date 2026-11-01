@@ -92,7 +92,7 @@ printf '#!/usr/bin/env bash\n_D="$HOME/projects/doc-ingest"\n[ -f "$_D/.env" ] &
 
 ### Distillation
 
-LLM distillation pipeline: **Ollama** (`qwen2.5:7b`) → **Anthropic Haiku** (if `ANTHROPIC_API_KEY` is set) → raw text fallback.
+LLM distillation pipeline: local **llama-server** (OpenAI-compatible `/v1/chat/completions`; set `LOCAL_LLM_URL`, optional `LOCAL_LLM_MODEL` / `LOCAL_LLM_TIMEOUT` / `LOCAL_LLM_MAX_TOKENS`) → **Anthropic Haiku** (if `ANTHROPIC_API_KEY` is set). If every backend fails, the chunk is skipped (never embedded as raw text). Private sources (notes, design docs) never go to Anthropic. Point `LOCAL_LLM_URL` at a server with enough context (inputs are up to ~5000 chars); distillation runs serially by default (`DISTILL_WORKERS=1`).
 
 ---
 
@@ -179,7 +179,7 @@ Obsidian ノート（例: `~/notes`）の場合は、post-commit フックで `n
 
 ### 蒸留（Distillation）
 
-LLM 蒸留パイプライン: **Ollama**（`qwen2.5:7b`）→ **Anthropic Haiku**（`ANTHROPIC_API_KEY` 設定時）→ 生テキストフォールバック。
+LLM 蒸留パイプライン: ローカル **llama-server**（OpenAI 互換 `/v1/chat/completions`。`LOCAL_LLM_URL`、任意で `LOCAL_LLM_MODEL` / `LOCAL_LLM_TIMEOUT` / `LOCAL_LLM_MAX_TOKENS`）→ **Anthropic Haiku**（`ANTHROPIC_API_KEY` 設定時）。全て失敗したチャンクはスキップし、生テキストは埋め込まない。非公開ソース（notes・設計 doc）は Anthropic に送らない。入力は最大約 5000 字なので、`LOCAL_LLM_URL` は n_ctx に余裕のある台を指す。既定は直列実行（`DISTILL_WORKERS=1`）。
 
 ## License
 

@@ -17,7 +17,8 @@ from core.qdrant import delete_by_ids, ids_by_payload, upsert
 
 _log = get_logger(__name__)
 
-DISTILL_WORKERS = int(os.getenv("DISTILL_WORKERS", "4"))
+# llama-server は 1 台で複数スロットが n_ctx を共有し、長い入力の並列は全滅する。既定は直列。
+DISTILL_WORKERS = int(os.getenv("DISTILL_WORKERS", "1"))
 
 
 def _distill_or_none(distill_fn: Callable[[str], str], text: str) -> str | None:
