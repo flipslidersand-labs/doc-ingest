@@ -16,9 +16,39 @@ def _count_tokens(text: str) -> int:
 
 
 def _hard_split_tokens(text: str, max_tokens: int) -> list[str]:
-    """Split a single oversized text into pieces each <= max_tokens using the tokenizer."""
-    ids = _enc.encode(text)
-    return [_enc.decode(ids[i : i + max_tokens]) for i in range(0, len(ids), max_tokens)]
+    """Split a single oversized text into pieces of at most *max_tokens* tokens.
+
+    A token can end in the middle of a multi-byte character (Japanese, emoji, ...). Decoding
+    fixed-size token slices turned those into U+FFFD and lost characters (#220), so the cut is
+    moved back to the nearest token boundary that is also a valid UTF-8 boundary. Joining the
+    pieces gives back exactly *text*.
+    """
+    token_bytes = _enc.decode_tokens_bytes(_enc.encode(text))
+    n = len(token_bytes)
+    pieces: list[str] = []
+    start = 0
+    while start < n:
+        end = min(start + max(max_tokens, 1), n)
+        piece = None
+        # 1) shrink to the nearest cut that is a whole-character boundary (at most a few tokens)
+        for e in range(end, start, -1):
+            try:
+                piece, end = b"".join(token_bytes[start:e]).decode("utf-8"), e
+                break
+            except UnicodeDecodeError:
+                continue
+        # 2) if not even one whole character fits in max_tokens, take the smallest whole
+        #    character instead of looping (the remainder is valid UTF-8, so this terminates)
+        if piece is None:
+            for e in range(end + 1, n + 1):
+                try:
+                    piece, end = b"".join(token_bytes[start:e]).decode("utf-8"), e
+                    break
+                except UnicodeDecodeError:
+                    continue
+        pieces.append(piece)
+        start = end
+    return pieces
 
 
 def _split_by_tokens(text: str, max_tokens: int) -> list[str]:
