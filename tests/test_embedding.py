@@ -273,3 +273,61 @@ def test_embed_non_http_error_is_not_retried(monkeypatch):
         emb.embed(["t"])
     assert route.call_count == 1
     sleep.assert_not_called()
+
+
+@respx.mock
+def test_http_mode_is_sent_as_given_and_defaults_to_index(monkeypatch):
+    """#222: 検索クエリは mode="search" で送る (サービスが query: を付ける)。既定は "index"。"""
+    import json
+
+    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
+    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+    modes = []
+
+    def responder(request):
+        modes.append(json.loads(request.content)["mode"])
+        return httpx.Response(200, json={"vectors": [[0.0] * 768]})
+
+    respx.post(emb.EMBED_URL).mock(side_effect=responder)
+    emb.embed(["doc"])
+    emb.embed(["doc"], mode="index")
+    emb.embed(["a query"], mode="search")
+    assert modes == ["index", "index", "search"]
+
+
+@respx.mock
+def test_search_mode_survives_the_fallback_url(monkeypatch):
+    import json
+
+    primary, fallback = "http://primary:9093/embed/batch", "http://fallback:9092/embed/batch"
+    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
+    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+    monkeypatch.setattr(emb, "EMBED_URL", primary)
+    monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", fallback)
+    monkeypatch.setattr(emb, "EMBED_RETRIES", 1)
+    respx.post(primary).mock(side_effect=httpx.ConnectError("refused"))
+    seen = []
+
+    def fb(request):
+        seen.append(json.loads(request.content)["mode"])
+        return httpx.Response(200, json={"vectors": [[0.1] * 768]})
+
+    respx.post(fallback).mock(side_effect=fb)
+    with patch("time.sleep"):
+        emb.embed(["q"], mode="search")
+    assert seen == ["search"]
+
+
+def test_an_unknown_mode_is_rejected_before_any_request(monkeypatch):
+    monkeypatch.setattr(emb, "_embed_batch", lambda b, m: pytest.fail("must not be called"))
+    with pytest.raises(ValueError, match="mode"):
+        emb.embed(["x"], mode="query")  # type: ignore[arg-type]  # "search" が正しい綴り
+
+
+def test_embed_passes_the_mode_to_every_sub_batch(monkeypatch):
+    seen = []
+    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
+    monkeypatch.setattr(emb, "EMBED_BATCH", 2)
+    monkeypatch.setattr(emb, "_embed_batch", lambda b, m: seen.append(m) or [[0.0]] * len(b))
+    emb.embed(["a", "b", "c", "d", "e"], mode="search")
+    assert seen == ["search", "search", "search"]

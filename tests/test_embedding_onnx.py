@@ -75,6 +75,17 @@ def test_every_text_gets_passage_prefix_like_the_http_service(onnx):
     assert tok.seen == ["passage: alpha beta", "passage: gamma"]
 
 
+def test_search_mode_uses_the_query_prefix_and_index_mode_the_passage_prefix(onnx):
+    """#222: クエリは "query: "、文書は "passage: "。mode 省略は文書 (従来どおり)。"""
+    tok, _ = onnx
+    emb._embed_batch_onnx(["alpha"], "search")
+    assert tok.seen == ["query: alpha"]
+    emb._embed_batch_onnx(["alpha"], "index")
+    assert tok.seen == ["passage: alpha"]
+    emb._embed_batch_onnx(["alpha"])
+    assert tok.seen == ["passage: alpha"]
+
+
 def test_mean_pool_ignores_padding_and_is_l2_normalized(onnx):
     # トークン数は "passage:" を含めて 3 と 2。短い方の後ろは 1e6 のパディング。
     out = np.array(emb._embed_batch_onnx(["alpha beta", "gamma"]))
@@ -101,14 +112,14 @@ def test_returns_plain_python_lists(onnx):
 def test_embed_dispatches_to_onnx_in_batches(monkeypatch):
     sizes = []
 
-    def fake_onnx(batch):
+    def fake_onnx(batch, mode):
         sizes.append(len(batch))
         return [[0.0] * HIDDEN for _ in batch]
 
     monkeypatch.setattr(emb, "EMBED_BACKEND", "onnx_gpu")
     monkeypatch.setattr(emb, "EMBED_BATCH", 2)
     monkeypatch.setattr(emb, "_embed_batch_onnx", fake_onnx)
-    monkeypatch.setattr(emb, "_embed_batch", lambda b: pytest.fail("HTTP path must not be used"))
+    monkeypatch.setattr(emb, "_embed_batch", lambda b, m: pytest.fail("HTTP path must not be used"))
     assert len(emb.embed(["a", "b", "c", "d", "e"])) == 5
     assert sizes == [2, 2, 1]
 

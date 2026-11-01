@@ -93,7 +93,7 @@ def upsert(collection: str, points: list[dict[str, Any]]) -> None:
 
 def search(collection: str, query: str, limit: int = 5) -> list[dict]:
     ensure_collection(collection)
-    vector = embed([query])[0]
+    vector = embed([query], mode="search")[0]
     hits = client().query_points(collection_name=collection, query=vector, limit=limit).points
     return [
         {
