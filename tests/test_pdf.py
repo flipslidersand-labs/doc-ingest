@@ -98,8 +98,17 @@ class TestIngestPdf:
         mock_delete.assert_not_called()
         mock_upsert.assert_not_called()
 
+    @pytest.fixture
+    def public_dns(self, mocker):
+        import socket
+
+        return mocker.patch(
+            "socket.getaddrinfo",
+            return_value=[(socket.AF_INET, None, None, None, ("93.184.216.34", 0))],
+        )
+
     @respx.mock
-    def test_remote_url_fetches_and_upserts(self, mocker):
+    def test_remote_url_fetches_and_upserts(self, mocker, public_dns):
         respx.get("https://example.com/paper.pdf").mock(
             return_value=httpx.Response(200, content=b"%PDF-fake")
         )
@@ -118,7 +127,7 @@ class TestIngestPdf:
         assert points[0]["source_url"] == "https://example.com/paper.pdf"
 
     @respx.mock
-    def test_remote_404_raises(self, mocker):
+    def test_remote_404_raises(self, mocker, public_dns):
         respx.get("https://example.com/missing.pdf").mock(return_value=httpx.Response(404))
         from ingest.pdf import ingest_pdf
 
@@ -227,3 +236,96 @@ class TestIngestPdfSafety:
         ingest_pdf("https://example.com/paper.pdf")
 
         assert all(c.kwargs["local_only"] is False for c in distill.call_args_list)
+
+
+class TestIngestPdfUrlSafety:
+    """#214: URL 入力は url_guard を通る (SSRF・リダイレクト・サイズ)。"""
+
+    @pytest.fixture(autouse=True)
+    def _no_real_network(self):
+        """未登録のリクエストは接続せず即失敗させる。ガードが壊れても実ネットワークに出ない。"""
+        with respx.mock:
+            yield
+
+    @pytest.fixture(autouse=True)
+    def _no_side_effects(self, mocker):
+        mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
+        mocker.patch("ingest.pdf.delete_by_ids")
+        self.upsert = mocker.patch("ingest.pdf.upsert")
+        mocker.patch("ingest.pdf.distill_text", return_value="d")
+        self.extract = mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://example.com/a.pdf",  # 平文 http
+            "https://10.0.0.1/a.pdf",
+            "https://169.254.169.254/latest/meta-data",
+            "https://[::ffff:127.0.0.1]/a.pdf",
+            "https://100.64.0.1/a.pdf",  # CGNAT
+        ],
+    )
+    def test_unsafe_urls_are_rejected_without_a_request(self, url):
+        from core.url_guard import UnsafeURLError
+        from ingest.pdf import ingest_pdf
+
+        with pytest.raises(UnsafeURLError):
+            ingest_pdf(url)
+        self.extract.assert_not_called()
+        self.upsert.assert_not_called()
+
+    def test_redirect_to_an_internal_host_is_not_followed(self, mocker):
+        import socket
+
+        from core.url_guard import UnsafeURLError
+        from ingest.pdf import ingest_pdf
+
+        mocker.patch(
+            "socket.getaddrinfo",
+            side_effect=lambda host, *a, **k: [
+                (
+                    socket.AF_INET,
+                    None,
+                    None,
+                    None,
+                    ("93.184.216.34" if host == "example.com" else host, 0),
+                )
+            ],
+        )
+        respx.get("https://example.com/r.pdf").mock(
+            return_value=httpx.Response(302, headers={"location": "https://192.168.1.1/x.pdf"})
+        )
+        internal = respx.get("https://192.168.1.1/x.pdf").mock(return_value=httpx.Response(200))
+        with pytest.raises(UnsafeURLError):
+            ingest_pdf("https://example.com/r.pdf")
+        assert not internal.called
+        self.upsert.assert_not_called()
+
+    def test_oversized_pdf_is_rejected_and_the_temp_file_is_removed(self, mocker):
+        import glob
+        import tempfile
+
+        from core.url_guard import UnsafeURLError
+        from ingest.pdf import ingest_pdf
+
+        def too_big(url, fileobj, **kw):
+            fileobj.write(b"x" * 10)
+            raise UnsafeURLError("response exceeds limit")
+
+        mocker.patch("ingest.pdf.safe_download", side_effect=too_big)
+        before = set(glob.glob(f"{tempfile.gettempdir()}/tmp*.pdf"))
+        with pytest.raises(UnsafeURLError):
+            ingest_pdf("https://example.com/huge.pdf")
+        assert (
+            set(glob.glob(f"{tempfile.gettempdir()}/tmp*.pdf")) == before
+        )  # 一時ファイルが残らない
+        self.upsert.assert_not_called()
+
+    def test_local_paths_do_not_go_through_the_downloader(self, mocker, tmp_path):
+        from ingest.pdf import ingest_pdf
+
+        dl = mocker.patch("ingest.pdf.safe_download")
+        pdf = tmp_path / "local.pdf"
+        pdf.write_bytes(b"%PDF")
+        ingest_pdf(str(pdf))
+        dl.assert_not_called()

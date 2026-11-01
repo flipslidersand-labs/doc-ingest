@@ -143,6 +143,8 @@ def pdf(path: str, tags: str, allow_cloud: bool):
         ingest_pdf(path, tags=tag_list, allow_cloud=allow_cloud)
     except FileNotFoundError:
         raise click.ClickException(f"ファイルが見つかりません: {path}")
+    except UnsafeURLError as e:
+        raise click.ClickException(f"取り込めない URL です: {e}")
 
 
 if __name__ == "__main__":

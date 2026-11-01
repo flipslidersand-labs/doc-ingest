@@ -6,7 +6,13 @@ import httpx
 import pytest
 import respx
 
-from core.url_guard import MAX_REDIRECTS, UnsafeURLError, assert_safe_url, safe_get
+from core.url_guard import (
+    MAX_REDIRECTS,
+    UnsafeURLError,
+    assert_safe_url,
+    safe_download,
+    safe_get,
+)
 
 
 class TestAssertSafeUrl:
@@ -278,3 +284,186 @@ class TestArxivSsrf:
 
         with pytest.raises(UnsafeURLError):
             ingest_arxiv("http://example.com/blog")
+
+
+class TestSafeDownload:
+    """#214: safe_download() は最初の URL も検証し、リダイレクトを各ホップ再検証し、サイズを制限する。"""
+
+    @pytest.fixture(autouse=True)
+    def _no_real_network(self):
+        """未登録のリクエストは接続せず即失敗させる。ガードが壊れても実ネットワークに出ない。"""
+        with respx.mock:
+            yield
+
+    @pytest.fixture(autouse=True)
+    def _public_dns(self, mocker):
+        """名前は公開 IP に解決させる (実 DNS に依存しない)。IP リテラルはそのまま判定される。"""
+        real = socket.getaddrinfo
+
+        def fake(host, *a, **kw):
+            try:
+                import ipaddress
+
+                ipaddress.ip_address(host)
+                return real(host, *a, **kw)
+            except ValueError:
+                return [(socket.AF_INET, None, None, None, ("93.184.216.34", 0))]
+
+        mocker.patch("socket.getaddrinfo", side_effect=fake)
+
+    @staticmethod
+    def _dl(url, **kw):
+        import io
+
+        buf = io.BytesIO()
+        n = safe_download(url, buf, **kw)
+        return n, buf.getvalue()
+
+    def test_downloads_the_body(self):
+        respx.get("https://example.com/a.pdf").mock(
+            return_value=httpx.Response(200, content=b"%PDF-1")
+        )
+        assert self._dl("https://example.com/a.pdf") == (6, b"%PDF-1")
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://10.0.0.1/a.pdf",
+            "https://169.254.169.254/latest",
+            "https://[::ffff:127.0.0.1]/a",
+        ],
+    )
+    def test_first_url_is_validated_before_any_request(self, url):
+        with pytest.raises(UnsafeURLError, match="blocked"):
+            self._dl(
+                url
+            )  # 検証より前に接続しようとすれば respx が AllMockedAssertionError で落とす
+
+    def test_plain_http_is_rejected(self):
+        with pytest.raises(UnsafeURLError, match="https scheme"):
+            self._dl("http://example.com/a.pdf")
+
+    def test_redirect_to_a_private_address_is_blocked_and_not_requested(self):
+        respx.get("https://example.com/r").mock(
+            return_value=httpx.Response(302, headers={"location": "https://192.168.1.1/internal"})
+        )
+        internal = respx.get("https://192.168.1.1/internal").mock(
+            return_value=httpx.Response(200, content=b"secret")
+        )
+        with pytest.raises(UnsafeURLError, match="blocked"):
+            self._dl("https://example.com/r")
+        assert not internal.called
+
+    def test_redirect_chain_to_a_safe_host_is_followed(self):
+        respx.get("https://example.com/old").mock(
+            return_value=httpx.Response(301, headers={"location": "/new.pdf"})
+        )
+        respx.get("https://example.com/new.pdf").mock(
+            return_value=httpx.Response(200, content=b"ok")
+        )
+        assert self._dl("https://example.com/old") == (2, b"ok")
+
+    def test_too_many_redirects(self):
+        respx.get(url__regex=r"https://example\.com/.*").mock(
+            return_value=httpx.Response(302, headers={"location": "https://example.com/loop"})
+        )
+        with pytest.raises(UnsafeURLError, match="too many redirects"):
+            self._dl("https://example.com/start")
+
+    def test_redirect_without_location_is_rejected(self):
+        respx.get("https://example.com/r").mock(return_value=httpx.Response(302))
+        with pytest.raises(UnsafeURLError, match="no Location"):
+            self._dl("https://example.com/r")
+
+    def test_declared_content_length_over_the_limit_is_rejected_before_reading(self):
+        respx.get("https://example.com/big").mock(
+            return_value=httpx.Response(
+                200, headers={"content-length": "1000"}, content=b"x" * 1000
+            )
+        )
+        import io
+
+        buf = io.BytesIO()
+        with pytest.raises(UnsafeURLError, match="too large"):
+            safe_download("https://example.com/big", buf, max_bytes=100)
+        assert buf.getvalue() == b""  # 1 バイトも書いていない
+
+    def test_streamed_body_over_the_limit_is_cut_off_without_a_content_length(self):
+        """Content-Length が無い / 嘘でも、受信バイト数で止める。"""
+
+        def chunks():
+            for _ in range(50):
+                yield b"x" * 10
+
+        respx.get("https://example.com/stream").mock(
+            return_value=httpx.Response(200, content=chunks())
+        )
+        import io
+
+        buf = io.BytesIO()
+        with pytest.raises(UnsafeURLError, match="exceeds"):
+            safe_download("https://example.com/stream", buf, max_bytes=100)
+        assert len(buf.getvalue()) <= 100
+
+    def test_one_byte_over_the_limit_is_cut_off_in_the_stream_check(self):
+        """境界: ちょうど 100 は通り、101 は止まる。Content-Length の無い (チャンク) 応答で検査する。"""
+        import io
+
+        def body(n):
+            def gen():
+                for _ in range(n):
+                    yield b"x"
+
+            return gen()
+
+        respx.get("https://example.com/b100").mock(
+            return_value=httpx.Response(200, content=body(100))
+        )
+        respx.get("https://example.com/b101").mock(
+            return_value=httpx.Response(200, content=body(101))
+        )
+        assert safe_download("https://example.com/b100", io.BytesIO(), max_bytes=100) == 100
+        with pytest.raises(UnsafeURLError, match="exceeds"):
+            safe_download("https://example.com/b101", io.BytesIO(), max_bytes=100)
+
+    def test_redirect_limit_bounds_the_number_of_requests(self):
+        route = respx.get(url__regex=r"https://example\.com/.*").mock(
+            return_value=httpx.Response(302, headers={"location": "https://example.com/loop"})
+        )
+        with pytest.raises(UnsafeURLError, match="too many redirects"):
+            self._dl("https://example.com/start")
+        assert route.call_count == MAX_REDIRECTS  # それ以上は取りに行かない
+
+    def test_a_chain_just_under_the_redirect_limit_succeeds(self):
+        for n in range(MAX_REDIRECTS - 1):
+            respx.get(f"https://example.com/h{n}").mock(
+                return_value=httpx.Response(
+                    302, headers={"location": f"https://example.com/h{n + 1}"}
+                )
+            )
+        respx.get(f"https://example.com/h{MAX_REDIRECTS - 1}").mock(
+            return_value=httpx.Response(200, content=b"end")
+        )
+        assert self._dl("https://example.com/h0") == (3, b"end")
+
+    def test_body_exactly_at_the_limit_is_accepted(self):
+        respx.get("https://example.com/edge").mock(
+            return_value=httpx.Response(200, content=b"x" * 100)
+        )
+        assert self._dl("https://example.com/edge", max_bytes=100)[0] == 100
+
+    def test_http_error_status_propagates(self):
+        respx.get("https://example.com/missing").mock(return_value=httpx.Response(404))
+        with pytest.raises(httpx.HTTPStatusError):
+            self._dl("https://example.com/missing")
+
+    def test_default_limit_is_50_mib_and_overridable_by_env(self, monkeypatch):
+        import importlib
+
+        import core.url_guard as g
+
+        assert g.MAX_DOWNLOAD_BYTES == 50 * 1024 * 1024
+        monkeypatch.setenv("MAX_DOWNLOAD_BYTES", "1234")
+        assert importlib.reload(g).MAX_DOWNLOAD_BYTES == 1234
+        monkeypatch.delenv("MAX_DOWNLOAD_BYTES")
+        importlib.reload(g)
