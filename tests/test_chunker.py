@@ -1,5 +1,8 @@
 """Tests for core/chunker.py"""
 
+from typing import ClassVar
+
+import pytest
 import tiktoken
 
 from core.chunker import chunk_markdown, chunk_text
@@ -109,3 +112,79 @@ class TestChunkText:
         text = "\n\n".join(["word " * 20] * 3)
         chunks = chunk_text(text, source_url="test.pdf")
         assert all(c["source_url"] == "test.pdf" for c in chunks)
+
+
+class TestHardSplitKeepsWholeCharacters:
+    """#220: トークン境界で切って decode すると、マルチバイト文字の途中で切れて U+FFFD になった。"""
+
+    SAMPLES: ClassVar[dict[str, str]] = {
+        "japanese": "これは日本語のテストです。" * 30,
+        "emoji_zwj": "👨‍👩‍👧‍👦🎉🚀🙂" * 40,
+        "mixed": "Hello 世界 😀 テスト " * 25,
+        "rare_kanji": "𠮷野家の𩸽" * 30,
+        "ascii": "word " * 200,
+    }
+
+    @pytest.mark.parametrize("name", list(SAMPLES))
+    @pytest.mark.parametrize("max_tokens", [5, 20, 100])
+    def test_pieces_join_back_to_the_original_text_without_replacement_chars(
+        self, name, max_tokens
+    ):
+        from core.chunker import _hard_split_tokens
+
+        text = self.SAMPLES[name]
+        pieces = _hard_split_tokens(text, max_tokens)
+        assert "".join(pieces) == text  # 文字の欠落も重複も無い
+        assert "�" not in "".join(pieces)
+
+    @pytest.mark.parametrize("name", list(SAMPLES))
+    @pytest.mark.parametrize("max_tokens", [5, 20, 100])
+    def test_every_piece_fits_the_token_limit(self, name, max_tokens):
+        from core.chunker import _count_tokens, _hard_split_tokens
+
+        for piece in _hard_split_tokens(self.SAMPLES[name], max_tokens):
+            assert _count_tokens(piece) <= max_tokens
+
+    def test_each_piece_is_valid_utf8_on_its_own(self):
+        from core.chunker import _hard_split_tokens
+
+        for piece in _hard_split_tokens(self.SAMPLES["japanese"], 7):
+            piece.encode("utf-8")  # 例外にならない
+            assert "�" not in piece
+
+    def test_a_tiny_limit_still_makes_progress_and_keeps_characters_whole(self):
+        """1 文字が複数トークンにまたがる状況で上限が 1 でも、無限ループせず文字を壊さない。"""
+        from core.chunker import _hard_split_tokens
+
+        text = "日本語𠮷😀" * 3
+        pieces = _hard_split_tokens(text, 1)
+        assert "".join(pieces) == text and "�" not in "".join(pieces)
+
+    def test_random_text_roundtrips(self):
+        import random
+
+        from core.chunker import _count_tokens, _hard_split_tokens
+
+        rng = random.Random(7)
+        alphabet = list("あいうえお漢字日本語abcXYZ 012\n😀🎉é")
+        for _ in range(200):
+            text = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 300)))
+            limit = rng.choice([3, 7, 15, 50])
+            pieces = _hard_split_tokens(text, limit)
+            assert "".join(pieces) == text
+            assert all(_count_tokens(p) <= limit for p in pieces)
+
+    def test_empty_text_gives_no_pieces(self):
+        from core.chunker import _hard_split_tokens
+
+        assert _hard_split_tokens("", 10) == []
+
+    def test_a_giant_japanese_paragraph_through_chunk_markdown_stays_intact(self):
+        """入口 (chunk_markdown) からも、巨大な 1 段落の日本語が化けない。"""
+        from core.chunker import chunk_markdown
+
+        para = "これは日本語の長い段落です。" * 400  # 1 つの段落で上限を大きく超える
+        chunks = chunk_markdown("## 節\n" + para)
+        assert len(chunks) > 1
+        joined = "".join(c["text"] for c in chunks)
+        assert "�" not in joined
