@@ -222,7 +222,7 @@ class TestUpsert:
         """upsert() with an empty points list still calls client().upsert with
         an empty structs list — no crash on the empty zip()."""
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts: [])
+        monkeypatch.setattr(q, "embed", lambda texts, **kw: [])
         mock_client = MagicMock()
         monkeypatch.setattr(q, "_client", mock_client)
 
@@ -235,7 +235,7 @@ class TestUpsert:
         from qdrant_client.models import PointStruct
 
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts: [[0.1] * 768])
+        monkeypatch.setattr(q, "embed", lambda texts, **kw: [[0.1] * 768])
         mock_client = MagicMock()
         monkeypatch.setattr(q, "_client", mock_client)
 
@@ -258,7 +258,7 @@ class TestSearch:
         from types import SimpleNamespace
 
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts: [[0.1] * 768])
+        monkeypatch.setattr(q, "embed", lambda texts, **kw: [[0.1] * 768])
         mock_client = MagicMock()
         hit = SimpleNamespace(score=0.987654, id="pt1", payload=None)
         mock_client.query_points.return_value = SimpleNamespace(points=[hit])
@@ -272,7 +272,7 @@ class TestSearch:
         from types import SimpleNamespace
 
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts: [[0.1] * 768])
+        monkeypatch.setattr(q, "embed", lambda texts, **kw: [[0.1] * 768])
         mock_client = MagicMock()
         hit = SimpleNamespace(score=0.5, id="pt2", payload={"text": "hi", "source": "x"})
         mock_client.query_points.return_value = SimpleNamespace(points=[hit])
@@ -288,16 +288,31 @@ class TestSearch:
 
         calls = []
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts: calls.append(texts) or [[0.25] * 768])
+        monkeypatch.setattr(
+            q, "embed", lambda texts, **kw: calls.append((texts, kw.get("mode"))) or [[0.25] * 768]
+        )
         mock_client = MagicMock()
         mock_client.query_points.return_value = SimpleNamespace(points=[])
         monkeypatch.setattr(q, "_client", mock_client)
 
         q.search("col", "my query", limit=3)
 
-        assert calls == [["my query"]]
+        assert calls == [(["my query"], "search")]  # #222: クエリは query: で埋め込む
         kwargs = mock_client.query_points.call_args.kwargs
         assert kwargs["query"] == [0.25] * 768 and kwargs["limit"] == 3
+
+
+class TestUpsertEmbedsAsDocuments:
+    def test_upsert_embeds_with_index_mode(self, monkeypatch):
+        """文書側は passage: (index)。検索クエリ側 (search) と取り違えない。"""
+        calls = []
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        monkeypatch.setattr(
+            q, "embed", lambda texts, **kw: calls.append(kw.get("mode", "index")) or [[0.1] * 768]
+        )
+        monkeypatch.setattr(q, "_client", MagicMock())
+        q.upsert("col", [{"id": "a", "text": "hello"}])
+        assert calls == ["index"]
 
 
 class TestDeleteByPayload:
