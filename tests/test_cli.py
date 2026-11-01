@@ -245,6 +245,17 @@ class TestPdfValidation:
         CliRunner().invoke(main, ["pdf", "/some/file.pdf"])
         mock_ingest.assert_called_once_with("/some/file.pdf", tags=[], allow_cloud=False)
 
+    def test_pdf_unsafe_url_shows_a_clear_error_not_a_traceback(self, mocker):
+        from core.url_guard import UnsafeURLError
+
+        mocker.patch(
+            "ingest.pdf.ingest_pdf", side_effect=UnsafeURLError("blocked address 10.0.0.1")
+        )
+        result = CliRunner().invoke(main, ["pdf", "https://10.0.0.1/a.pdf"])
+        assert result.exit_code != 0
+        assert "取り込めない URL" in result.output and "blocked address" in result.output
+        assert "Traceback" not in result.output
+
     def test_pdf_allow_cloud_flag_is_opt_in(self, mocker):
         mock_ingest = mocker.patch("ingest.pdf.ingest_pdf")
         CliRunner().invoke(main, ["pdf", "/some/file.pdf", "--allow-cloud"])

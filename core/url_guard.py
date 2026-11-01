@@ -1,12 +1,16 @@
 """URL safety guard: reject non-HTTPS and private/reserved addresses."""
 
 import ipaddress
+import os
 import socket
+from typing import BinaryIO
 from urllib.parse import urljoin, urlparse
 
 import httpx
 
 MAX_REDIRECTS = 5
+# safe_download の既定の上限 (展開後のバイト数)。巨大な応答でディスク/メモリを埋めさせない。
+MAX_DOWNLOAD_BYTES = int(os.getenv("MAX_DOWNLOAD_BYTES", str(50 * 1024 * 1024)))
 
 # NAT64 (RFC 6052 / 8215): 内部の IPv4 を埋め込んで到達できる。is_global が True を返すので別に拒否する。
 _NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
@@ -91,4 +95,53 @@ def safe_get(
         next_url = urljoin(current, location)
         assert_safe_url(next_url)
         current = next_url
+    raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {url!r}")
+
+
+def safe_download(
+    url: str,
+    fileobj: BinaryIO,
+    *,
+    headers: dict | None = None,
+    timeout: float = 60,
+    max_bytes: int | None = None,
+    max_redirects: int = MAX_REDIRECTS,
+) -> int:
+    """Stream *url* into *fileobj* and return the number of bytes written.
+
+    Unlike :func:`safe_get` this validates the **first** URL too (it is the trust boundary for
+    user-supplied URLs), re-validates every redirect hop, and stops once more than *max_bytes*
+    (default :data:`MAX_DOWNLOAD_BYTES`) have been received — checked against ``Content-Length``
+    up front and against the decoded stream, so a missing or lying header cannot bypass it.
+    Raises :class:`UnsafeURLError` for a blocked/oversized/too-redirected URL and lets
+    ``httpx.HTTPStatusError`` propagate for non-2xx.
+    """
+    limit = MAX_DOWNLOAD_BYTES if max_bytes is None else max_bytes
+    current = url
+    assert_safe_url(current)
+    for _ in range(max_redirects):
+        with httpx.stream(
+            "GET", current, headers=headers, timeout=timeout, follow_redirects=False
+        ) as resp:
+            if resp.is_redirect:
+                location = resp.headers.get("location")
+                if not location:
+                    raise UnsafeURLError(f"redirect with no Location header: {current!r}")
+                next_url = urljoin(current, location)
+                assert_safe_url(next_url)
+                current = next_url
+                continue
+            resp.raise_for_status()
+            declared = resp.headers.get("content-length", "")
+            if declared.isdigit() and int(declared) > limit:
+                raise UnsafeURLError(
+                    f"response too large ({declared} bytes > {limit}): {current!r}"
+                )
+            written = 0
+            for chunk in resp.iter_bytes():
+                written += len(chunk)
+                if written > limit:
+                    raise UnsafeURLError(f"response exceeds {limit} bytes: {current!r}")
+                fileobj.write(chunk)
+            return written
     raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {url!r}")
