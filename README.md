@@ -81,6 +81,17 @@ printf '#!/usr/bin/env bash\n_D="$HOME/projects/doc-ingest"\n[ -f "$_D/.env" ] &
   > ~/notes/.git/hooks/post-commit && chmod +x ~/notes/.git/hooks/post-commit
 ```
 
+### Upgrading from pre-#216 points (`design` / `notes`)
+
+Documents are now keyed `<repo>/<path-in-repo>` (stored as `file_path`, plus a `repo` payload), so two repos' `CLAUDE.md` no longer collide and the post-commit hook and manual runs agree. Points ingested before that have no `repo` payload and become orphans. Delete them, then re-ingest (the hook only picks up files changed in the last commit):
+
+```bash
+.venv/bin/python scripts/migrate_doc_keys.py            # dry-run: counts + sample paths
+.venv/bin/python scripts/migrate_doc_keys.py --apply    # delete points without `repo`
+# re-ingest every design doc of each hooked repo (run inside that repo; paths must be under cwd)
+cd ~/projects/forge && for f in CLAUDE.md AGENTS.md docs/*.md adr/*.md ADR/*.md; do [ -f "$f" ] && ~/projects/doc-ingest/.venv/bin/doc-ingest design "$f"; done
+```
+
 ### Collections
 
 | Qdrant collection | Content |
@@ -172,6 +183,17 @@ bash scripts/install-hooks.sh --uninstall
 コミットのたびに設計ドキュメント（CLAUDE.md / ADR / docs/）が自動取り込みされます。
 
 Obsidian ノート（例: `~/notes`）の場合は、post-commit フックで `notes` コマンドを実行するよう設定すると、キュレーションされたノートが `notes` コレクションに自動登録されます。
+
+### #216 以前の point からの移行（`design` / `notes`）
+
+文書の識別子は `<リポ名>/<リポ内の相対パス>`（`file_path` に保存。`repo` も payload に追加）になりました。別リポの `CLAUDE.md` が衝突せず、post-commit フックと手動実行でも同じ ID になります。それ以前に取り込んだ point は `repo` が無く、孤立します。削除してから再取り込みしてください（フックは直近のコミットで変わったファイルしか拾いません）。
+
+```bash
+.venv/bin/python scripts/migrate_doc_keys.py            # dry-run: 件数とパスの例
+.venv/bin/python scripts/migrate_doc_keys.py --apply    # `repo` の無い point を削除
+# フック導入済みの各リポで設計 doc を全件再取り込み（そのリポの中で実行。パスは cwd 配下）
+cd ~/projects/forge && for f in CLAUDE.md AGENTS.md docs/*.md adr/*.md ADR/*.md; do [ -f "$f" ] && ~/projects/doc-ingest/.venv/bin/doc-ingest design "$f"; done
+```
 
 ### コレクション
 
