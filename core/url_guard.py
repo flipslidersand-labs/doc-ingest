@@ -8,17 +8,35 @@ import httpx
 
 MAX_REDIRECTS = 5
 
-_BLOCKED_NETWORKS = [
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("0.0.0.0/8"),
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-    ipaddress.ip_network("fe80::/10"),
-]
+# NAT64 (RFC 6052 / 8215): 内部の IPv4 を埋め込んで到達できる。is_global が True を返すので別に拒否する。
+_NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
+
+
+def _blocked_reason(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str | None:
+    """Why *ip* must not be fetched, or None if it is a public unicast address.
+
+    An allow-list on ``is_global`` instead of a hand-written CIDR deny-list: private, loopback,
+    link-local, CGNAT (100.64/10), benchmark (198.18/15), documentation, ... are all non-global.
+    IPv6 forms that carry an IPv4 address are unwrapped so ``::ffff:127.0.0.1`` is judged as
+    127.0.0.1; tunnels (Teredo, NAT64) are refused outright.
+    """
+    if isinstance(ip, ipaddress.IPv6Address):
+        for embedded in (ip.ipv4_mapped, ip.sixtofour):
+            if embedded is not None:
+                return _blocked_reason(embedded)
+        if ip.teredo is not None:
+            return "Teredo tunnel"
+        if any(ip in net for net in _NAT64):
+            return "NAT64"
+    if ip.is_multicast:
+        return "multicast"
+    if ip.is_unspecified:
+        return "unspecified"
+    if ip.is_reserved:
+        return "reserved"
+    if not ip.is_global:
+        return "non-public (private/loopback/link-local/shared/benchmark)"
+    return None
 
 
 class UnsafeURLError(ValueError):
@@ -39,9 +57,9 @@ def assert_safe_url(url: str) -> None:
         raise UnsafeURLError(f"Cannot resolve {hostname!r}: {exc}") from exc
     for *_, sockaddr in infos:
         ip = ipaddress.ip_address(sockaddr[0])
-        for network in _BLOCKED_NETWORKS:
-            if ip in network:
-                raise UnsafeURLError(f"URL resolves to blocked address {ip} ({network}): {url!r}")
+        reason = _blocked_reason(ip)
+        if reason is not None:
+            raise UnsafeURLError(f"URL resolves to blocked address {ip} ({reason}): {url!r}")
 
 
 def safe_get(
