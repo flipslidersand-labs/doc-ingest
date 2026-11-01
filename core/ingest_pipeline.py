@@ -4,6 +4,7 @@ Flow per file: fetch old ids → chunk → distill in parallel → upsert → de
 Callers only decide which files to ingest and how to distill a chunk.
 """
 
+import logging
 import os
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -13,10 +14,9 @@ from core.chunker import chunk_markdown
 from core.distiller import DistillError
 from core.doc_key import doc_key
 from core.ids import make_id
-from core.logging import get_logger
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
 
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 # llama-server は 1 台で複数スロットが n_ctx を共有し、長い入力の並列は全滅する。既定は直列。
 DISTILL_WORKERS = int(os.getenv("DISTILL_WORKERS", "1"))

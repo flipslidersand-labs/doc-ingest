@@ -12,14 +12,26 @@ from ingest.design_docs import ingest_design_docs
 from ingest.external import sync_external
 from ingest.notes import ingest_notes
 
+# このリポのパッケージ。レベルはここにだけ設定し、root は WARNING のままにして httpx / urllib3 /
+# qdrant_client など第三者のログ (httpx は INFO でリクエスト URL を出す) を静かに保つ。
+_OWN_LOGGERS = ("core", "ingest", "cli", "__main__")
+
+
+def setup_logging(verbose: bool) -> None:
+    """`-v` で自パッケージだけ DEBUG、通常は INFO。出力は stderr (root のハンドラ)。"""
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    level = logging.DEBUG if verbose else logging.INFO
+    for name in _OWN_LOGGERS:
+        logging.getLogger(name).setLevel(level)
+
 
 @click.group()
 @click.option("--verbose", "-v", is_flag=True, help="Enable DEBUG logging")
 def main(verbose: bool):
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    setup_logging(verbose)
 
 
 @main.command()

@@ -4,14 +4,14 @@ Split out of core/qdrant.py (#155): everything about *getting vectors* lives her
 core/qdrant.py is the thin vector-DB client that calls embed().
 """
 
+import logging
 import os
 import threading
 from typing import Literal
 
-from core.logging import get_logger
 from core.retry import with_retry
 
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 EMBED_URL = os.getenv("EMBED_URL", "http://localhost:9092/embed/batch")
 # EMBED_FALLBACK_URL: secondary endpoint used when EMBED_URL is unreachable or returns 501.
