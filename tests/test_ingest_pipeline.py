@@ -108,3 +108,17 @@ def test_all_success_returns_zero(mocker, tmp_path):
         )
         == 0
     )
+
+
+def test_distill_workers_default_is_serial(monkeypatch):
+    """llama-server は長い入力の並列で全滅する(n_ctx 共有)ので既定は直列。"""
+    import importlib
+
+    import core.ingest_pipeline as mod
+
+    monkeypatch.delenv("DISTILL_WORKERS", raising=False)
+    assert importlib.reload(mod).DISTILL_WORKERS == 1
+    monkeypatch.setenv("DISTILL_WORKERS", "3")
+    assert importlib.reload(mod).DISTILL_WORKERS == 3
+    monkeypatch.delenv("DISTILL_WORKERS")
+    importlib.reload(mod)

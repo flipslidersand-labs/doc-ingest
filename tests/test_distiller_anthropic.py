@@ -67,7 +67,7 @@ class TestAnthropic:
 
 class TestGenerateFallsBackFromAnthropic:
     @pytest.fixture(autouse=True)
-    def _ollama_down(self, mocker):
+    def _local_down(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
 
     def test_generate_uses_anthropic_text(self, sdk):

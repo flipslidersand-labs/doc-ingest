@@ -8,27 +8,29 @@ import pytest
 from core import distiller
 
 
-def _mock_urlopen(response_text: str):
+def _mock_urlopen(response_text: str, finish: str = "stop"):
     mock_resp = MagicMock()
-    mock_resp.read.return_value = json.dumps({"response": response_text}).encode()
+    mock_resp.read.return_value = json.dumps(
+        {"choices": [{"message": {"content": response_text}, "finish_reason": finish}]}
+    ).encode()
     mock_resp.__enter__ = lambda s: s
     mock_resp.__exit__ = MagicMock(return_value=False)
     return mock_resp
 
 
 class TestGenerate:
-    def test_ollama_success(self):
+    def test_local_success(self):
         with patch("urllib.request.urlopen", return_value=_mock_urlopen("result text")):
             out = distiller._generate("prompt")
         assert out == "result text"
 
-    def test_ollama_failure_no_api_key_raises(self, mocker):
+    def test_local_failure_no_api_key_raises(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
         mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "")
         with pytest.raises(distiller.DistillError):
             distiller._generate("prompt")
 
-    def test_ollama_failure_with_api_key_tries_anthropic(self, mocker):
+    def test_local_failure_with_api_key_tries_anthropic(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
         mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "sk-fake")
         mock_anthropic = mocker.patch.object(distiller, "_anthropic", return_value="haiku result")
@@ -43,7 +45,7 @@ class TestGenerate:
         with pytest.raises(distiller.DistillError):
             distiller._generate("prompt")
 
-    def test_local_only_success_uses_ollama(self):
+    def test_local_only_success_uses_local(self):
         with patch("urllib.request.urlopen", return_value=_mock_urlopen("local result")):
             assert distiller._generate("prompt", local_only=True) == "local result"
 
@@ -55,7 +57,7 @@ class TestGenerate:
             distiller._generate("private prompt", local_only=True)
         mock_anthropic.assert_not_called()
 
-    def test_memory_error_not_swallowed_ollama(self, mocker):
+    def test_memory_error_not_swallowed_local(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=MemoryError("oom"))
         with pytest.raises(MemoryError):
             distiller._generate("prompt")
@@ -66,6 +68,46 @@ class TestGenerate:
         mocker.patch.object(distiller, "_anthropic", side_effect=KeyboardInterrupt)
         with pytest.raises(KeyboardInterrupt):
             distiller._generate("prompt")
+
+
+class TestLocalRequest:
+    def _capture(self, mocker, text="ok", finish="stop"):
+        return mocker.patch("urllib.request.urlopen", return_value=_mock_urlopen(text, finish))
+
+    def test_posts_openai_chat_completions(self, mocker):
+        mocker.patch.object(distiller, "LOCAL_LLM_URL", "http://h:18080/")
+        mocker.patch.object(distiller, "LOCAL_LLM_MODEL", "")
+        m = self._capture(mocker, "要約")
+        assert distiller._local("hello") == "要約"
+        req = m.call_args.args[0]
+        assert req.full_url == "http://h:18080/v1/chat/completions"
+        body = json.loads(req.data)
+        assert body["messages"] == [{"role": "user", "content": "hello"}]
+        assert body["max_tokens"] == distiller.LOCAL_LLM_MAX_TOKENS >= 1500
+        assert body["temperature"] == 0 and body["stream"] is False
+        assert "model" not in body
+
+    def test_model_is_sent_when_configured(self, mocker):
+        mocker.patch.object(distiller, "LOCAL_LLM_MODEL", "gemma-4-12b")
+        m = self._capture(mocker)
+        distiller._local("p")
+        assert json.loads(m.call_args.args[0].data)["model"] == "gemma-4-12b"
+
+    def test_empty_content_is_an_error_not_a_summary(self, mocker):
+        self._capture(mocker, "  ", finish="length")
+        with pytest.raises(ValueError, match="length"):
+            distiller._local("p")
+
+    def test_empty_content_falls_to_anthropic_then_distill_error(self, mocker):
+        self._capture(mocker, "", finish="length")
+        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "")
+        with pytest.raises(distiller.DistillError):
+            distiller._generate("p")
+
+    def test_does_not_call_ollama_api(self, mocker):
+        m = self._capture(mocker)
+        distiller._local("p")
+        assert "/api/generate" not in m.call_args.args[0].full_url
 
 
 class TestDistillFunctions:
