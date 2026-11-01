@@ -5,7 +5,6 @@ creates an HTTP client and no network access to the Anthropic API can happen.
 The API key is a dummy value.
 """
 
-import logging
 from types import SimpleNamespace
 
 import pytest
@@ -73,15 +72,14 @@ class TestGenerateFallsBackFromAnthropic:
 
     def test_generate_uses_anthropic_text(self, sdk):
         sdk[1].return_value = _msg("distilled")
-        assert distiller._generate("p", source_text="raw") == "distilled"
+        assert distiller._generate("p") == "distilled"
 
-    def test_empty_content_falls_back_to_raw(self, sdk, caplog):
+    def test_empty_content_raises_distill_error(self, sdk):
         sdk[1].return_value = _msg()
-        with caplog.at_level(logging.WARNING):
-            out = distiller._generate("p", source_text="raw source")
-        assert out == "raw source"
-        assert any("Anthropic unavailable" in r.getMessage() for r in caplog.records)
+        with pytest.raises(distiller.DistillError):
+            distiller._generate("p")
 
-    def test_api_error_falls_back_to_raw(self, sdk):
+    def test_api_error_raises_distill_error(self, sdk):
         sdk[1].side_effect = RuntimeError("api down")
-        assert distiller._generate("p", source_text="raw source") == "raw source"
+        with pytest.raises(distiller.DistillError):
+            distiller._generate("p")
