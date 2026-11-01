@@ -77,6 +77,25 @@ class TestIngestPdf:
         assert points[0]["source"] == "pdf"
         assert points[0]["tags"] == ["research"]
 
+    def test_distill_failure_keeps_old_chunks(self, mocker, tmp_path):
+        """要約が全バックエンド失敗で例外になっても、旧チャンクを先に消してはいけない。"""
+        from core.distiller import DistillError
+
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+        mocker.patch("ingest.pdf.distill_text", side_effect=DistillError("down"))
+        mock_delete = mocker.patch("ingest.pdf.delete_by_payload")
+        mock_upsert = mocker.patch("ingest.pdf.upsert")
+
+        from ingest.pdf import ingest_pdf
+
+        with pytest.raises(DistillError):
+            ingest_pdf(str(pdf))
+
+        mock_delete.assert_not_called()
+        mock_upsert.assert_not_called()
+
     @respx.mock
     def test_remote_url_fetches_and_upserts(self, mocker):
         respx.get("https://example.com/paper.pdf").mock(

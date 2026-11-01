@@ -153,7 +153,7 @@ class TestIngestNotesParallelDistillOrder:
 
         # Distill deterministically based on input content so we can verify
         # each output landed on the chunk it actually came from.
-        def fake_distill(text, purpose):
+        def fake_distill(text, purpose, **kwargs):
             return f"summary-of[{text[:5]}]"
 
         mocker.patch("ingest.notes.distill_text", side_effect=fake_distill)
@@ -171,3 +171,24 @@ class TestIngestNotesParallelDistillOrder:
         assert sections == ["First", "Second"]
         assert points[0]["text"] == "summary-of[First]"
         assert points[1]["text"] == "summary-of[Secon]"
+
+
+class TestIngestNotesIsLocalOnly:
+    def test_notes_are_distilled_with_local_only(self, mocker, tmp_path):
+        """非公開ノートは Anthropic に送らない: distill_text は local_only=True で呼ばれる。"""
+        note = tmp_path / "10-projects" / "private.md"
+        note.parent.mkdir(parents=True)
+        note.write_text("## Section\n" + "secret " * 30)
+        mocker.patch("ingest.notes._changed_files", return_value=[note])
+        mocker.patch("ingest.notes.head_sha", return_value="abc")
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        mocker.patch("core.ingest_pipeline.upsert")
+        mocker.patch("core.ingest_pipeline.delete_by_ids")
+        mock_distill = mocker.patch("ingest.notes.distill_text", return_value="d")
+
+        from ingest.notes import ingest_notes
+
+        ingest_notes()
+
+        mock_distill.assert_called()
+        assert all(c.kwargs.get("local_only") is True for c in mock_distill.call_args_list)

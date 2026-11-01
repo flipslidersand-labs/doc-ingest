@@ -59,8 +59,6 @@ def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
         _log.warning("no text extracted from %s", source)
         return
 
-    delete_by_payload(COLLECTION, "source_url", source_url)
-
     chunks = chunk_text(text, source_url=source_url)
     points = [
         {
@@ -74,6 +72,8 @@ def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
         }
         for c in chunks
     ]
+    # distill が全バックエンド失敗で例外になっても旧チャンクを消さないよう、削除は points 確定後
+    delete_by_payload(COLLECTION, "source_url", source_url)
     if points:
         upsert(COLLECTION, points)
     _log.info("ingested %s (%d chunks) → %s", source, len(points), COLLECTION)
