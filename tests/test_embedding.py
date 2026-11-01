@@ -331,3 +331,88 @@ def test_embed_passes_the_mode_to_every_sub_batch(monkeypatch):
     monkeypatch.setattr(emb, "_embed_batch", lambda b, m: seen.append(m) or [[0.0]] * len(b))
     emb.embed(["a", "b", "c", "d", "e"], mode="search")
     assert seen == ["search", "search", "search"]
+
+
+class TestTransportErrorsAreRetriedAndFallBack:
+    """#229: ReadError / RemoteProtocolError などはリトライもフォールバックも対象外だった。"""
+
+    PRIMARY, FALLBACK = "http://primary:9093/embed/batch", "http://fallback:9092/embed/batch"
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, monkeypatch):
+        monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
+        monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+        monkeypatch.setattr(emb, "EMBED_URL", self.PRIMARY)
+        monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", self.FALLBACK)
+        monkeypatch.setattr(emb, "EMBED_RETRIES", 2)
+
+    @respx.mock
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            httpx.ReadError("connection reset"),
+            httpx.RemoteProtocolError("server disconnected"),
+            httpx.WriteError("broken pipe"),
+            httpx.ProxyError("proxy"),
+        ],
+        ids=lambda e: type(e).__name__,
+    )
+    def test_falls_back_after_retrying_the_primary(self, exc):
+        primary = respx.post(self.PRIMARY).mock(side_effect=exc)
+        respx.post(self.FALLBACK).mock(
+            return_value=httpx.Response(200, json={"vectors": [[0.1] * 4]})
+        )
+        with patch("time.sleep"):
+            assert emb.embed(["t"]) == [[0.1] * 4]
+        assert primary.call_count == 2  # EMBED_RETRIES 回リトライしてから
+
+    @respx.mock
+    def test_without_a_fallback_the_original_error_is_raised(self, monkeypatch):
+        monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", "")
+        respx.post(self.PRIMARY).mock(side_effect=httpx.ReadError("reset"))
+        with patch("time.sleep"), pytest.raises(httpx.ReadError):
+            emb.embed(["t"])
+
+    @respx.mock
+    def test_a_decoding_error_is_not_retried(self):
+        """通信系ではない (壊れた応答) ので、リトライしても同じ。即座に伝播する。"""
+        route = respx.post(self.PRIMARY).mock(side_effect=httpx.DecodingError("bad gzip"))
+        with patch("time.sleep") as sleep, pytest.raises(httpx.DecodingError):
+            emb.embed(["t"])
+        assert route.call_count == 1
+        sleep.assert_not_called()
+
+
+class TestVectorCountIsChecked:
+    """#229: サーバーが入力より少ないベクトルを返すと、呼び出し側の zip が後ろを黙って落とした。"""
+
+    @respx.mock
+    def test_http_short_response_raises(self, monkeypatch):
+        monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
+        monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+        respx.post(emb.EMBED_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.0]]}))
+        with pytest.raises(emb.EmbeddingError, match="1 vectors for 3 texts"):
+            emb.embed(["a", "b", "c"])
+
+    def test_onnx_short_response_raises(self, monkeypatch):
+        monkeypatch.setattr(emb, "EMBED_BACKEND", "onnx_gpu")
+        monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+        monkeypatch.setattr(emb, "_embed_batch_onnx", lambda b, m: [[0.0]])
+        with pytest.raises(emb.EmbeddingError):
+            emb.embed(["a", "b"])
+
+    def test_each_sub_batch_is_checked(self, monkeypatch):
+        monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
+        monkeypatch.setattr(emb, "EMBED_BATCH", 2)
+        monkeypatch.setattr(emb, "_embed_batch", lambda b, m: [[0.0]] * (len(b) - (len(b) == 1)))
+        with pytest.raises(emb.EmbeddingError, match="0 vectors for 1 texts"):
+            emb.embed(["a", "b", "c"])  # 2 + 1: 2 つ目のバッチだけ不足
+
+    def test_an_exact_count_passes(self, monkeypatch):
+        monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
+        monkeypatch.setattr(emb, "EMBED_BATCH", 2)
+        monkeypatch.setattr(emb, "_embed_batch", lambda b, m: [[0.0]] * len(b))
+        assert len(emb.embed(["a", "b", "c", "d", "e"])) == 5
+
+    def test_no_texts_is_fine(self):
+        assert emb.embed([]) == []
