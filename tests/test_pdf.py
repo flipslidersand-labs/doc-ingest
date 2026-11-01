@@ -63,8 +63,9 @@ class TestIngestPdf:
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose: text)
-        mocker.patch("ingest.pdf.delete_by_payload")
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
+        mocker.patch("ingest.pdf.delete_by_ids")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
         from ingest.pdf import ingest_pdf
@@ -85,7 +86,8 @@ class TestIngestPdf:
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
         mocker.patch("ingest.pdf.distill_text", side_effect=DistillError("down"))
-        mock_delete = mocker.patch("ingest.pdf.delete_by_payload")
+        mock_delete = mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
+        mocker.patch("ingest.pdf.delete_by_ids")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
         from ingest.pdf import ingest_pdf
@@ -102,8 +104,9 @@ class TestIngestPdf:
             return_value=httpx.Response(200, content=b"%PDF-fake")
         )
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose: text)
-        mocker.patch("ingest.pdf.delete_by_payload")
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
+        mocker.patch("ingest.pdf.delete_by_ids")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
         from ingest.pdf import ingest_pdf
@@ -126,8 +129,9 @@ class TestIngestPdf:
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose: text)
-        mocker.patch("ingest.pdf.delete_by_payload")
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
+        mocker.patch("ingest.pdf.delete_by_ids")
         mock_upsert = mocker.patch("ingest.pdf.upsert")
 
         from ingest.pdf import ingest_pdf
@@ -140,3 +144,86 @@ class TestIngestPdf:
         ids2 = [p["id"] for p in mock_upsert.call_args[0][1]]
 
         assert ids1 == ids2
+
+
+class TestIngestPdfSafety:
+    """#215: 旧チャンクの先行削除でデータを失わない / 非公開 PDF を Anthropic に送らない。"""
+
+    def _patches(self, mocker, old_ids=()):
+        mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+        mocker.patch("ingest.pdf.ids_by_payload", return_value=list(old_ids))
+        order = mocker.Mock()
+        mocker.patch("ingest.pdf.upsert", order.upsert)
+        mocker.patch("ingest.pdf.delete_by_ids", order.delete)
+        return order
+
+    def test_embedding_failure_keeps_old_chunks(self, mocker, tmp_path):
+        """upsert (= embed) が落ちても、旧チャンクは 1 件も消えない。"""
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        order = self._patches(mocker, old_ids=["old-1", "old-2"])
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        order.upsert.side_effect = RuntimeError("embedding service down")
+
+        from ingest.pdf import ingest_pdf
+
+        with pytest.raises(RuntimeError):
+            ingest_pdf(str(pdf))
+
+        order.delete.assert_not_called()
+
+    def test_stale_chunks_are_deleted_only_after_a_successful_upsert(self, mocker, tmp_path):
+        from core.ids import make_id
+
+        pdf = tmp_path / "paper.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        source_url = str(pdf.resolve())
+        keep_id = make_id(f"{source_url}:0")
+        order = self._patches(mocker, old_ids=[keep_id, "stale-id"])
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf(str(pdf))
+
+        assert [c[0] for c in order.mock_calls] == ["upsert", "delete"]
+        assert order.delete.call_args.args == ("research", ["stale-id"])
+
+    def test_local_pdf_is_summarised_locally_only_by_default(self, mocker, tmp_path):
+        pdf = tmp_path / "private.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        self._patches(mocker)
+        distill = mocker.patch("ingest.pdf.distill_text", return_value="d")
+
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf(str(pdf))
+
+        assert distill.call_count > 0
+        assert all(c.kwargs["local_only"] is True for c in distill.call_args_list)
+
+    def test_allow_cloud_opts_a_local_pdf_into_anthropic(self, mocker, tmp_path):
+        pdf = tmp_path / "private.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        self._patches(mocker)
+        distill = mocker.patch("ingest.pdf.distill_text", return_value="d")
+
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf(str(pdf), allow_cloud=True)
+
+        assert all(c.kwargs["local_only"] is False for c in distill.call_args_list)
+
+    @respx.mock
+    def test_remote_pdf_is_a_public_document_so_cloud_is_allowed(self, mocker):
+        respx.get("https://example.com/paper.pdf").mock(
+            return_value=httpx.Response(200, content=b"%PDF-fake")
+        )
+        self._patches(mocker)
+        distill = mocker.patch("ingest.pdf.distill_text", return_value="d")
+
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf("https://example.com/paper.pdf")
+
+        assert all(c.kwargs["local_only"] is False for c in distill.call_args_list)

@@ -10,7 +10,7 @@ from core.chunker import chunk_text
 from core.distiller import distill_text
 from core.ids import make_id
 from core.logging import get_logger
-from core.qdrant import delete_by_payload, upsert
+from core.qdrant import delete_by_ids, ids_by_payload, upsert
 
 _log = get_logger(__name__)
 
@@ -34,13 +34,19 @@ def _extract_text_from_path(path: Path) -> str:
     return "\n\n".join(pages)
 
 
-def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
-    """Ingest a local PDF path or remote PDF URL."""
+def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = False) -> None:
+    """Ingest a local PDF path or remote PDF URL.
+
+    A local file may be private, so by default it is summarised by the local LLM only and is
+    never sent to Anthropic (``allow_cloud=True`` opts in). A URL is a public document.
+    """
     tags = tags or []
     now = datetime.now(UTC).isoformat()
     source_url = source
+    is_url = source.startswith("http")
+    local_only = not is_url and not allow_cloud
 
-    if source.startswith("http"):
+    if is_url:
         import httpx
 
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
@@ -63,7 +69,9 @@ def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
     points = [
         {
             "id": make_id(f"{source_url}:{c['chunk_index']}"),
-            "text": distill_text(c["text"], "この資料の要点・実装に使える知見を200字以内で。"),
+            "text": distill_text(
+                c["text"], "この資料の要点・実装に使える知見を200字以内で。", local_only=local_only
+            ),
             "source": "pdf",
             "source_url": source_url,
             "chunk_index": c["chunk_index"],
@@ -72,8 +80,13 @@ def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
         }
         for c in chunks
     ]
-    # distill が全バックエンド失敗で例外になっても旧チャンクを消さないよう、削除は points 確定後
-    delete_by_payload(COLLECTION, "source_url", source_url)
+    # 旧チャンクを先に消さない: distill / 埋め込み (upsert) のどちらが失敗しても旧データが残る。
+    # ID は決定的なので、upsert してから新しい集合に無い旧 ID だけを消す (ingest_pipeline と同じ順)。
+    old_ids = ids_by_payload(COLLECTION, "source_url", source_url)
     if points:
         upsert(COLLECTION, points)
+    keep = {p["id"] for p in points}
+    stale = [i for i in old_ids if i not in keep]
+    if stale:
+        delete_by_ids(COLLECTION, stale)
     _log.info("ingested %s (%d chunks) → %s", source, len(points), COLLECTION)

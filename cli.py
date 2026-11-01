@@ -129,13 +129,18 @@ def list_cmd():
 @main.command()
 @click.argument("path")
 @click.option("--tags", default="", help="Comma-separated tags")
-def pdf(path: str, tags: str):
+@click.option(
+    "--allow-cloud",
+    is_flag=True,
+    help="Allow summarising a local PDF with Anthropic when the local LLM fails (default: local only)",
+)
+def pdf(path: str, tags: str, allow_cloud: bool):
     """Ingest a local PDF file into the research collection."""
     from ingest.pdf import ingest_pdf
 
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     try:
-        ingest_pdf(path, tags=tag_list)
+        ingest_pdf(path, tags=tag_list, allow_cloud=allow_cloud)
     except FileNotFoundError:
         raise click.ClickException(f"ファイルが見つかりません: {path}")
 
