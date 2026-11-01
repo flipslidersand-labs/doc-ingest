@@ -209,3 +209,43 @@ def test_failed_chunk_keeps_its_existing_point_inside_a_git_repo(mocker, tmp_pat
 
     assert delete.call_args.args == ("design", ["gone"])
     _repo_info.cache_clear()
+
+
+def test_hook_flow_renaming_a_japanese_note_replaces_its_points(mocker, tmp_path, monkeypatch):
+    """#217: post-commit フックの流れ全体。日本語名のノートをリネームすると、
+    旧パスの point が消え、新パスの point が作られる (以前は日本語パスが引用符つきで読めず、
+    リネームは新パスしか返らず、削除されたファイルは無視されていた)。"""
+    import subprocess
+
+    from core.doc_key import _repo_info
+
+    _repo_info.cache_clear()
+    vault = tmp_path / "vault"
+    (vault / "10-projects").mkdir(parents=True)
+    g = ["git", "-C", str(vault), "-c", "user.email=t@e.com", "-c", "user.name=t"]
+    subprocess.run(["git", "-C", str(vault), "init", "-q"], check=True)
+    (vault / "10-projects" / "日本語のノート.md").write_text("## 節\n" + "内容 " * 40)
+    subprocess.run([*g, "add", "10-projects/日本語のノート.md"], check=True)
+    subprocess.run([*g, "commit", "-q", "-m", "one"], check=True)
+    subprocess.run(
+        [*g, "mv", "10-projects/日本語のノート.md", "10-projects/改名したノート.md"], check=True
+    )
+    subprocess.run([*g, "commit", "-q", "-m", "rename"], check=True)
+    monkeypatch.chdir(vault)  # フックは各リポのルートで走る
+
+    old_key = "vault/10-projects/日本語のノート.md"
+    mocker.patch(
+        "core.ingest_pipeline.ids_by_payload",
+        side_effect=lambda coll, key, val: ["old-point"] if val == old_key else [],
+    )
+    up = mocker.patch("core.ingest_pipeline.upsert")
+    delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
+    mocker.patch("ingest.notes.distill_text", return_value="要約")
+
+    from ingest.notes import ingest_notes
+
+    ingest_notes()
+
+    assert [p["file_path"] for p in up.call_args[0][1]] == ["vault/10-projects/改名したノート.md"]
+    delete.assert_called_once_with("notes", ["old-point"])
+    _repo_info.cache_clear()
