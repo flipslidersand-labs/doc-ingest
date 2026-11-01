@@ -1,15 +1,15 @@
 """Ingest own design docs (CLAUDE.md / ADR / docs/) into Qdrant design collection."""
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
 from core.distiller import distill_design_doc
 from core.git import changed_files, head_sha
 from core.ingest_pipeline import ingest_markdown_files
-from core.logging import get_logger
 from core.path_guard import assert_safe_path
 
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 COLLECTION = "design"
 DESIGN_PATTERNS = ("CLAUDE.md", "AGENTS.md", "docs/*.md", "adr/*.md", "ADR/*.md")

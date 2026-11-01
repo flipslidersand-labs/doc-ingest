@@ -1,5 +1,6 @@
 """Thin Qdrant client wrapper. Vectors come from core.embedding.embed()."""
 
+import logging
 import os
 import threading
 from typing import Any
@@ -9,9 +10,8 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
 from core.embedding import embed
-from core.logging import get_logger
 
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None  # None → unauthenticated (dev/localhost)

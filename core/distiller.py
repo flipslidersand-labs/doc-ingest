@@ -3,12 +3,11 @@
 Both failing raises DistillError."""
 
 import json
+import logging
 import os
 import urllib.request
 
-from core.logging import get_logger
-
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 # llama-server の OpenAI 互換 API (/v1/chat/completions)。Ollama は撤去済み。
 # 入力は最大 5000 字なので n_ctx が十分な台を指す (yuki gemma-4-12b: localhost:18080, n_ctx 32768)。

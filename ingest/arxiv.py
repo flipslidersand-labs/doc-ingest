@@ -1,5 +1,6 @@
 """Ingest arxiv papers and tech blog posts into Qdrant research collection."""
 
+import logging
 import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
@@ -10,11 +11,10 @@ import pymupdf
 from core.distiller import distill_paper, distill_webpage
 from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
-from core.logging import get_logger
 from core.qdrant import upsert
 from core.url_guard import assert_safe_url, safe_get
 
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 COLLECTION = "research"
 _ATOM_NS = "http://www.w3.org/2005/Atom"

@@ -5,16 +5,16 @@ ingested — scratch dirs (00-inbox, 90-daily) are skipped to avoid polluting th
 collection with unfinished thinking.
 """
 
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
 from core.distiller import distill_text
 from core.git import changed_files, head_sha
 from core.ingest_pipeline import ingest_markdown_files
-from core.logging import get_logger
 from core.path_guard import assert_safe_path
 
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 COLLECTION = "notes"
 
