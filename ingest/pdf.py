@@ -11,6 +11,7 @@ from core.distiller import distill_text
 from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
+from core.url_guard import safe_download
 
 _log = get_logger(__name__)
 
@@ -47,13 +48,9 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
     local_only = not is_url and not allow_cloud
 
     if is_url:
-        import httpx
-
+        # URL は利用者入力。https 以外・内部アドレス・内部へのリダイレクトを拒否し、サイズに上限を設ける (#214)
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
-            with httpx.stream("GET", source, timeout=60, follow_redirects=True) as resp:
-                resp.raise_for_status()
-                for chunk in resp.iter_bytes():
-                    tmp.write(chunk)
+            safe_download(source, tmp)
             tmp.flush()
             text = _extract_text_from_path(Path(tmp.name))
     else:
