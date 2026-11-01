@@ -594,3 +594,71 @@ class TestEmbedBatchValidation:
         monkeypatch.setenv("EMBED_BATCH", "32")
         importlib.reload(q)
         assert q.EMBED_BATCH == 32
+
+
+# ---------------------------------------------------------------------------
+# #154: retry semantics preserved after moving to core.retry.with_retry
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+def test_embed_retries_on_http_500_then_succeeds(monkeypatch):
+    """501 以外の HTTP エラーはリトライ対象(501 だけが即フォールバック)。"""
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
+    monkeypatch.setattr(q, "EMBED_BATCH", 16)
+    monkeypatch.setattr(q, "EMBED_RETRIES", 3)
+    calls = {"n": 0}
+
+    def responder(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(500)
+        return httpx.Response(200, json={"vectors": [[0.0] * 768]})
+
+    respx.post(q.EMBED_URL).mock(side_effect=responder)
+    with patch("time.sleep") as sleep:
+        assert len(q.embed(["t"])) == 1
+    assert calls["n"] == 2
+    sleep.assert_called_once_with(1)
+
+
+@respx.mock
+def test_embed_http_500_exhausted_raises_status_error(monkeypatch):
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
+    monkeypatch.setattr(q, "EMBED_BATCH", 16)
+    monkeypatch.setattr(q, "EMBED_RETRIES", 3)
+    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", "")
+    route = respx.post(q.EMBED_URL).mock(return_value=httpx.Response(500))
+    with patch("time.sleep"), pytest.raises(httpx.HTTPStatusError):
+        q.embed(["t"])
+    assert route.call_count == 3
+
+
+@respx.mock
+def test_embed_fallback_use_is_logged(monkeypatch, caplog):
+    import logging
+
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
+    monkeypatch.setattr(q, "EMBED_BATCH", 16)
+    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
+    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", FALLBACK_URL)
+    monkeypatch.setattr(q, "EMBED_RETRIES", 1)
+    respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
+    respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.1] * 768]}))
+    with patch("time.sleep"), caplog.at_level(logging.WARNING, logger="core.qdrant"):
+        q.embed(["t"])
+    assert "using fallback" in caplog.text
+    assert "unreachable" in caplog.text
+
+
+@respx.mock
+def test_embed_non_http_error_is_not_retried(monkeypatch):
+    """想定外の例外(壊れたレスポンス等)は握りつぶさず即座に伝播する。"""
+    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
+    monkeypatch.setattr(q, "EMBED_BATCH", 16)
+    monkeypatch.setattr(q, "EMBED_RETRIES", 3)
+    route = respx.post(q.EMBED_URL).mock(return_value=httpx.Response(200, json={"nope": 1}))
+    with patch("time.sleep") as sleep, pytest.raises(KeyError):
+        q.embed(["t"])
+    assert route.call_count == 1
+    sleep.assert_not_called()

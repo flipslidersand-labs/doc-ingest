@@ -2,7 +2,6 @@
 
 import os
 import tempfile
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +14,7 @@ from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
 from core.logging import get_logger
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
+from core.retry import with_retry
 from core.url_guard import UnsafeURLError, assert_safe_url, safe_get
 
 _log = get_logger(__name__)
@@ -41,20 +41,31 @@ def _save_sources(sources) -> None:
     tmp.replace(SOURCES_FILE)  # POSIX atomic rename
 
 
+class _ServerError(Exception):
+    """5xx response — retried like a network error."""
+
+
 def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
-    for attempt in range(MAX_RETRIES):
-        try:
-            resp = safe_get(url, headers=headers, timeout=30)
-            if resp.status_code < 500:
-                return resp
-            _log.debug("retry %d/%d %s → HTTP %d", attempt + 1, MAX_RETRIES, url, resp.status_code)
-        except UnsafeURLError as e:
-            _log.warning("blocked unsafe redirect from %s: %s", url, e)
-            return None
-        except httpx.RequestError as e:
-            _log.debug("retry %d/%d %s → %s", attempt + 1, MAX_RETRIES, url, e)
-        if attempt < MAX_RETRIES - 1:
-            time.sleep(2**attempt)  # 1s, 2s, 4s
+    def attempt() -> httpx.Response:
+        resp = safe_get(url, headers=headers, timeout=30)
+        if resp.status_code >= 500:
+            raise _ServerError(f"HTTP {resp.status_code}")
+        return resp
+
+    def log_retry(n: int, e: Exception) -> None:
+        _log.debug("retry %d/%d %s → %s", n + 1, MAX_RETRIES, url, e)
+
+    try:
+        return with_retry(
+            attempt,
+            retries=MAX_RETRIES,
+            is_retryable=lambda e: isinstance(e, (_ServerError, httpx.RequestError)),
+            on_retry=log_retry,
+        )
+    except UnsafeURLError as e:
+        _log.warning("blocked unsafe redirect from %s: %s", url, e)
+    except (_ServerError, httpx.RequestError):
+        pass  # gave up — the caller logs the failure
     return None
 
 

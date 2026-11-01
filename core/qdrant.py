@@ -9,6 +9,7 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
 from core.logging import get_logger
+from core.retry import with_retry
 
 _log = get_logger(__name__)
 
@@ -166,54 +167,52 @@ def _post_embed(url: str, texts: list[str]) -> list[list[float]]:
     return resp.json()["vectors"]
 
 
+def _embed_retryable(e: Exception) -> bool:
+    import httpx
+
+    if isinstance(e, httpx.HTTPStatusError):
+        # 501 = collection not served by this backend → no retry, move to the next url
+        return e.response.status_code != 501
+    return isinstance(e, (httpx.TimeoutException, httpx.ConnectError))
+
+
 def _embed_batch(texts: list[str]) -> list[list[float]]:
-    import time
+    from functools import partial
 
     import httpx
 
     urls = [u for u in [EMBED_URL, EMBED_FALLBACK_URL] if u]
     last_exc: Exception = RuntimeError("no EMBED_URL configured")
     for url in urls:
-        for attempt in range(EMBED_RETRIES):
-            try:
-                vectors = _post_embed(url, texts)
-                if url != EMBED_URL:
-                    _log.warning("embed: using fallback %s (primary unavailable)", url)
-                return vectors
-            except httpx.HTTPStatusError as e:
-                # 501 = collection not served by this backend → try fallback immediately
-                if e.response.status_code == 501:
-                    _log.info("embed: primary returned 501, switching to fallback")
-                    last_exc = e
-                    break  # skip retries, move to next url
-                if attempt == EMBED_RETRIES - 1:
-                    last_exc = e
-                    break
-                _log.warning(
-                    "embed retry %d/%d — %d texts → %s (url=%s)",
-                    attempt + 1,
-                    EMBED_RETRIES,
-                    len(texts),
-                    type(e).__name__,
-                    url,
-                )
-                time.sleep(2**attempt)
-            except (httpx.TimeoutException, httpx.ConnectError) as e:
-                if attempt == EMBED_RETRIES - 1:
-                    _log.warning(
-                        "embed: %s unreachable (%s), trying fallback", url, type(e).__name__
-                    )
-                    last_exc = e
-                    break
-                _log.warning(
-                    "embed retry %d/%d — %d texts → %s (url=%s)",
-                    attempt + 1,
-                    EMBED_RETRIES,
-                    len(texts),
-                    type(e).__name__,
-                    url,
-                )
-                time.sleep(2**attempt)
+
+        def _log_retry(attempt: int, e: Exception, url: str = url) -> None:
+            _log.warning(
+                "embed retry %d/%d — %d texts → %s (url=%s)",
+                attempt + 1,
+                EMBED_RETRIES,
+                len(texts),
+                type(e).__name__,
+                url,
+            )
+
+        try:
+            vectors = with_retry(
+                partial(_post_embed, url, texts),
+                retries=EMBED_RETRIES,
+                is_retryable=_embed_retryable,
+                on_retry=_log_retry,
+            )
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 501:
+                _log.info("embed: primary returned 501, switching to fallback")
+            last_exc = e
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            _log.warning("embed: %s unreachable (%s), trying fallback", url, type(e).__name__)
+            last_exc = e
+        else:
+            if url != EMBED_URL:
+                _log.warning("embed: using fallback %s (primary unavailable)", url)
+            return vectors
     raise last_exc
 
 

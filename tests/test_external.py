@@ -78,7 +78,7 @@ class TestSyncExternal:
     def test_retry_on_500(self, mock_sources, mocker, caplog):
         """500 response must trigger MAX_RETRIES attempts and log each retry."""
         respx.get("https://example.com/api").mock(return_value=httpx.Response(500))
-        mocker.patch("ingest.external.time.sleep")  # avoid real waits
+        mocker.patch("time.sleep")  # avoid real waits
         import logging
 
         from ingest.external import MAX_RETRIES, sync_external
@@ -331,3 +331,57 @@ class TestSyncExternalExceptionIsolation:
         assert "failed_at" in broken
         assert "failed_at" not in ok
         assert ok["last_synced"]
+
+
+class TestFetchWithRetry:
+    """#154: _fetch_with_retry の再試行の意味(with_retry への移行後も維持)。"""
+
+    def test_5xx_then_success_returns_response(self, mocker):
+        sleep = mocker.patch("time.sleep")
+        ok = httpx.Response(200, text="ok")
+        mocker.patch("ingest.external.safe_get", side_effect=[httpx.Response(503), ok])
+        from ingest.external import _fetch_with_retry
+
+        assert _fetch_with_retry("https://example.com", {}) is ok
+        sleep.assert_called_once_with(1)
+
+    def test_4xx_is_returned_not_retried(self, mocker):
+        sleep = mocker.patch("time.sleep")
+        m = mocker.patch("ingest.external.safe_get", return_value=httpx.Response(404))
+        from ingest.external import _fetch_with_retry
+
+        assert _fetch_with_retry("https://example.com", {}).status_code == 404
+        assert m.call_count == 1
+        sleep.assert_not_called()
+
+    def test_request_error_is_retried_then_succeeds(self, mocker):
+        sleep = mocker.patch("time.sleep")
+        ok = httpx.Response(200, text="ok")
+        m = mocker.patch(
+            "ingest.external.safe_get", side_effect=[httpx.ConnectError("refused"), ok]
+        )
+        from ingest.external import _fetch_with_retry
+
+        assert _fetch_with_retry("https://example.com", {}) is ok
+        assert m.call_count == 2
+        sleep.assert_called_once_with(1)
+
+    def test_all_attempts_fail_returns_none(self, mocker):
+        sleep = mocker.patch("time.sleep")
+        m = mocker.patch("ingest.external.safe_get", return_value=httpx.Response(500))
+        from ingest.external import MAX_RETRIES, _fetch_with_retry
+
+        assert _fetch_with_retry("https://example.com", {}) is None
+        assert m.call_count == MAX_RETRIES
+        assert sleep.call_count == MAX_RETRIES - 1
+
+    def test_unsafe_redirect_returns_none_without_retry(self, mocker):
+        from core.url_guard import UnsafeURLError
+
+        sleep = mocker.patch("time.sleep")
+        m = mocker.patch("ingest.external.safe_get", side_effect=UnsafeURLError("private ip"))
+        from ingest.external import _fetch_with_retry
+
+        assert _fetch_with_retry("https://example.com", {}) is None
+        assert m.call_count == 1
+        sleep.assert_not_called()
