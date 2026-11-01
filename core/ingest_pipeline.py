@@ -44,11 +44,16 @@ def ingest_markdown_files(
     """Returns the number of chunks skipped because distillation failed."""
     failed = 0
     for path in files:
-        if not path.exists():
-            continue
         # 識別子は <repo>/<リポ内の相対パス>。フック(相対パス)と手動(絶対パス)で同じになり、
         # 別リポの同名ファイルとは衝突しない (#216)。
         repo, key = doc_key(path)
+        if not path.exists():
+            # 削除・リネームされたファイル: 検索に出続けないよう、その識別子の point を消す (#217)
+            gone = ids_by_payload(collection, "file_path", key)
+            if gone:
+                delete_by_ids(collection, gone)
+                _log.info("removed %d point(s) of deleted %s → %s", len(gone), key, collection)
+            continue
         old_ids = ids_by_payload(collection, "file_path", key)
         chunks = chunk_markdown(path.read_text(), source_url=key)
         with ThreadPoolExecutor(max_workers=DISTILL_WORKERS) as ex:

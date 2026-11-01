@@ -58,19 +58,37 @@ class TestIngestNotesNoFiles:
 
 
 class TestIngestNotesFileArg:
-    def test_nonexistent_explicit_file_is_skipped(self, mocker, tmp_path):
+    def test_nonexistent_explicit_file_removes_its_points_and_ingests_nothing(
+        self, mocker, tmp_path
+    ):
+        """#217: 存在しないファイル (= 削除・リネームされた) は、検索に出続けないよう point を消す。"""
         missing = tmp_path / "10-projects" / "ghost.md"  # never created
         mocker.patch("ingest.notes.assert_safe_path", return_value=missing)
         mocker.patch("ingest.notes.head_sha", return_value="abc")
         mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
-        mock_ids = mocker.patch("core.ingest_pipeline.ids_by_payload")
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=["p1", "p2"])
+        mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
 
         from ingest.notes import ingest_notes
 
         ingest_notes(file=str(missing))
 
         mock_upsert.assert_not_called()
-        mock_ids.assert_not_called()
+        mock_delete.assert_called_once_with("notes", ["p1", "p2"])
+
+    def test_nonexistent_file_without_points_deletes_nothing(self, mocker, tmp_path):
+        missing = tmp_path / "10-projects" / "ghost.md"
+        mocker.patch("ingest.notes.assert_safe_path", return_value=missing)
+        mocker.patch("ingest.notes.head_sha", return_value="abc")
+        mocker.patch("core.ingest_pipeline.upsert")
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
+
+        from ingest.notes import ingest_notes
+
+        ingest_notes(file=str(missing))
+
+        mock_delete.assert_not_called()
 
     def test_existing_explicit_file_is_ingested(self, mocker, tmp_path):
         note = tmp_path / "10-projects" / "real.md"

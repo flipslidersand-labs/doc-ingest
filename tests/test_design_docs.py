@@ -10,7 +10,7 @@ class TestChangedFiles:
 
         mocker.patch(
             "subprocess.run",
-            return_value=MagicMock(returncode=0, stdout=f"{claude_md}\n"),
+            return_value=MagicMock(returncode=0, stdout=f"{claude_md}\0"),
         )
         import importlib
 

@@ -8,14 +8,20 @@ _log = logging.getLogger(__name__)
 
 
 def changed_files(repo_path: str | Path = ".") -> list[Path]:
-    """Return files changed in the last commit.
+    """Return files changed in the last commit — including deleted ones and renamed-away paths.
 
     Returns an empty list when ``git diff HEAD~1`` fails (e.g. initial commit,
     shallow clone).  Callers must not treat the return value as "all tracked
     files" in the error case, so we no longer fall back to ``git ls-files``.
+
+    * ``-z``: NUL-separated and never quoted. Without it git prints non-ASCII paths as
+      ``"10-projects/\\346\\227…md"`` (``core.quotepath``), which names no file — Japanese
+      notes were silently skipped.
+    * ``--no-renames``: a rename is reported as delete(old) + add(new). By default only the new
+      path is listed, so the old path's points could never be removed (#217).
     """
     r = subprocess.run(
-        ["git", "-C", str(repo_path), "diff", "--name-only", "HEAD~1"],
+        ["git", "-C", str(repo_path), "diff", "--name-only", "-z", "--no-renames", "HEAD~1"],
         capture_output=True,
         text=True,
         check=False,
@@ -28,7 +34,7 @@ def changed_files(repo_path: str | Path = ".") -> list[Path]:
             r.stderr.strip(),
         )
         return []
-    return [Path(p) for p in r.stdout.splitlines() if p]
+    return [Path(p) for p in r.stdout.split("\0") if p]
 
 
 def head_sha(repo_path: str | Path = ".") -> str:
