@@ -94,6 +94,11 @@ printf '#!/usr/bin/env bash\n_D="$HOME/projects/doc-ingest"\n[ -f "$_D/.env" ] &
 
 LLM distillation pipeline: local **llama-server** (OpenAI-compatible `/v1/chat/completions`; set `LOCAL_LLM_URL`, optional `LOCAL_LLM_MODEL` / `LOCAL_LLM_TIMEOUT` / `LOCAL_LLM_MAX_TOKENS`) → **Anthropic Haiku** (if `ANTHROPIC_API_KEY` is set). If every backend fails, the chunk is skipped (never embedded as raw text). Private sources (notes, design docs) never go to Anthropic. Point `LOCAL_LLM_URL` at a server with enough context (inputs are up to ~5000 chars); distillation runs serially by default (`DISTILL_WORKERS=1`).
 
+
+### Local ONNX embedding (experimental)
+
+`EMBED_BACKEND=onnx_gpu` embeds locally with onnxruntime instead of the HTTP embedding service (`ONNX_MODEL_PATH` must point to a multilingual-e5-**base** ONNX export, 768-dim; the `onnx-gpu` extra installs the runtime). **Experimental:** it applies the same `passage: ` prefix, mean-pooling and L2 normalization as the HTTP service (covered by unit tests with a fake session), but it has **not been verified on a GPU**. On dev-nodee (GTX 1080, sm_61) onnxruntime 1.19.2 could not load the CUDA provider (`libcublasLt.so.12` missing) and silently fell back to CPU — a warning is now logged when `CUDAExecutionProvider` is not active. Default is `EMBED_BACKEND=http`; do not mix vectors from both backends in one collection unless they were produced with the same model and prefix.
+
 ---
 
 ## 日本語
@@ -180,6 +185,10 @@ Obsidian ノート（例: `~/notes`）の場合は、post-commit フックで `n
 ### 蒸留（Distillation）
 
 LLM 蒸留パイプライン: ローカル **llama-server**（OpenAI 互換 `/v1/chat/completions`。`LOCAL_LLM_URL`、任意で `LOCAL_LLM_MODEL` / `LOCAL_LLM_TIMEOUT` / `LOCAL_LLM_MAX_TOKENS`）→ **Anthropic Haiku**（`ANTHROPIC_API_KEY` 設定時）。全て失敗したチャンクはスキップし、生テキストは埋め込まない。非公開ソース（notes・設計 doc）は Anthropic に送らない。入力は最大約 5000 字なので、`LOCAL_LLM_URL` は n_ctx に余裕のある台を指す。既定は直列実行（`DISTILL_WORKERS=1`）。
+
+### ローカル ONNX 埋め込み（実験的）
+
+`EMBED_BACKEND=onnx_gpu` は、HTTP の埋め込みサービスの代わりに onnxruntime でローカル推論します（`ONNX_MODEL_PATH` に multilingual-e5-**base** の ONNX（768 次元）を指定。ランタイムは extra `onnx-gpu`）。**実験的**: HTTP サービスと同じ `passage: ` プレフィックス・mean pooling・L2 正規化を行い（fake セッションの単体テストで確認）、**GPU 実機では未検証**です。dev-nodee（GTX 1080, sm_61）では onnxruntime 1.19.2 が CUDA プロバイダを読み込めず（`libcublasLt.so.12` 不足）、黙って CPU に落ちました。`CUDAExecutionProvider` が有効でないときは警告を出します。既定は `EMBED_BACKEND=http`。同一 collection に、モデルとプレフィックスが異なるベクトルを混在させないでください。
 
 ## License
 

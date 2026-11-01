@@ -37,6 +37,10 @@ VECTOR_SIZE = 768  # multilingual-e5-base
 # Requires: ONNX_MODEL_PATH, LD_LIBRARY_PATH with CUDA/cuDNN libs (see .env.example).
 EMBED_BACKEND = os.getenv("EMBED_BACKEND", "http")  # "http" | "onnx_gpu"
 ONNX_MODEL_PATH = os.getenv("ONNX_MODEL_PATH", "")
+# HTTP embedding-svc は mode="index" (_post_embed が固定で送る) で e5 の "passage: " を付けてから推論する。
+# ローカル ONNX 経路もそれに揃える。付けないと同じテキストでも cosine が 0.96〜0.99 ずれ、
+# HTTP で作った collection と混在すると検索順位が変わる (#156 で実測)。
+ONNX_TEXT_PREFIX = "passage: "
 
 # Lazy ONNX session + tokenizer — initialized once on first embed call.
 _onnx_sess = None
@@ -119,7 +123,16 @@ def _onnx_init() -> None:
         providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
     )
     _onnx_input_names = frozenset(i.name for i in _onnx_sess.get_inputs())
-    _log.info("ONNX session ready — active EP: %s", _onnx_sess.get_providers()[0])
+    active_ep = _onnx_sess.get_providers()[0]
+    if active_ep == "CUDAExecutionProvider":
+        _log.info("ONNX session ready — active EP: %s", active_ep)
+    else:
+        # CUDA/cuDNN のライブラリ不足などで onnxruntime は黙って CPU に落ちる。気づけるよう警告する。
+        _log.warning(
+            "ONNX session ready but CUDAExecutionProvider is NOT active (using %s) — "
+            "running on CPU. Check LD_LIBRARY_PATH / CUDA 12 / cuDNN 9.",
+            active_ep,
+        )
     _log.info("Loading tokenizer from %s …", model_dir)
     _onnx_tok = AutoTokenizer.from_pretrained(model_dir)
     _log.info("Tokenizer ready")
@@ -140,6 +153,7 @@ def _embed_batch_onnx(texts: list[str]) -> list[list[float]]:
     import numpy as np
 
     sess, tok, input_names = _onnx_resources()
+    texts = [ONNX_TEXT_PREFIX + t for t in texts]
     enc = tok(texts, padding=True, truncation=True, max_length=512, return_tensors="np")
 
     # Always keep attention_mask from enc (may be absent from ONNX input_names).
