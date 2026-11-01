@@ -151,6 +151,14 @@ class TestArxivCommand:
         CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762"])
         mock_ingest.assert_called_once_with("https://arxiv.org/abs/1706.03762", tags=[])
 
+    def test_arxiv_value_error_is_a_clear_message_not_a_traceback(self, mocker):
+        mocker.patch("cli.assert_safe_url")
+        mocker.patch("cli.ingest_arxiv", side_effect=ValueError("本文を抽出できませんでした: x"))
+        result = CliRunner().invoke(main, ["arxiv", "https://example.com/blog"])
+        assert result.exit_code != 0
+        assert "本文を抽出できませんでした" in result.output
+        assert "Traceback" not in result.output
+
     def test_arxiv_tags_parsed(self, mocker):
         mocker.patch("cli.assert_safe_url")
         mock_ingest = mocker.patch("cli.ingest_arxiv")
