@@ -69,9 +69,9 @@ class TestIngestDesignDocs:
         old_id = 9999
         mocker.patch("ingest.design_docs._changed_files", return_value=[md])
         mocker.patch("ingest.design_docs.head_sha", return_value="abc")
-        mocker.patch("ingest.design_docs.ids_by_payload", return_value=[old_id])
-        mock_upsert = mocker.patch("ingest.design_docs.upsert")
-        mock_delete_ids = mocker.patch("ingest.design_docs.delete_by_ids")
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[old_id])
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
+        mock_delete_ids = mocker.patch("core.ingest_pipeline.delete_by_ids")
         mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")
 
         from ingest.design_docs import ingest_design_docs
@@ -90,9 +90,9 @@ class TestIngestDesignDocs:
 
         mocker.patch("ingest.design_docs._changed_files", return_value=[md])
         mocker.patch("ingest.design_docs.head_sha", return_value="abc")
-        mocker.patch("ingest.design_docs.ids_by_payload", return_value=[])
-        mock_upsert = mocker.patch("ingest.design_docs.upsert")
-        mock_delete_ids = mocker.patch("ingest.design_docs.delete_by_ids")
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
+        mock_delete_ids = mocker.patch("core.ingest_pipeline.delete_by_ids")
         mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")
 
         from ingest.design_docs import ingest_design_docs
