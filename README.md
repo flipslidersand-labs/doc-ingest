@@ -73,13 +73,20 @@ bash scripts/install-hooks.sh --uninstall
 
 Design docs (CLAUDE.md, ADR, docs/) are auto-ingested on every commit.
 
-For an Obsidian vault (e.g. `~/notes`), install a post-commit hook that runs the
-`notes` command instead, so curated notes flow into the `notes` collection:
+For an Obsidian vault (default `~/notes`), `--notes` installs a post-commit hook that runs the
+`notes` command instead, so curated notes flow into the `notes` collection. It uses the same
+safe `.env` loading as the design hook (KEY=VALUE lines only, never `source`d) and can live in the
+same `post-commit` file as the design hook:
 
 ```bash
-printf '#!/usr/bin/env bash\n_D="$HOME/projects/doc-ingest"\n[ -f "$_D/.env" ] && { set -a; . "$_D/.env"; set +a; }\nPYTHONPATH="$_D" "$_D/.venv/bin/doc-ingest" notes 2>/dev/null || true\n' \
-  > ~/notes/.git/hooks/post-commit && chmod +x ~/notes/.git/hooks/post-commit
+bash scripts/install-hooks.sh --notes               # ~/notes
+bash scripts/install-hooks.sh --notes /path/to/vault
+bash scripts/install-hooks.sh --notes --uninstall   # removes only the notes block
 ```
+
+If the vault already has a hand-written hook from an older version of this README (one that
+`source`s `.env`), the script refuses to append and tells you to remove it first — that recipe
+executes arbitrary commands found in `.env` (#80, #221).
 
 ### Upgrading from pre-#216 points (`design` / `notes`)
 
@@ -182,7 +189,15 @@ bash scripts/install-hooks.sh --uninstall
 
 コミットのたびに設計ドキュメント（CLAUDE.md / ADR / docs/）が自動取り込みされます。
 
-Obsidian ノート（例: `~/notes`）の場合は、post-commit フックで `notes` コマンドを実行するよう設定すると、キュレーションされたノートが `notes` コレクションに自動登録されます。
+Obsidian ノート（既定 `~/notes`）には `--notes` で、`notes` コマンドを実行する post-commit フックを入れます。キュレーションされたノートが `notes` コレクションに自動登録されます。`.env` の読み込みは design 用と同じ安全な方式（`KEY=VALUE` の行だけを文字列として読み、`source` しない）で、design 用と同じ `post-commit` ファイルに共存できます。
+
+```bash
+bash scripts/install-hooks.sh --notes               # ~/notes
+bash scripts/install-hooks.sh --notes /path/to/vault
+bash scripts/install-hooks.sh --notes --uninstall   # notes 用のブロックだけ削除
+```
+
+旧版の README の手順で作った手書きフック（`.env` を `source` するもの）が既にある場合、スクリプトは追記せず、先に削除するよう案内します。その手順は `.env` 内の任意のコマンドを実行してしまいます（#80、#221）。
 
 ### #216 以前の point からの移行（`design` / `notes`）
 
