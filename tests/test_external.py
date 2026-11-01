@@ -385,3 +385,49 @@ class TestFetchWithRetry:
         assert _fetch_with_retry("https://example.com", {}) is None
         assert m.call_count == 1
         sleep.assert_not_called()
+
+
+class TestExternalChunkLimit:
+    """#211: 生チャンクを埋め込む external-docs は e5 の 512 token に収まる上限で分割する。"""
+
+    def _source_with_html(self, body):
+        return [
+            {
+                "url": "https://example.com/big",
+                "type": "external-api",
+                "check_interval": "weekly",
+                "tags": [],
+                "last_etag": "",
+                "last_synced": "",
+            }
+        ], body
+
+    @respx.mock
+    def test_chunks_are_split_with_the_external_limit(self, mocker):
+        from core.chunker import _count_tokens
+        from ingest.external import EXTERNAL_MAX_SECTION_TOKENS
+
+        sources, _ = self._source_with_html("")
+        big = "## Section\n" + "\n\n".join(f"paragraph {i} " + "word " * 80 for i in range(12))
+        respx.get("https://example.com/big").mock(
+            return_value=httpx.Response(200, text=big, headers={"content-type": "text/markdown"})
+        )
+        mocker.patch("ingest.external._load_sources", return_value=sources)
+        mocker.patch("ingest.external._save_sources")
+        mocker.patch("ingest.external.ids_by_payload", return_value=[])
+        mocker.patch("ingest.external.delete_by_ids")
+        up = mocker.patch("ingest.external.upsert")
+
+        from ingest.external import sync_external
+
+        sync_external(force=True)
+
+        points = up.call_args[0][1]
+        assert len(points) > 1
+        assert max(_count_tokens(p["text"]) for p in points) <= EXTERNAL_MAX_SECTION_TOKENS
+
+    def test_limit_is_below_the_default_chunker_limit(self):
+        from core.chunker import MAX_SECTION_TOKENS
+        from ingest.external import EXTERNAL_MAX_SECTION_TOKENS
+
+        assert EXTERNAL_MAX_SECTION_TOKENS < MAX_SECTION_TOKENS
