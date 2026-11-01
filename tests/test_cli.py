@@ -243,7 +243,12 @@ class TestPdfValidation:
     def test_pdf_calls_ingest_pdf(self, mocker):
         mock_ingest = mocker.patch("ingest.pdf.ingest_pdf")
         CliRunner().invoke(main, ["pdf", "/some/file.pdf"])
-        mock_ingest.assert_called_once_with("/some/file.pdf", tags=[])
+        mock_ingest.assert_called_once_with("/some/file.pdf", tags=[], allow_cloud=False)
+
+    def test_pdf_allow_cloud_flag_is_opt_in(self, mocker):
+        mock_ingest = mocker.patch("ingest.pdf.ingest_pdf")
+        CliRunner().invoke(main, ["pdf", "/some/file.pdf", "--allow-cloud"])
+        mock_ingest.assert_called_once_with("/some/file.pdf", tags=[], allow_cloud=True)
 
 
 class TestListCommand:
