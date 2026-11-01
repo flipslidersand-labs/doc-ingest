@@ -6,6 +6,7 @@ core/qdrant.py is the thin vector-DB client that calls embed().
 
 import os
 import threading
+from typing import Literal
 
 from core.logging import get_logger
 from core.retry import with_retry
@@ -33,10 +34,12 @@ EMBED_RETRIES = 3
 # Requires: ONNX_MODEL_PATH, LD_LIBRARY_PATH with CUDA/cuDNN libs (see .env.example).
 EMBED_BACKEND = os.getenv("EMBED_BACKEND", "http")  # "http" | "onnx_gpu"
 ONNX_MODEL_PATH = os.getenv("ONNX_MODEL_PATH", "")
-# HTTP embedding-svc は mode="index" (_post_embed が固定で送る) で e5 の "passage: " を付けてから推論する。
-# ローカル ONNX 経路もそれに揃える。付けないと同じテキストでも cosine が 0.96〜0.99 ずれ、
-# HTTP で作った collection と混在すると検索順位が変わる (#156 で実測)。
-ONNX_TEXT_PREFIX = "passage: "
+# e5 は文書に "passage: "、検索クエリに "query: " を付けて学習されている。HTTP embedding-svc は
+# mode="index" / "search" でこれを付け替えてから推論するので、ローカル ONNX 経路も同じ表で揃える。
+# 付けないと同じテキストでも cosine が 0.96〜0.99 ずれ、HTTP と混在すると検索順位が変わる (#156 で実測)。
+# 文書側 (upsert) は "index"、検索クエリ (search) は "search" (#222: 従来はクエリも "index" だった)。
+E5_PREFIX = {"index": "passage: ", "search": "query: "}
+Mode = Literal["index", "search"]
 
 # Lazy ONNX session + tokenizer — initialized once on first embed call.
 _onnx_sess = None
@@ -85,12 +88,12 @@ def _onnx_resources() -> tuple:
     return _onnx_sess, _onnx_tok, _onnx_input_names
 
 
-def _embed_batch_onnx(texts: list[str]) -> list[list[float]]:
+def _embed_batch_onnx(texts: list[str], mode: Mode = "index") -> list[list[float]]:
     """Embed texts locally using onnxruntime (CUDA EP on dev-nodee GTX1080)."""
     import numpy as np
 
     sess, tok, input_names = _onnx_resources()
-    texts = [ONNX_TEXT_PREFIX + t for t in texts]
+    texts = [E5_PREFIX[mode] + t for t in texts]
     enc = tok(texts, padding=True, truncation=True, max_length=512, return_tensors="np")
 
     # Always keep attention_mask from enc (may be absent from ONNX input_names).
@@ -104,13 +107,13 @@ def _embed_batch_onnx(texts: list[str]) -> list[list[float]]:
     return pooled.tolist()
 
 
-def _post_embed(url: str, texts: list[str]) -> list[list[float]]:
+def _post_embed(url: str, texts: list[str], mode: Mode = "index") -> list[list[float]]:
     """POST to *url* and return vectors. Raises on network error or non-2xx."""
     import httpx
 
     resp = httpx.post(
         url,
-        json={"texts": texts, "collection": EMBED_COLLECTION, "mode": "index"},
+        json={"texts": texts, "collection": EMBED_COLLECTION, "mode": mode},
         headers={"X-API-Key": EMBED_API_KEY} if EMBED_API_KEY else {},
         timeout=EMBED_TIMEOUT,
     )
@@ -127,7 +130,7 @@ def _embed_retryable(e: Exception) -> bool:
     return isinstance(e, (httpx.TimeoutException, httpx.ConnectError))
 
 
-def _embed_batch(texts: list[str]) -> list[list[float]]:
+def _embed_batch(texts: list[str], mode: Mode = "index") -> list[list[float]]:
     from functools import partial
 
     import httpx
@@ -148,7 +151,7 @@ def _embed_batch(texts: list[str]) -> list[list[float]]:
 
         try:
             vectors = with_retry(
-                partial(_post_embed, url, texts),
+                partial(_post_embed, url, texts, mode),
                 retries=EMBED_RETRIES,
                 is_retryable=_embed_retryable,
                 on_retry=_log_retry,
@@ -167,10 +170,15 @@ def _embed_batch(texts: list[str]) -> list[list[float]]:
     raise last_exc
 
 
-def embed(texts: list[str]) -> list[list[float]]:
-    """Embed texts in bounded sub-batches so a single POST stays within timeout."""
+def embed(texts: list[str], mode: Mode = "index") -> list[list[float]]:
+    """Embed texts in bounded sub-batches so a single POST stays within timeout.
+
+    *mode* is ``"index"`` for documents (e5 ``passage:``) and ``"search"`` for queries (``query:``).
+    """
+    if mode not in E5_PREFIX:
+        raise ValueError(f"mode must be one of {sorted(E5_PREFIX)}, got {mode!r}")
     batch_fn = _embed_batch_onnx if EMBED_BACKEND == "onnx_gpu" else _embed_batch
     vectors: list[list[float]] = []
     for i in range(0, len(texts), EMBED_BATCH):
-        vectors.extend(batch_fn(texts[i : i + EMBED_BATCH]))
+        vectors.extend(batch_fn(texts[i : i + EMBED_BATCH], mode))
     return vectors
