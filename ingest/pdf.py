@@ -1,5 +1,6 @@
 """Ingest local or remote PDF files into Qdrant research collection."""
 
+import logging
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,11 +10,10 @@ import pymupdf
 from core.chunker import chunk_text
 from core.distiller import distill_text
 from core.ids import make_id
-from core.logging import get_logger
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
 from core.url_guard import safe_download
 
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 COLLECTION = "research"
 

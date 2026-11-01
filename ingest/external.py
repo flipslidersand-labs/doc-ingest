@@ -1,5 +1,6 @@
 """Sync external API docs with ETag-based freshness detection."""
 
+import logging
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,12 +13,11 @@ from ruamel.yaml import YAML
 from core.chunker import chunk_markdown
 from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
-from core.logging import get_logger
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
 from core.retry import with_retry
 from core.url_guard import UnsafeURLError, assert_safe_url, safe_get
 
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 COLLECTION = "external-docs"
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
