@@ -3,16 +3,14 @@
 import logging
 
 import click
-from dotenv import load_dotenv
 
-load_dotenv()
-
-# 環境変数を import 時に読むモジュールがあるため、load_dotenv() の後で import する(E402 は意図的)
-from core.url_guard import UnsafeURLError, assert_safe_url  # noqa: E402
-from ingest.arxiv import ingest_arxiv  # noqa: E402
-from ingest.design_docs import ingest_design_docs  # noqa: E402
-from ingest.external import sync_external  # noqa: E402
-from ingest.notes import ingest_notes  # noqa: E402
+# 環境変数を import 時に読むモジュールがあるため、.env の読み込み(副作用 import)を最初に行う
+import core.env  # noqa: F401
+from core.url_guard import UnsafeURLError, assert_safe_url
+from ingest.arxiv import ingest_arxiv
+from ingest.design_docs import ingest_design_docs
+from ingest.external import sync_external
+from ingest.notes import ingest_notes
 
 
 @click.group()
@@ -121,7 +119,7 @@ def list_cmd():
         click.echo("No collections found.")
         return
 
-    col_w = max(len(r["name"]) for r in rows)
+    col_w = max(len("collection"), *(len(r["name"]) for r in rows))
     click.echo(f"{'collection':<{col_w}}  {'points':>6}  last_ingested")
     click.echo(f"{'-' * col_w}  {'------':>6}  {'-------------------'}")
     for r in rows:
