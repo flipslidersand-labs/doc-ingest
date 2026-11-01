@@ -1,5 +1,6 @@
 """core/ingest_pipeline.ingest_markdown_files の契約(payload 組み立てと順序)。"""
 
+from core.distiller import DistillError
 from core.ids import make_id
 from core.ingest_pipeline import ingest_markdown_files
 
@@ -50,3 +51,60 @@ def test_upsert_precedes_stale_delete(mocker, tmp_path):
 
     assert [c[0] for c in calls.mock_calls] == ["upsert", "delete"]
     assert calls.delete.call_args.args == ("col", ["stale-id"])
+
+
+def _two_sections(tmp_path):
+    md = tmp_path / "a.md"
+    md.write_text("## First\n" + "alpha " * 60 + "\n\n## Second\n" + "beta " * 60)
+    return md
+
+
+def _fail_on_second(text):
+    if text.startswith("Second"):
+        raise DistillError("both backends failed")
+    return "ok"
+
+
+def test_failed_chunk_is_not_embedded_and_counted(mocker, tmp_path):
+    md = _two_sections(tmp_path)
+    mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+    mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
+    mocker.patch("core.ingest_pipeline.delete_by_ids")
+
+    failed = ingest_markdown_files(
+        [md], collection="c", source_label="l", distill_fn=_fail_on_second, git_sha="s", now="n"
+    )
+
+    points = mock_upsert.call_args.args[1]
+    assert failed == 1
+    assert [p["section"] for p in points] == ["First"]
+    assert all(p["text"] == "ok" for p in points)  # 原文断片が要約として混入しない
+
+
+def test_failed_chunk_keeps_its_existing_point(mocker, tmp_path):
+    """一時障害で要約に失敗したチャンクの既存 point を stale として消さない。"""
+    md = _two_sections(tmp_path)
+    second_id = make_id(f"{md}:1")
+    gone_id = "no-longer-exists"
+    mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[second_id, gone_id])
+    mocker.patch("core.ingest_pipeline.upsert")
+    mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
+
+    ingest_markdown_files(
+        [md], collection="c", source_label="l", distill_fn=_fail_on_second, git_sha="s", now="n"
+    )
+
+    assert mock_delete.call_args.args == ("c", [gone_id])
+
+
+def test_all_success_returns_zero(mocker, tmp_path):
+    md = _two_sections(tmp_path)
+    mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+    mocker.patch("core.ingest_pipeline.upsert")
+    mocker.patch("core.ingest_pipeline.delete_by_ids")
+    assert (
+        ingest_markdown_files(
+            [md], collection="c", source_label="l", distill_fn=lambda t: "ok", git_sha="s", now="n"
+        )
+        == 0
+    )

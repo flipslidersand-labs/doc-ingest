@@ -54,7 +54,7 @@ def ingest_notes(file: str | None = None) -> None:
         collection=COLLECTION,
         source_label="obsidian-note",
         distill_fn=lambda text: distill_text(
-            text, "この Obsidian ノートの要点・決定理由・制約を200字以内で。"
+            text, "この Obsidian ノートの要点・決定理由・制約を200字以内で。", local_only=True
         ),
         git_sha=sha,
         now=now,

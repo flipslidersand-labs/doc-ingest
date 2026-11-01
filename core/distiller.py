@@ -1,4 +1,4 @@
-"""LLM distillation: Ollama → Anthropic Haiku fallback → raw text."""
+"""LLM distillation: Ollama → Anthropic Haiku fallback. Both failing raises DistillError."""
 
 import json
 import os
@@ -13,6 +13,10 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "120"))
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+
+
+class DistillError(RuntimeError):
+    """要約バックエンドがすべて失敗した。原文を要約の代わりに埋め込まないため例外にする。"""
 
 
 def _ollama(prompt: str) -> str:
@@ -38,25 +42,27 @@ def _anthropic(prompt: str) -> str:
     return msg.content[0].text.strip()
 
 
-def _generate(prompt: str, source_text: str = "") -> str:
+def _generate(prompt: str, *, local_only: bool = False) -> str:
+    """local_only=True は非公開ソース用: Anthropic へ送らず、ローカル LLM が失敗したら DistillError。"""
     try:
         return _ollama(prompt)
     except (MemoryError, KeyboardInterrupt, SystemExit):
         raise
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
+        if local_only:
+            raise DistillError(
+                f"local LLM failed ({e}); cloud fallback disabled for private source"
+            ) from e
         _log.warning("Ollama unavailable (%s), trying Anthropic Haiku", e)
 
-    if ANTHROPIC_API_KEY:
-        try:
-            return _anthropic(prompt)
-        except (MemoryError, KeyboardInterrupt, SystemExit):
-            raise
-        except Exception as e:  # noqa: BLE001
-            _log.warning("Anthropic unavailable (%s), using raw text fallback", e)
-
-    fallback = source_text[:500] if source_text else prompt[:500]
-    _log.warning("raw text fallback used for '%s'", (source_text or prompt)[:60])
-    return fallback
+    if not ANTHROPIC_API_KEY:
+        raise DistillError("Ollama failed and ANTHROPIC_API_KEY is not set")
+    try:
+        return _anthropic(prompt)
+    except (MemoryError, KeyboardInterrupt, SystemExit):
+        raise
+    except Exception as e:
+        raise DistillError(f"Ollama and Anthropic both failed ({e})") from e
 
 
 def distill_paper(abstract: str, body: str = "") -> str:
@@ -64,20 +70,21 @@ def distill_paper(abstract: str, body: str = "") -> str:
         f"この論文の実装に直接使える知見・手法・数値を200字以内で。理論背景は省く。\n\n"
         f"Abstract:\n{abstract}\n\nBody (抜粋):\n{body[:3000]}"
     )
-    return _generate(prompt, source_text=abstract)
+    return _generate(prompt)
 
 
 def distill_design_doc(section: str) -> str:
+    """設計 doc は非公開なので常にローカル LLM のみ。"""
     prompt = f"この設計の決定理由・制約・代替案を200字以内で。\n\n{section[:4000]}"
-    return _generate(prompt, source_text=section)
+    return _generate(prompt, local_only=True)
 
 
-def distill_text(text: str, purpose: str) -> str:
+def distill_text(text: str, purpose: str, *, local_only: bool = False) -> str:
     """Generic distillation for any text with a caller-specified purpose."""
     prompt = f"{purpose}\n\n{text[:4000]}"
-    return _generate(prompt, source_text=text)
+    return _generate(prompt, local_only=local_only)
 
 
 def distill_webpage(content: str) -> str:
     prompt = f"この技術記事の実装に使える要点を200字以内で。\n\n{content[:5000]}"
-    return _generate(prompt, source_text=content)
+    return _generate(prompt)
