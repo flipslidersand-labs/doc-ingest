@@ -22,6 +22,10 @@ _log = get_logger(__name__)
 COLLECTION = "external-docs"
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
 MAX_RETRIES = 3
+# 生チャンクをそのまま埋め込むので、e5 の 512 token 上限 (超過は黙って切り詰め) に収める。
+# チャンカーの既定 400 は tiktoken 基準で、e5 のトークナイザではコードの多い文章が最大 1.41 倍になり
+# 13/412 チャンクが 512 を超えた (#211)。300 なら e5 の最大 422 で、文脈を ~50 tokens 前置しても収まる。
+EXTERNAL_MAX_SECTION_TOKENS = 300
 JINA_BASE = "https://r.jina.ai/"
 SYNC_WORKERS = int(os.getenv("SYNC_WORKERS", "4"))
 _yaml = YAML()
@@ -113,7 +117,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
             _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", url)
             return {"status": "skipped", "url": url, "source": source, "new_etag": "", "points": []}
 
-    chunks = chunk_markdown(body, source_url=url)
+    chunks = chunk_markdown(body, source_url=url, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS)
     points = [
         {
             "id": make_id(f"{url}:{c['chunk_index']}"),
