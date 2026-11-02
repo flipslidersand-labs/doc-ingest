@@ -3,6 +3,7 @@
 import ipaddress
 import os
 import socket
+from collections.abc import Iterator
 from typing import BinaryIO
 from urllib.parse import urljoin, urlparse
 
@@ -66,14 +67,38 @@ def assert_safe_url(url: str) -> None:
             raise UnsafeURLError(f"URL resolves to blocked address {ip} ({reason}): {url!r}")
 
 
+def _capped_chunks(resp: httpx.Response, limit: int, url: str) -> Iterator[bytes]:
+    """Yield the decoded body of a streaming *resp*, refusing to go past *limit* bytes.
+
+    The limit is checked against ``Content-Length`` up front and against the **decoded** stream
+    as it arrives, so a missing or lying header — or a small gzip body that expands to gigabytes —
+    cannot bypass it.
+    """
+    declared = resp.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        raise UnsafeURLError(f"response too large ({declared} bytes > {limit}): {url!r}")
+    written = 0
+    for chunk in resp.iter_bytes():
+        written += len(chunk)
+        if written > limit:
+            raise UnsafeURLError(f"response exceeds {limit} bytes: {url!r}")
+        yield chunk
+
+
+# 本文を読み込み済みの Response に作り直すとき、元のエンコード関連のヘッダは外す
+# (本文は展開済み。残すと Response が二重に展開しようとして壊れる)。
+_BODY_HEADERS = {"content-encoding", "content-length", "transfer-encoding"}
+
+
 def safe_get(
     url: str,
     *,
     headers: dict | None = None,
     timeout: float = 30,
     max_redirects: int = MAX_REDIRECTS,
+    max_bytes: int | None = None,
 ) -> httpx.Response:
-    """GET *url* with manually-followed, re-validated redirects.
+    """GET *url* with manually-followed, re-validated redirects and a body size limit.
 
     ``httpx``'s built-in ``follow_redirects=True`` only validates the
     starting URL — a redirect response's ``Location`` is never checked, so a
@@ -81,20 +106,32 @@ def safe_get(
     request to a private address or metadata endpoint (#149). This calls
     ``assert_safe_url`` on every redirect hop before following it.
 
+    The body is streamed and refused past *max_bytes* (default :data:`MAX_DOWNLOAD_BYTES`,
+    decoded size) instead of being read whole into memory (#224). Raises
+    :class:`UnsafeURLError` when it is exceeded. Non-2xx responses are returned, not raised.
+
     Does not itself validate *url* — call ``assert_safe_url(url)`` first if
     *url* is not already trusted.
     """
+    limit = MAX_DOWNLOAD_BYTES if max_bytes is None else max_bytes
     current = url
     for _ in range(max_redirects):
-        resp = httpx.get(current, headers=headers, timeout=timeout, follow_redirects=False)
-        if not resp.is_redirect:
-            return resp
-        location = resp.headers.get("location")
-        if not location:
-            raise UnsafeURLError(f"redirect with no Location header: {current!r}")
-        next_url = urljoin(current, location)
-        assert_safe_url(next_url)
-        current = next_url
+        with httpx.stream(
+            "GET", current, headers=headers, timeout=timeout, follow_redirects=False
+        ) as resp:
+            if resp.is_redirect:
+                location = resp.headers.get("location")
+                if not location:
+                    raise UnsafeURLError(f"redirect with no Location header: {current!r}")
+                next_url = urljoin(current, location)
+                assert_safe_url(next_url)
+                current = next_url
+                continue
+            body = b"".join(_capped_chunks(resp, limit, current))
+            kept = [(k, v) for k, v in resp.headers.multi_items() if k.lower() not in _BODY_HEADERS]
+            return httpx.Response(
+                resp.status_code, headers=kept, content=body, request=resp.request
+            )
     raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {url!r}")
 
 
@@ -132,16 +169,9 @@ def safe_download(
                 current = next_url
                 continue
             resp.raise_for_status()
-            declared = resp.headers.get("content-length", "")
-            if declared.isdigit() and int(declared) > limit:
-                raise UnsafeURLError(
-                    f"response too large ({declared} bytes > {limit}): {current!r}"
-                )
             written = 0
-            for chunk in resp.iter_bytes():
+            for chunk in _capped_chunks(resp, limit, current):
                 written += len(chunk)
-                if written > limit:
-                    raise UnsafeURLError(f"response exceeds {limit} bytes: {current!r}")
                 fileobj.write(chunk)
             return written
     raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {url!r}")

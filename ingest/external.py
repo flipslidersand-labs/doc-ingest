@@ -68,7 +68,7 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
             on_retry=log_retry,
         )
     except UnsafeURLError as e:
-        _log.warning("blocked unsafe redirect from %s: %s", url, e)
+        _log.warning("blocked %s: %s", url, redact_urls(e))
     except (_ServerError, httpx.RequestError):
         pass  # gave up — the caller logs the failure
     return None
