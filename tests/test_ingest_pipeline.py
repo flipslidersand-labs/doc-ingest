@@ -1,5 +1,9 @@
 """core/ingest_pipeline.ingest_markdown_files の契約(payload 組み立てと順序)。"""
 
+from pathlib import Path
+
+import pytest
+
 from core.distiller import DistillError
 from core.ids import make_id
 from core.ingest_pipeline import ingest_markdown_files
@@ -249,3 +253,111 @@ def test_hook_flow_renaming_a_japanese_note_replaces_its_points(mocker, tmp_path
     assert [p["file_path"] for p in up.call_args[0][1]] == ["vault/10-projects/改名したノート.md"]
     delete.assert_called_once_with("notes", ["old-point"])
     _repo_info.cache_clear()
+
+
+class TestSymlinksAreNotIngested:
+    """#224: フック経路のパスは assert_safe_path を通らず、exists()/read_text() が symlink を辿った。
+    リポにマージされた docs/x.md -> ~/.ssh/... の中身が LLM と Qdrant に入りえた。"""
+
+    SECRET = "DUMMY-SECRET-CONTENT"
+
+    @pytest.fixture
+    def env(self, mocker, tmp_path):
+        import subprocess
+
+        from core.doc_key import _repo_info
+
+        _repo_info.cache_clear()
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "secret.md").write_text("## Key\n" + (self.SECRET + " ") * 60)
+        repo = tmp_path / "repo"
+        (repo / "docs").mkdir(parents=True)
+        subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True, capture_output=True)
+        (repo / "docs" / "real.md").write_text("## Real\n" + "genuine content " * 40)
+        self.up = mocker.patch("core.ingest_pipeline.upsert")
+        self.delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
+        self.ids = mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        self.seen = []
+        yield repo, outside
+        _repo_info.cache_clear()
+
+    def _run(self, *paths):
+        return ingest_markdown_files(
+            list(paths),
+            collection="design",
+            source_label="d",
+            distill_fn=lambda t: self.seen.append(t) or "summary",
+            git_sha="s",
+            now="n",
+        )
+
+    def test_a_file_symlink_to_outside_is_skipped_and_its_content_never_reaches_the_llm(
+        self, env, monkeypatch
+    ):
+        repo, outside = env
+        (repo / "docs" / "leak.md").symlink_to(outside / "secret.md")
+        monkeypatch.chdir(repo)
+        self._run(Path("docs/leak.md"))
+        assert not any(self.SECRET in t for t in self.seen)
+        self.up.assert_not_called()
+
+    def test_a_symlinked_directory_to_outside_is_skipped(self, env, monkeypatch):
+        repo, outside = env
+        (repo / "linked").symlink_to(outside)
+        monkeypatch.chdir(repo)
+        self._run(Path("linked/secret.md"))
+        assert not any(self.SECRET in t for t in self.seen)
+        self.up.assert_not_called()
+
+    def test_a_symlink_inside_the_repo_is_skipped_too(self, env, monkeypatch):
+        """リンク先 (real.md) は別途取り込まれる。symlink 自体は文書ではない。"""
+        repo, _ = env
+        (repo / "docs" / "alias.md").symlink_to(repo / "docs" / "real.md")
+        monkeypatch.chdir(repo)
+        self._run(Path("docs/alias.md"))
+        self.up.assert_not_called()
+
+    def test_a_normal_file_next_to_the_symlinks_is_still_ingested(self, env, monkeypatch):
+        repo, outside = env
+        (repo / "docs" / "leak.md").symlink_to(outside / "secret.md")
+        monkeypatch.chdir(repo)
+        self._run(Path("docs/leak.md"), Path("docs/real.md"))
+        assert self.up.call_count == 1
+        assert self.up.call_args[0][1][0]["file_path"] == "repo/docs/real.md"
+
+    def test_points_of_a_path_that_became_a_symlink_are_removed(self, env, monkeypatch):
+        """文書だったパスが symlink に置き換わったら、古い point は残さない。"""
+        repo, outside = env
+        (repo / "docs" / "now_link.md").symlink_to(outside / "secret.md")
+        self.ids.return_value = ["old-1", "old-2"]
+        monkeypatch.chdir(repo)
+        self._run(Path("docs/now_link.md"))
+        self.delete.assert_called_once_with("design", ["old-1", "old-2"])
+        self.up.assert_not_called()
+
+    def test_a_skip_is_logged(self, env, monkeypatch, caplog):
+        import logging
+
+        repo, outside = env
+        (repo / "docs" / "leak.md").symlink_to(outside / "secret.md")
+        monkeypatch.chdir(repo)
+        with caplog.at_level(logging.WARNING, logger="core.ingest_pipeline"):
+            self._run(Path("docs/leak.md"))
+        assert "skipping" in caplog.text and "symlink" in caplog.text
+        assert "docs/leak.md" in caplog.text  # 原因の symlink のパス (リポ内) が分かる
+        assert str(outside) not in caplog.text  # リポ外の実パスは出さない
+
+    def test_a_symlink_outside_any_git_repo_is_skipped_too(self, mocker, tmp_path):
+        """git 管理外でも symlink そのものは取り込まない。"""
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        up = mocker.patch("core.ingest_pipeline.upsert")
+        mocker.patch("core.ingest_pipeline.delete_by_ids")
+        real = tmp_path / "real.md"
+        real.write_text("## S\n" + "content " * 40)
+        link = tmp_path / "link.md"
+        link.symlink_to(real)
+        ingest_markdown_files(
+            [link], collection="c", source_label="l", distill_fn=lambda t: "s", git_sha="s", now="n"
+        )
+        up.assert_not_called()
