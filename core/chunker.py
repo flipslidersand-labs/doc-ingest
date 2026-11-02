@@ -80,7 +80,7 @@ def _split_by_tokens(text: str, max_tokens: int) -> list[str]:
     return pieces
 
 
-def chunk_text(text: str, source_url: str = "", chunk_tokens: int = 200) -> list[dict]:
+def chunk_text(text: str, chunk_tokens: int = 200) -> list[dict]:
     """Split plain text into chunks bounded by token count."""
     paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
     chunks, current, size, idx = [], [], 0, 0
@@ -90,23 +90,17 @@ def chunk_text(text: str, source_url: str = "", chunk_tokens: int = 200) -> list
         size += t
         if size >= chunk_tokens:
             body = "\n\n".join(current)
-            chunks.append(
-                {"text": body, "section": "", "chunk_index": idx, "source_url": source_url}
-            )
+            chunks.append({"text": body, "section": "", "chunk_index": idx})
             idx += 1
             current, size = [], 0
     if current:
         body = "\n\n".join(current)
         if _count_tokens(body) >= 10:
-            chunks.append(
-                {"text": body, "section": "", "chunk_index": idx, "source_url": source_url}
-            )
+            chunks.append({"text": body, "section": "", "chunk_index": idx})
     return chunks
 
 
-def chunk_markdown(
-    text: str, source_url: str = "", max_section_tokens: int = MAX_SECTION_TOKENS
-) -> list[dict]:
+def chunk_markdown(text: str, max_section_tokens: int = MAX_SECTION_TOKENS) -> list[dict]:
     sections = re.split(r"(?m)^#{2,3} ", text)
     chunks = []
     idx = 0
@@ -128,7 +122,6 @@ def chunk_markdown(
                     "text": piece,
                     "section": heading,
                     "chunk_index": idx,
-                    "source_url": source_url,
                 }
             )
             idx += 1
