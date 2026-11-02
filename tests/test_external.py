@@ -499,3 +499,58 @@ class TestWorkerErrorLogsAreRedacted:
         with caplog.at_level(logging.DEBUG, logger="ingest.external"):
             assert ext._fetch_with_retry("https://h.example/p", {}) is None
         assert "SECRET" not in caplog.text and "refused: <url>" in caplog.text
+
+
+class TestFailedResult:
+    """#227: 同じ形の失敗結果を 4 か所に書いていたのを _failed に集約した。形を固定する。"""
+
+    def test_shape(self):
+        from ingest.external import _failed
+
+        source = {"url": "https://example.com/x", "check_interval": "weekly"}
+        assert _failed("https://example.com/x", source) == {
+            "status": "failed",
+            "url": "https://example.com/x",
+            "source": source,
+            "new_etag": "",
+            "points": [],
+        }
+
+    def test_each_call_gets_its_own_points_list(self):
+        from ingest.external import _failed
+
+        a, b = _failed("u", {}), _failed("u", {})
+        a["points"].append("x")
+        assert b["points"] == []  # 共有された可変オブジェクトにしない
+
+    def test_a_blocked_url_is_reported_failed_not_skipped(self, mocker):
+        from core.url_guard import UnsafeURLError
+        from ingest.external import _fetch_source
+
+        mocker.patch("ingest.external.assert_safe_url", side_effect=UnsafeURLError("blocked"))
+        result = _fetch_source({"url": "https://10.0.0.1/x"}, force=False, now="n")
+        assert result["status"] == "failed" and result["points"] == []
+
+    def test_an_exception_in_a_worker_is_reported_failed_and_the_rest_continue(self, mocker):
+        """スレッド内の予期しない例外 (Phase 1 の隔離) も _failed で返る。"""
+        import ingest.external as ext
+
+        sources = [{"url": "https://a.example/x"}, {"url": "https://b.example/x"}]
+        mocker.patch.object(ext, "_load_sources", return_value=sources)
+        mocker.patch.object(ext, "_save_sources")
+
+        def fake_fetch(source, force, now):
+            if source["url"].startswith("https://a."):
+                raise RuntimeError("boom")
+            return {
+                "status": "skipped",
+                "url": source["url"],
+                "source": source,
+                "new_etag": "",
+                "points": [],
+            }
+
+        mocker.patch.object(ext, "_fetch_source", side_effect=fake_fetch)
+        mocker.patch.object(ext, "upsert")
+        ext.sync_external(force=True)
+        assert ext._save_sources.called  # 失敗しても最後まで進む

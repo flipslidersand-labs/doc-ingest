@@ -7,33 +7,57 @@ import respx
 FAKE_TEXT = "Introduction\n\n" + "word " * 200
 
 
-class TestExtractText:
-    def test_delegates_to_pymupdf(self, mocker):
-        mock_page = mocker.MagicMock()
-        mock_page.get_text.return_value = "page one text"
-        mock_doc = mocker.MagicMock()
-        mock_doc.__iter__ = mocker.Mock(return_value=iter([mock_page]))
-        mocker.patch("pymupdf.open", return_value=mock_doc)
+class TestExtractTextFromPath:
+    """pymupdf でページを読み、`\n\n` で結合する (#227: 呼び出し元の無い bytes 版 extract_text は削除)。"""
 
-        from ingest.pdf import extract_text
+    @staticmethod
+    def _doc(mocker, pages):
+        mock_pages = []
+        for text in pages:
+            page = mocker.MagicMock()
+            page.get_text.return_value = text
+            mock_pages.append(page)
+        doc = mocker.MagicMock()
+        doc.__iter__ = mocker.Mock(return_value=iter(mock_pages))
+        return doc
 
-        result = extract_text(b"%PDF-fake")
-        assert result == "page one text"
+    def test_single_page(self, mocker, tmp_path):
+        pdf = tmp_path / "a.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        mocker.patch("pymupdf.open", return_value=self._doc(mocker, ["page one text"]))
 
-    def test_multipage_joined_with_double_newline(self, mocker):
-        pages = [mocker.MagicMock(), mocker.MagicMock()]
-        pages[0].get_text.return_value = "page one"
-        pages[1].get_text.return_value = "page two"
-        mock_doc = mocker.MagicMock()
-        mock_doc.__iter__ = mocker.Mock(return_value=iter(pages))
-        mock_doc.__enter__ = mocker.Mock(return_value=mock_doc)
-        mock_doc.__exit__ = mocker.Mock(return_value=False)
-        mocker.patch("pymupdf.open", return_value=mock_doc)
+        from ingest.pdf import _extract_text_from_path
 
-        from ingest.pdf import extract_text
+        assert _extract_text_from_path(pdf) == "page one text"
 
-        result = extract_text(b"%PDF-fake")
-        assert result == "page one\n\npage two"
+    def test_multipage_joined_with_double_newline(self, mocker, tmp_path):
+        pdf = tmp_path / "a.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        mocker.patch("pymupdf.open", return_value=self._doc(mocker, ["page one", "page two"]))
+
+        from ingest.pdf import _extract_text_from_path
+
+        assert _extract_text_from_path(pdf) == "page one\n\npage two"
+
+    def test_the_document_is_closed(self, mocker, tmp_path):
+        pdf = tmp_path / "a.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        doc = self._doc(mocker, ["x"])
+        mocker.patch("pymupdf.open", return_value=doc)
+
+        from ingest.pdf import _extract_text_from_path
+
+        _extract_text_from_path(pdf)
+        doc.close.assert_called_once()
+
+    def test_missing_file_raises_before_opening(self, mocker, tmp_path):
+        opener = mocker.patch("pymupdf.open")
+
+        from ingest.pdf import _extract_text_from_path
+
+        with pytest.raises(FileNotFoundError):
+            _extract_text_from_path(tmp_path / "nope.pdf")
+        opener.assert_not_called()
 
 
 class TestIngestPdf:

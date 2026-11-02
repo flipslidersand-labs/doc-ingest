@@ -55,7 +55,7 @@ def ingest_markdown_files(
                 _log.info("removed %d point(s) of deleted %s → %s", len(gone), key, collection)
             continue
         old_ids = ids_by_payload(collection, "file_path", key)
-        chunks = chunk_markdown(path.read_text(), source_url=key)
+        chunks = chunk_markdown(path.read_text())
         with ThreadPoolExecutor(max_workers=DISTILL_WORKERS) as ex:
             distilled_list = list(ex.map(lambda c: _distill_or_none(distill_fn, c["text"]), chunks))
         # 要約に失敗したチャンクは埋め込まず、既存の point も消さない(一時障害でデータを失わない)
