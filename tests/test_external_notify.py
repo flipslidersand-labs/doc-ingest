@@ -123,3 +123,41 @@ class TestErrorsSwallowed:
         _notify_discord(1, 1, [], [], TS)
         assert post.call_args.kwargs["timeout"] == 10
         assert post.call_args.args[0] == WEBHOOK
+
+
+class TestNotifyFailureNeverLogsTheWebhook:
+    """#224: webhook の URL はそれ自体が認証情報。HTTP エラーの例外メッセージは URL を含む。"""
+
+    SECRET_URL = "https://discord.com/api/webhooks/123456789/SECRET-TOKEN-abcdef"
+
+    @pytest.fixture(autouse=True)
+    def _url(self, monkeypatch):
+        monkeypatch.setenv("DISCORD_WEBHOOK_URL", self.SECRET_URL)
+
+    @respx.mock
+    @pytest.mark.parametrize("status", [400, 401, 403, 404, 429, 500, 502])
+    def test_http_error_logs_the_reason_but_not_the_url(self, status, caplog):
+        respx.post(self.SECRET_URL).mock(return_value=httpx.Response(status))
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            _notify_discord(1, 2, [], [], "ts")
+        assert "SECRET-TOKEN" not in caplog.text and "webhooks/123456789" not in caplog.text
+        assert "Discord notify failed" in caplog.text and str(status) in caplog.text
+
+    @respx.mock
+    def test_connection_error_is_logged_without_the_url(self, caplog):
+        respx.post(self.SECRET_URL).mock(side_effect=httpx.ConnectError("refused"))
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            _notify_discord(1, 2, [], [], "ts")
+        assert "SECRET-TOKEN" not in caplog.text and "refused" in caplog.text
+
+    @respx.mock
+    def test_an_exception_that_embeds_the_url_is_redacted(self, caplog):
+        respx.post(self.SECRET_URL).mock(side_effect=httpx.ReadError(f"broken: {self.SECRET_URL}"))
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            _notify_discord(1, 2, [], [], "ts")
+        assert "SECRET-TOKEN" not in caplog.text and "<url>" in caplog.text
+
+    def test_a_notify_failure_does_not_raise(self):
+        with respx.mock:
+            respx.post(self.SECRET_URL).mock(return_value=httpx.Response(500))
+            _notify_discord(1, 2, [], [], "ts")  # 通知の失敗で sync を落とさない
