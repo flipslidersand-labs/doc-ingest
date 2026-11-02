@@ -18,13 +18,6 @@ _log = logging.getLogger(__name__)
 COLLECTION = "research"
 
 
-def extract_text(pdf_bytes: bytes) -> str:
-    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
-    pages = [page.get_text() for page in doc]
-    doc.close()
-    return "\n\n".join(pages)
-
-
 def _extract_text_from_path(path: Path) -> str:
     """Open PDF from a file path (avoids loading full bytes into memory)."""
     if not path.exists():
@@ -62,7 +55,7 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
         _log.warning("no text extracted from %s", source)
         return
 
-    chunks = chunk_text(text, source_url=source_url)
+    chunks = chunk_text(text)
     points = [
         {
             "id": make_id(f"{source_url}:{c['chunk_index']}"),

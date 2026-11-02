@@ -40,10 +40,10 @@ class TestChunkMarkdown:
         chunks = chunk_markdown(md)
         assert len(chunks) == 1
 
-    def test_source_url_propagated(self):
-        md = "## S\n" + "b " * 30
-        chunks = chunk_markdown(md, source_url="http://example.com")
-        assert chunks[0]["source_url"] == "http://example.com"
+    def test_chunk_dict_has_exactly_the_documented_keys(self):
+        """#227: 誰も読まない source_url を持たせない。呼び出し側が持つ出所は自分で付ける。"""
+        chunks = chunk_markdown("## S\n" + "b " * 30)
+        assert set(chunks[0]) == {"text", "section", "chunk_index"}
 
     def test_empty_text_returns_empty(self):
         assert chunk_markdown("") == []
@@ -108,10 +108,10 @@ class TestChunkText:
         indices = [c["chunk_index"] for c in chunks]
         assert indices == list(range(len(chunks)))
 
-    def test_source_url_propagated(self):
+    def test_chunk_dict_has_exactly_the_documented_keys(self):
         text = "\n\n".join(["word " * 20] * 3)
-        chunks = chunk_text(text, source_url="test.pdf")
-        assert all(c["source_url"] == "test.pdf" for c in chunks)
+        chunks = chunk_text(text)
+        assert chunks and all(set(c) == {"text", "section", "chunk_index"} for c in chunks)
 
 
 class TestHardSplitKeepsWholeCharacters:
