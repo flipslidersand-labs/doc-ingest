@@ -18,16 +18,19 @@ HTTPS クローンはインタラクティブ認証が必要だが cron/SSH セ�
 
 ## 解決策
 
-`rsync` でローカルから転送する（`.git` も含めると git リポジトリとして機能する）:
+`scripts/deploy-minipc.sh` でローカルから転送する (2026-11-02 更新: #195 で方式が変わった)。
 
 ```bash
-rsync -av --exclude='.venv' --exclude='__pycache__' --exclude='*.egg-info' --exclude='.env' \
-  /path/to/local/project/ \
-  minipc:~/project/
-ssh minipc "cd ~/project && pip install -e . -q"
+DEPLOY_DRY_RUN=1 bash scripts/deploy-minipc.sh   # 先に差分だけ確認 (送信も install もしない)
+bash scripts/deploy-minipc.sh                    # 本番へ
 ```
+
+- 送るのは `git archive origin/main` (コミット済みの内容だけ)。未コミット変更・`.claude/worktrees`・coverage は混ざらない
+- **`.git` は送らない**。MINIPC 側の `.git`・`logs/`・`.worktrees/`・`.venv`・`.env` は除外して保護する
+  (旧版の手順は `.git` ごと rsync していたが、ローカルの作業ツリーを丸ごと本番に混入させていた)
+- 転送後に `pip install -e .` まで行う
 
 ## 予防
 
-- MINIPC に `~/.ssh/id_ed25519` を生成して GitHub に登録する（恒久対策）
-- または rsync デプロイをスクリプト化して `make deploy` コマンドにする
+- MINIPC に `~/.ssh/id_ed25519` を生成して GitHub に登録する（恒久対策。登録すれば MINIPC で `git pull` できる）
+- デプロイは上のスクリプトに一本化する（手で rsync しない）

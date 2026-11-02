@@ -20,15 +20,12 @@ COLLECTION = "notes"
 
 # Curated top-level dirs to ingest. Scratch dirs are intentionally excluded.
 NOTE_DIRS = ("10-projects", "20-areas", "30-resources")
-SKIP_DIRS = ("00-inbox", "90-daily", "_templates")
 
 
 def _is_note(p: Path) -> bool:
     if p.suffix != ".md":
         return False
     parts = p.parts
-    if parts and parts[0] in SKIP_DIRS:
-        return False
     return bool(parts) and parts[0] in NOTE_DIRS
 
 

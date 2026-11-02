@@ -63,7 +63,7 @@ def _generate(prompt: str, *, local_only: bool = False) -> str:
     """local_only=True は非公開ソース用: Anthropic へ送らず、ローカル LLM が失敗したら DistillError。"""
     try:
         return _local(prompt)
-    except (MemoryError, KeyboardInterrupt, SystemExit):
+    except MemoryError:  # MemoryError だけが Exception のサブクラス
         raise
     except Exception as e:
         if local_only:
@@ -76,7 +76,7 @@ def _generate(prompt: str, *, local_only: bool = False) -> str:
         raise DistillError("local LLM failed and ANTHROPIC_API_KEY is not set")
     try:
         return _anthropic(prompt)
-    except (MemoryError, KeyboardInterrupt, SystemExit):
+    except MemoryError:  # MemoryError だけが Exception のサブクラス
         raise
     except Exception as e:
         raise DistillError(f"local LLM and Anthropic both failed ({e})") from e

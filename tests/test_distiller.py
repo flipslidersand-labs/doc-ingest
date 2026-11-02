@@ -62,6 +62,25 @@ class TestGenerate:
         with pytest.raises(MemoryError):
             distiller._generate("prompt")
 
+    def test_memory_error_not_swallowed_anthropic(self, mocker):
+        """MemoryError は Exception のサブクラスなので、明示的に再送出しないと DistillError に化ける。"""
+        mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
+        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "sk-fake")
+        mocker.patch.object(distiller, "_anthropic", side_effect=MemoryError("oom"))
+        with pytest.raises(MemoryError):
+            distiller._generate("prompt")
+
+    def test_system_exit_not_swallowed_in_either_backend(self, mocker):
+        """SystemExit / KeyboardInterrupt は Exception ではないので、except Exception には捕まらない。"""
+        mocker.patch("urllib.request.urlopen", side_effect=SystemExit(1))
+        with pytest.raises(SystemExit):
+            distiller._generate("prompt")
+        mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
+        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "sk-fake")
+        mocker.patch.object(distiller, "_anthropic", side_effect=SystemExit(1))
+        with pytest.raises(SystemExit):
+            distiller._generate("prompt")
+
     def test_keyboard_interrupt_not_swallowed_anthropic(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
         mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "sk-fake")

@@ -73,6 +73,11 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
     return None
 
 
+def _failed(url: str, source: dict) -> dict:
+    """The result `_fetch_source` returns when a source could not be fetched."""
+    return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+
+
 def _fetch_source(source: dict, force: bool, now: str) -> dict:
     """Fetch + extract content for one source. Thread-safe: reads source, never writes it."""
     url = source["url"]
@@ -80,7 +85,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
         assert_safe_url(url)
     except UnsafeURLError as exc:
         _log.warning("blocked unsafe URL: %s", exc)
-        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+        return _failed(url, source)
     stored_etag = source.get("last_etag", "")
     headers: dict[str, str] = {}
     if stored_etag and not force:
@@ -92,7 +97,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
     resp = _fetch_with_retry(fetch_url, headers)
     if resp is None:
         _log.warning("failed %s (gave up after %d attempts)", url, MAX_RETRIES)
-        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+        return _failed(url, source)
 
     if resp.status_code == 304:
         _log.info("up-to-date %s", url)
@@ -100,7 +105,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
 
     if not resp.is_success:
         _log.warning("failed %s → HTTP %d (continuing)", url, resp.status_code)
-        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+        return _failed(url, source)
 
     new_etag = resp.headers.get("etag", "")
     body = resp.text
@@ -117,7 +122,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
             _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", url)
             return {"status": "skipped", "url": url, "source": source, "new_etag": "", "points": []}
 
-    chunks = chunk_markdown(body, source_url=url, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS)
+    chunks = chunk_markdown(body, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS)
     points = [
         {
             "id": make_id(f"{url}:{c['chunk_index']}"),
@@ -183,13 +188,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             except Exception as e:  # noqa: BLE001
                 url = sources[i]["url"]
                 _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, e)
-                fetch_results[i] = {
-                    "status": "failed",
-                    "url": url,
-                    "source": sources[i],
-                    "new_etag": "",
-                    "points": [],
-                }
+                fetch_results[i] = _failed(url, sources[i])
 
     # Phase 2: sequential upsert + metadata update (preserves source order)
     for result in fetch_results:
