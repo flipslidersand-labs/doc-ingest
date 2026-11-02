@@ -554,3 +554,28 @@ class TestFailedResult:
         mocker.patch.object(ext, "upsert")
         ext.sync_external(force=True)
         assert ext._save_sources.called  # 失敗しても最後まで進む
+
+
+class TestOversizedPage:
+    def test_a_page_over_the_limit_is_reported_failed_and_nothing_is_stored(self, mocker, caplog):
+        """#224: 巨大な応答を全量メモリに読まない。上限超過は取得失敗として扱う。"""
+        import logging
+
+        import ingest.external as ext
+        from core.url_guard import UnsafeURLError
+
+        mocker.patch("time.sleep")
+        mocker.patch.object(ext, "assert_safe_url")
+        mocker.patch.object(
+            ext,
+            "safe_get",
+            side_effect=UnsafeURLError(
+                "response exceeds 52428800 bytes: 'https://docs.example.com/x'"
+            ),
+        )
+        up = mocker.patch.object(ext, "upsert")
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            result = ext._fetch_source({"url": "https://docs.example.com/x"}, force=True, now="n")
+        assert result["status"] == "failed" and result["points"] == []
+        up.assert_not_called()
+        assert "blocked" in caplog.text and "exceeds" in caplog.text

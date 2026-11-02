@@ -143,7 +143,7 @@ class TestFetchPdfText:
         assert result == ""
 
     def test_network_error_returns_empty(self, mocker):
-        mocker.patch("ingest.arxiv.httpx.get", side_effect=httpx.RequestError("timeout"))
+        mocker.patch("ingest.arxiv.safe_download", side_effect=httpx.RequestError("timeout"))
         from ingest.arxiv import _fetch_pdf_text
 
         result = _fetch_pdf_text("1706.03762")
@@ -387,3 +387,87 @@ class TestIngestBlog:
         with pytest.raises(httpx.HTTPStatusError):
             self._ingest()
         self.upsert.assert_not_called()
+
+
+class TestFetchPdfTextIsBounded:
+    """#224: arxiv の PDF は httpx.get で全量を読み、全ページを get_text していた。"""
+
+    @staticmethod
+    def _doc(mocker, pages):
+        mock_pages = []
+        for text in pages:
+            page = mocker.MagicMock()
+            page.get_text.return_value = text
+            mock_pages.append(page)
+        doc = mocker.MagicMock()
+        doc.__iter__ = mocker.Mock(return_value=iter(mock_pages))
+        doc.__enter__ = mocker.Mock(return_value=doc)
+        doc.__exit__ = mocker.Mock(return_value=False)
+        return doc, mock_pages
+
+    def test_it_downloads_through_the_guarded_downloader(self, mocker):
+        dl = mocker.patch("ingest.arxiv.safe_download")
+        doc, _ = self._doc(mocker, ["abstract page"])
+        mocker.patch("ingest.arxiv.pymupdf.open", return_value=doc)
+        from ingest.arxiv import _fetch_pdf_text
+
+        assert _fetch_pdf_text("1706.03762") == "abstract page"
+        assert dl.call_args.args[0] == "https://arxiv.org/pdf/1706.03762"
+
+    def test_it_stops_reading_pages_once_enough_text_is_collected(self, mocker):
+        mocker.patch("ingest.arxiv.safe_download")
+        doc, pages = self._doc(mocker, ["x" * 5000] * 200)
+        mocker.patch("ingest.arxiv.pymupdf.open", return_value=doc)
+        from ingest.arxiv import _fetch_pdf_text
+
+        out = _fetch_pdf_text("1706.03762")
+        assert len(out) == 8000
+        read = sum(1 for p in pages if p.get_text.called)
+        assert read <= 3, f"{read} ページ読んだ (8000 字に届いた時点で止めるはず)"
+
+    def test_an_oversized_pdf_falls_back_to_the_abstract(self, mocker, caplog):
+        import logging
+
+        from core.url_guard import UnsafeURLError
+
+        mocker.patch("ingest.arxiv.safe_download", side_effect=UnsafeURLError("response exceeds"))
+        from ingest.arxiv import _fetch_pdf_text
+
+        with caplog.at_level(logging.WARNING, logger="ingest.arxiv"):
+            assert _fetch_pdf_text("1706.03762") == ""
+        assert "PDF fetch failed" in caplog.text
+
+    def test_the_api_request_goes_through_safe_get(self, mocker):
+        sg = mocker.patch(
+            "ingest.arxiv.safe_get",
+            return_value=httpx.Response(
+                200, text=ARXIV_API_RESPONSE, request=httpx.Request("GET", "https://x")
+            ),
+        )
+        from ingest.arxiv import _fetch_arxiv
+
+        assert _fetch_arxiv("1706.03762")["title"]
+        assert sg.call_args.args[0] == "https://export.arxiv.org/api/query?id_list=1706.03762"
+
+
+class TestBlogBodyLimit:
+    def test_an_oversized_blog_page_is_refused_not_summarised(self, mocker):
+        import socket
+
+        from core.url_guard import UnsafeURLError
+
+        mocker.patch(
+            "socket.getaddrinfo",
+            return_value=[(socket.AF_INET, None, None, None, ("93.184.216.34", 0))],
+        )
+        mocker.patch(
+            "ingest.arxiv.safe_get", side_effect=UnsafeURLError("response exceeds 52428800 bytes")
+        )
+        distill = mocker.patch("ingest.arxiv.distill_webpage")
+        up = mocker.patch("ingest.arxiv.upsert")
+        from ingest.arxiv import ingest_arxiv
+
+        with pytest.raises(UnsafeURLError, match="exceeds"):
+            ingest_arxiv("https://example.com/huge")
+        distill.assert_not_called()
+        up.assert_not_called()
