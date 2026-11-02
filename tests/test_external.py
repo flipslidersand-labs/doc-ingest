@@ -433,6 +433,74 @@ class TestExternalChunkLimit:
         assert EXTERNAL_MAX_SECTION_TOKENS < MAX_SECTION_TOKENS
 
 
+class TestWorkerErrorLogsAreRedacted:
+    def test_an_exception_message_with_a_url_does_not_reach_the_log(self, mocker, caplog):
+        """sync の Phase 1 で予期しない例外が出たとき、メッセージ中の URL (トークン付き) を伏せる。"""
+        import logging
+
+        import ingest.external as ext
+
+        sources = [{"url": "https://docs.example.com/x"}]
+        mocker.patch.object(ext, "_load_sources", return_value=sources)
+        mocker.patch.object(ext, "_save_sources")
+        mocker.patch.object(
+            ext,
+            "_fetch_source",
+            side_effect=RuntimeError("boom https://other.example/p?token=SECRET"),
+        )
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            ext.sync_external(force=True)
+        assert "SECRET" not in caplog.text and "boom <url>" in caplog.text
+
+    def test_a_phase2_write_error_with_a_url_is_redacted_and_the_rest_continue(
+        self, mocker, caplog
+    ):
+        """Phase 2 (Qdrant への書き込み) の例外のログ。メッセージ中の URL を伏せ、失敗として記録する。"""
+        import logging
+
+        import ingest.external as ext
+
+        source = {"url": "https://docs.example.com/x"}
+        mocker.patch.object(ext, "_load_sources", return_value=[source])
+        mocker.patch.object(ext, "_save_sources")
+        ready = {
+            "status": "ready",
+            "url": source["url"],
+            "source": source,
+            "new_etag": "e",
+            "points": [{"id": "p1", "text": "t"}],
+        }
+        mocker.patch.object(ext, "_fetch_source", return_value=ready)
+        mocker.patch.object(ext, "ids_by_payload", return_value=[])
+        mocker.patch.object(
+            ext,
+            "upsert",
+            side_effect=RuntimeError("write failed at https://qdrant.internal/x?api-key=SECRET"),
+        )
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            ext.sync_external(force=True)
+        assert "SECRET" not in caplog.text and "write failed at <url>" in caplog.text
+        assert "failed_at" in source  # 失敗として記録される
+
+    def test_a_retry_debug_log_does_not_carry_a_url_from_the_error(self, mocker, caplog):
+        """retry のデバッグログ (-v で出る)。httpx.RequestError のメッセージに URL が入っていても伏せる。"""
+        import logging
+
+        import httpx
+
+        import ingest.external as ext
+
+        mocker.patch("time.sleep")
+        mocker.patch.object(
+            ext,
+            "safe_get",
+            side_effect=httpx.ConnectError("refused: https://h.example/p?token=SECRET"),
+        )
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            assert ext._fetch_with_retry("https://h.example/p", {}) is None
+        assert "SECRET" not in caplog.text and "refused: <url>" in caplog.text
+
+
 class TestFailedResult:
     """#227: 同じ形の失敗結果を 4 か所に書いていたのを _failed に集約した。形を固定する。"""
 
