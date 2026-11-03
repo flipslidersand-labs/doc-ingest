@@ -7,6 +7,7 @@ import pytest
 import respx
 
 from core import qdrant
+from ingest.external import FetchResult, _apply_result, _Summary
 
 SOURCES = [
     {
@@ -261,13 +262,7 @@ class TestSyncExternalExceptionIsolation:
         def fake_fetch_source(source, force, now):
             if source["url"] == "https://example.com/broken":
                 raise RuntimeError("boom")
-            return {
-                "status": "ready",
-                "url": source["url"],
-                "source": source,
-                "new_etag": "",
-                "points": [{"id": "x", "text": "ok"}],
-            }
+            return FetchResult.ready(source["url"], source, "", [{"id": "x", "text": "ok"}])
 
         mocker.patch("ingest.external._fetch_source", side_effect=fake_fetch_source)
 
@@ -298,19 +293,12 @@ class TestSyncExternalExceptionIsolation:
         mocker.patch("core.qdrant.upsert", side_effect=fake_upsert)
 
         def fake_fetch_source(source, force, now):
-            return {
-                "status": "ready",
-                "url": source["url"],
-                "source": source,
-                "new_etag": "",
-                "points": [
-                    {
-                        "id": f"{source['url']}:0",
-                        "text": "content",
-                        "source_url": source["url"],
-                    }
-                ],
-            }
+            return FetchResult.ready(
+                source["url"],
+                source,
+                "",
+                [{"id": f"{source['url']}:0", "text": "content", "source_url": source["url"]}],
+            )
 
         mocker.patch("ingest.external._fetch_source", side_effect=fake_fetch_source)
 
@@ -478,13 +466,7 @@ class TestWorkerErrorLogsAreRedacted:
         source = {"url": "https://docs.example.com/x"}
         mocker.patch.object(ext, "_load_sources", return_value=[source])
         mocker.patch.object(ext, "_save_sources")
-        ready = {
-            "status": "ready",
-            "url": source["url"],
-            "source": source,
-            "new_etag": "e",
-            "points": [{"id": "p1", "text": "t"}],
-        }
+        ready = FetchResult.ready(source["url"], source, "e", [{"id": "p1", "text": "t"}])
         mocker.patch.object(ext, "_fetch_source", return_value=ready)
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mocker.patch(
@@ -519,23 +501,22 @@ class TestFailedResult:
     """#227: 同じ形の失敗結果を 4 か所に書いていたのを _failed に集約した。形を固定する。"""
 
     def test_shape(self):
-        from ingest.external import _failed
-
         source = {"url": "https://example.com/x", "check_interval": "weekly"}
-        assert _failed("https://example.com/x", source) == {
-            "status": "failed",
-            "url": "https://example.com/x",
-            "source": source,
-            "new_etag": "",
-            "points": [],
-        }
+        assert FetchResult.failed("https://example.com/x", source) == FetchResult(
+            "failed", "https://example.com/x", source, "", []
+        )
+
+    def test_factories_set_status_and_payload(self):
+        s = {"url": "u"}
+        assert FetchResult.skipped("u", s) == FetchResult("skipped", "u", s, "", [])
+        assert FetchResult.ready("u", s, "e", [{"id": "p"}]) == FetchResult(
+            "ready", "u", s, "e", [{"id": "p"}]
+        )
 
     def test_each_call_gets_its_own_points_list(self):
-        from ingest.external import _failed
-
-        a, b = _failed("u", {}), _failed("u", {})
-        a["points"].append("x")
-        assert b["points"] == []  # 共有された可変オブジェクトにしない
+        a, b = FetchResult.failed("u", {}), FetchResult.failed("u", {})
+        a.points.append("x")
+        assert b.points == []  # 共有された可変オブジェクトにしない
 
     def test_a_blocked_url_is_reported_failed_not_skipped(self, mocker):
         from core.url_guard import UnsafeURLError
@@ -543,7 +524,7 @@ class TestFailedResult:
 
         mocker.patch("ingest.external.assert_safe_url", side_effect=UnsafeURLError("blocked"))
         result = _fetch_source({"url": "https://10.0.0.1/x"}, force=False, now="n")
-        assert result["status"] == "failed" and result["points"] == []
+        assert result.status == "failed" and result.points == []
 
     def test_an_exception_in_a_worker_is_reported_failed_and_the_rest_continue(self, mocker):
         """スレッド内の予期しない例外 (Phase 1 の隔離) も _failed で返る。"""
@@ -556,13 +537,7 @@ class TestFailedResult:
         def fake_fetch(source, force, now):
             if source["url"].startswith("https://a."):
                 raise RuntimeError("boom")
-            return {
-                "status": "skipped",
-                "url": source["url"],
-                "source": source,
-                "new_etag": "",
-                "points": [],
-            }
+            return FetchResult.skipped(source["url"], source)
 
         mocker.patch.object(ext, "_fetch_source", side_effect=fake_fetch)
         mocker.patch("core.qdrant.upsert")
@@ -590,7 +565,7 @@ class TestOversizedPage:
         up = mocker.patch("core.qdrant.upsert")
         with caplog.at_level(logging.WARNING, logger="ingest.external"):
             result = ext._fetch_source({"url": "https://docs.example.com/x"}, force=True, now="n")
-        assert result["status"] == "failed" and result["points"] == []
+        assert result.status == "failed" and result.points == []
         up.assert_not_called()
         assert "blocked" in caplog.text and "exceeds" in caplog.text
 
@@ -628,3 +603,51 @@ class TestExternalTrust:
 
         points = up.call_args[0][1]
         assert points and {p["trust"] for p in points} == {"external"}
+
+
+class TestApplyResult:
+    """Phase 2 の「ソース1件の反映」。status ごとの source 更新と集計を固定する。"""
+
+    def test_failed_records_failed_at_and_counts(self):
+        s = {"url": "u"}
+        sm = _Summary()
+        _apply_result(FetchResult.failed("u", s), "T", False, sm)
+        assert s["failed_at"] == "T" and sm.failed == ["u"] and sm.changed and sm.synced == 0
+
+    def test_skipped_touches_nothing(self):
+        s = {"url": "u"}
+        sm = _Summary()
+        _apply_result(FetchResult.skipped("u", s), "T", False, sm)
+        assert s == {"url": "u"} and sm.skipped == ["u"] and not sm.changed
+        assert sm.failed == [] and sm.synced == 0
+
+    def test_ready_writes_and_updates_metadata(self, mocker):
+        rp = mocker.patch("ingest.external.replace_points")
+        s = {"url": "u", "failed_at": "old"}
+        sm = _Summary()
+        _apply_result(FetchResult.ready("u", s, "e1", [{"id": "a"}, {"id": "b"}]), "T", False, sm)
+        rp.assert_called_once()
+        assert s == {"url": "u", "last_etag": "e1", "last_synced": "T"}
+        assert (sm.synced, sm.total_chunks, sm.changed) == (1, 2, True)
+
+    def test_ready_without_etag_keeps_the_stored_one(self, mocker):
+        mocker.patch("ingest.external.replace_points")
+        s = {"url": "u", "last_etag": "old"}
+        _apply_result(FetchResult.ready("u", s, "", [{"id": "a"}]), "T", False, _Summary())
+        assert s["last_etag"] == "old"
+
+    def test_write_error_marks_failed_without_syncing(self, mocker):
+        mocker.patch("ingest.external.replace_points", side_effect=RuntimeError("x"))
+        s = {"url": "u"}
+        sm = _Summary()
+        _apply_result(FetchResult.ready("u", s, "e", [{"id": "a"}]), "T", False, sm)
+        assert s["failed_at"] == "T" and "last_synced" not in s
+        assert sm.failed == ["u"] and sm.synced == 0 and sm.total_chunks == 0
+
+    def test_dry_run_writes_nothing(self, mocker):
+        rp = mocker.patch("ingest.external.replace_points")
+        s = {"url": "u"}
+        sm = _Summary()
+        _apply_result(FetchResult.ready("u", s, "e", [{"id": "a"}]), "T", True, sm)
+        rp.assert_not_called()
+        assert s == {"url": "u"} and not sm.changed and sm.synced == 0
