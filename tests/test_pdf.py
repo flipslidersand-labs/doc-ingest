@@ -353,3 +353,23 @@ class TestIngestPdfUrlSafety:
         pdf.write_bytes(b"%PDF")
         ingest_pdf(str(pdf))
         dl.assert_not_called()
+
+
+def test_pdf_chunks_over_the_cap_are_not_distilled(mocker, tmp_path):
+    """チャンク数の上限を超える PDF は、超過分を LLM 要約に回さない (#224)。"""
+    pdf = tmp_path / "long.pdf"
+    pdf.write_bytes(b"%PDF-fake")
+    text = "\n\n".join(f"paragraph {i} " + "word " * 250 for i in range(10))
+    mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 2)
+    mocker.patch("ingest.pdf._extract_text_from_path", return_value=text)
+    distill = mocker.patch("ingest.pdf.distill_text", side_effect=lambda t, p, **kw: t)
+    mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
+    mocker.patch("ingest.pdf.delete_by_ids")
+    mock_upsert = mocker.patch("ingest.pdf.upsert")
+
+    from ingest.pdf import ingest_pdf
+
+    ingest_pdf(str(pdf))
+
+    assert distill.call_count == 2
+    assert len(mock_upsert.call_args[0][1]) == 2
