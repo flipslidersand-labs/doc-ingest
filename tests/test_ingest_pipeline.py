@@ -416,3 +416,63 @@ class TestSizeAndChunkLimits:
 
         assert distill.call_count == 3
         assert len(mock_upsert.call_args.args[1]) == 3
+
+
+class TestIngestChangedOrFile:
+    """design / notes が共有する入口: file 指定か、変更ファイルの一覧か。"""
+
+    @staticmethod
+    def _run(mocker, file, changed):
+        from pathlib import Path
+
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc1234")
+        safe = mocker.patch("core.ingest_pipeline.assert_safe_path", return_value=Path("safe.md"))
+        ingest = mocker.patch("core.ingest_pipeline.ingest_markdown_files")
+        from core.ingest_pipeline import ingest_changed_or_file
+
+        ingest_changed_or_file(
+            file,
+            changed=changed,
+            collection="c",
+            source_label="s",
+            distill_fn=str,
+            nothing_msg="nothing here",
+        )
+        return safe, ingest
+
+    def test_file_is_validated_and_the_changed_list_is_not_consulted(self, mocker):
+        changed = mocker.Mock(return_value=[])
+        safe, ingest = self._run(mocker, "a.md", changed)
+        safe.assert_called_once_with("a.md")
+        changed.assert_not_called()
+        kwargs = ingest.call_args.kwargs
+        assert ingest.call_args.args[0] == [safe.return_value]
+        assert (kwargs["collection"], kwargs["source_label"], kwargs["git_sha"]) == (
+            "c",
+            "s",
+            "abc1234",
+        )
+
+    def test_without_file_the_changed_files_are_ingested(self, mocker):
+        from pathlib import Path
+
+        safe, ingest = self._run(mocker, None, lambda: [Path("x.md")])
+        safe.assert_not_called()
+        assert ingest.call_args.args[0] == [Path("x.md")]
+
+    def test_nothing_to_ingest_logs_and_returns(self, mocker, caplog):
+        import logging
+
+        with caplog.at_level(logging.DEBUG, logger="core.ingest_pipeline"):
+            _, ingest = self._run(mocker, None, list)
+        ingest.assert_not_called()
+        assert "nothing here" in caplog.text
+
+
+def test_changed_matching_keeps_only_target_files(mocker):
+    from pathlib import Path
+
+    mocker.patch("core.ingest_pipeline.changed_files", return_value=[Path("a.md"), Path("b.txt")])
+    from core.ingest_pipeline import changed_matching
+
+    assert changed_matching(lambda p: p.suffix == ".md") == [Path("a.md")]
