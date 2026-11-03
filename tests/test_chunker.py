@@ -188,3 +188,35 @@ class TestHardSplitKeepsWholeCharacters:
         assert len(chunks) > 1
         joined = "".join(c["text"] for c in chunks)
         assert "�" not in joined
+
+
+class TestCapChunks:
+    """1 文書のチャンク数に上限をかける (#224)。"""
+
+    def test_default_cap_is_1000(self):
+        from core.chunker import MAX_CHUNKS_PER_DOC
+
+        assert MAX_CHUNKS_PER_DOC == 1000
+
+    def test_exactly_at_the_cap_is_returned_unchanged_without_a_warning(self, mocker, caplog):
+        from core.chunker import cap_chunks
+
+        mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 3)
+        chunks = [{"chunk_index": i} for i in range(3)]
+
+        with caplog.at_level("WARNING"):
+            assert cap_chunks(chunks, "doc") == chunks
+
+        assert "MAX_CHUNKS_PER_DOC" not in caplog.text
+
+    def test_over_the_cap_keeps_the_first_chunks_and_warns(self, mocker, caplog):
+        from core.chunker import cap_chunks
+
+        mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 3)
+        chunks = [{"chunk_index": i} for i in range(10)]
+
+        with caplog.at_level("WARNING"):
+            capped = cap_chunks(chunks, "big.md")
+
+        assert [c["chunk_index"] for c in capped] == [0, 1, 2]
+        assert "big.md" in caplog.text and "MAX_CHUNKS_PER_DOC" in caplog.text
