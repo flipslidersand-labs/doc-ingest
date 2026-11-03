@@ -129,6 +129,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
             "id": make_id(f"{url}:{c['chunk_index']}"),
             "text": c["text"],
             "source": "external-api",
+            "trust": "external",
             "source_url": url,
             "section": c["section"],
             "doc_type": source.get("type", "external-api"),

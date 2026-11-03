@@ -115,6 +115,7 @@ def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int)
         section = r.get("section", "")
         score_str = f"score={score:.4f}  " if score is not None else ""
         click.echo(f"\n[{i}] {score_str}{src}")
+        click.echo(f"    trust: {r.get('trust') or 'unknown'}")
         if section:
             click.echo(f"    section: {section}")
         text = r.get("text", "")
