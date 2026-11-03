@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 from ruamel.yaml import YAML
 
-from core.chunker import chunk_markdown
+from core.chunker import cap_chunks, chunk_markdown
 from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
@@ -123,7 +123,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
             _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", url)
             return {"status": "skipped", "url": url, "source": source, "new_etag": "", "points": []}
 
-    chunks = chunk_markdown(body, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS)
+    chunks = cap_chunks(chunk_markdown(body, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS), url)
     points = [
         {
             "id": make_id(f"{url}:{c['chunk_index']}"),

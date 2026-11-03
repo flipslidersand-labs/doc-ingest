@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pymupdf
 
-from core.chunker import chunk_text
+from core.chunker import cap_chunks, chunk_text
 from core.distiller import distill_text
 from core.ids import make_id
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
@@ -55,7 +55,7 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
         _log.warning("no text extracted from %s", source)
         return
 
-    chunks = chunk_text(text)
+    chunks = cap_chunks(chunk_text(text), source)
     points = [
         {
             "id": make_id(f"{source_url}:{c['chunk_index']}"),

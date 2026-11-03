@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from typing import BinaryIO
 from urllib.parse import urljoin, urlparse
 
+import httpcore
 import httpx
 
 MAX_REDIRECTS = 5
@@ -48,6 +49,27 @@ class UnsafeURLError(ValueError):
     pass
 
 
+def _safe_addresses(hostname: str, port: int | None = None) -> list[str]:
+    """Resolve *hostname* and return its addresses, raising UnsafeURLError if any is blocked.
+
+    Every address must be public: a name with one public and one private record is refused,
+    since the connection could be made to either.
+    """
+    try:
+        infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise UnsafeURLError(f"Cannot resolve {hostname!r}: {exc}") from exc
+    addresses: list[str] = []
+    for *_, sockaddr in infos:
+        ip = ipaddress.ip_address(sockaddr[0])
+        reason = _blocked_reason(ip)
+        if reason is not None:
+            raise UnsafeURLError(f"{hostname!r} resolves to blocked address {ip} ({reason})")
+        if sockaddr[0] not in addresses:
+            addresses.append(sockaddr[0])
+    return addresses
+
+
 def assert_safe_url(url: str) -> None:
     """Raise UnsafeURLError if url is not HTTPS or resolves to a private address."""
     parsed = urlparse(url)
@@ -57,14 +79,39 @@ def assert_safe_url(url: str) -> None:
     if not hostname:
         raise UnsafeURLError(f"URL has no hostname: {url!r}")
     try:
-        infos = socket.getaddrinfo(hostname, None)
-    except socket.gaierror as exc:
-        raise UnsafeURLError(f"Cannot resolve {hostname!r}: {exc}") from exc
-    for *_, sockaddr in infos:
-        ip = ipaddress.ip_address(sockaddr[0])
-        reason = _blocked_reason(ip)
-        if reason is not None:
-            raise UnsafeURLError(f"URL resolves to blocked address {ip} ({reason}): {url!r}")
+        _safe_addresses(hostname)
+    except UnsafeURLError as exc:
+        raise UnsafeURLError(f"{exc}: {url!r}") from exc
+
+
+class _PinnedBackend(httpcore.SyncBackend):
+    """Connect only to addresses that were validated at connect time (DNS rebinding, #224).
+
+    ``assert_safe_url`` resolves the name once and httpx resolves it again when it connects, so a
+    DNS server that answers a public address first and a private one second (TTL 0) passes the
+    check and is then fetched. Resolving, validating and connecting in one place closes that gap;
+    TLS still verifies the certificate against the original hostname.
+    """
+
+    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        last: Exception | None = None
+        for ip in _safe_addresses(host, port):
+            try:
+                return super().connect_tcp(ip, port, timeout, local_address, socket_options)
+            except httpcore.ConnectError as exc:
+                last = exc
+        raise last or UnsafeURLError(f"{host!r} has no address")
+
+
+def _client(timeout: float) -> httpx.Client:
+    """An httpx client that cannot be steered to a non-public address by DNS.
+
+    Passing *transport* explicitly also makes httpx ignore ``HTTPS_PROXY``: through a proxy the
+    connection goes to the proxy and the proxy does the DNS lookup, which this guard cannot check.
+    """
+    transport = httpx.HTTPTransport()
+    transport._pool._network_backend = _PinnedBackend()  # httpx has no public hook for this
+    return httpx.Client(transport=transport, timeout=timeout)
 
 
 def _capped_chunks(resp: httpx.Response, limit: int, url: str) -> Iterator[bytes]:
@@ -116,9 +163,10 @@ def safe_get(
     limit = MAX_DOWNLOAD_BYTES if max_bytes is None else max_bytes
     current = url
     for _ in range(max_redirects):
-        with httpx.stream(
-            "GET", current, headers=headers, timeout=timeout, follow_redirects=False
-        ) as resp:
+        with (
+            _client(timeout) as client,
+            client.stream("GET", current, headers=headers, follow_redirects=False) as resp,
+        ):
             if resp.is_redirect:
                 location = resp.headers.get("location")
                 if not location:
@@ -157,9 +205,10 @@ def safe_download(
     current = url
     assert_safe_url(current)
     for _ in range(max_redirects):
-        with httpx.stream(
-            "GET", current, headers=headers, timeout=timeout, follow_redirects=False
-        ) as resp:
+        with (
+            _client(timeout) as client,
+            client.stream("GET", current, headers=headers, follow_redirects=False) as resp,
+        ):
             if resp.is_redirect:
                 location = resp.headers.get("location")
                 if not location:

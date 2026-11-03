@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from core.chunker import chunk_markdown
+from core.chunker import cap_chunks, chunk_markdown
 from core.distiller import DistillError
 from core.doc_key import doc_key, escapes_repo
 from core.ids import make_id
@@ -20,6 +20,8 @@ _log = logging.getLogger(__name__)
 
 # llama-server は 1 台で複数スロットが n_ctx を共有し、長い入力の並列は全滅する。既定は直列。
 DISTILL_WORKERS = int(os.getenv("DISTILL_WORKERS", "1"))
+# ローカルの markdown 1 ファイルの上限 (バイト)。これを超えるファイルは読まずに見送る (#224)。
+MAX_LOCAL_BYTES = int(os.getenv("MAX_LOCAL_BYTES", str(10 * 1024 * 1024)))
 # git 管理外のファイルの repo。空にすると scripts/migrate_doc_keys.py が「未移行」と見分けられない。
 NO_REPO = "-"
 
@@ -60,8 +62,12 @@ def ingest_markdown_files(
                 delete_by_ids(collection, gone)
                 _log.info("removed %d point(s) of %s → %s", len(gone), key, collection)
             continue
+        if path.stat().st_size > MAX_LOCAL_BYTES:
+            # 巨大ファイルは読み込む前に見送る。既存の point は消さない (一時的な肥大化でデータを失わない)
+            _log.warning("skipping %s: larger than MAX_LOCAL_BYTES=%d", key, MAX_LOCAL_BYTES)
+            continue
         old_ids = ids_by_payload(collection, "file_path", key)
-        chunks = chunk_markdown(path.read_text())
+        chunks = cap_chunks(chunk_markdown(path.read_text()), key)
         with ThreadPoolExecutor(max_workers=DISTILL_WORKERS) as ex:
             distilled_list = list(ex.map(lambda c: _distill_or_none(distill_fn, c["text"]), chunks))
         # 要約に失敗したチャンクは埋め込まず、既存の point も消さない(一時障害でデータを失わない)
