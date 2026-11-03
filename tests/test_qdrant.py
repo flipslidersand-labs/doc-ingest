@@ -498,3 +498,45 @@ class TestListCollectionsIsolatesAFailingCollection:
         monkeypatch.setattr(q, "_client", c)
         with pytest.raises(KeyboardInterrupt):
             q.list_collections()
+
+
+class TestReplacePoints:
+    """文書単位の置換の不変条件 (#57/#60/#85/#215): 旧ID取得 → upsert → 新集合に無い旧IDだけ削除。"""
+
+    @staticmethod
+    def _wire(mocker, old_ids):
+        calls = mocker.Mock()
+        mocker.patch("core.qdrant.ids_by_payload", side_effect=lambda *a: old_ids)
+        mocker.patch("core.qdrant.upsert", side_effect=lambda *a: calls.upsert(*a))
+        mocker.patch("core.qdrant.delete_by_ids", side_effect=lambda *a: calls.delete(*a))
+        return calls
+
+    def test_upserts_first_then_deletes_only_stale_ids(self, mocker):
+        calls = self._wire(mocker, [1, 2, 3])
+        q.replace_points("c", "file_path", "a.md", [{"id": 2}, {"id": 4}])
+        assert [c[0] for c in calls.mock_calls] == ["upsert", "delete"]
+        calls.upsert.assert_called_once_with("c", [{"id": 2}, {"id": 4}])
+        calls.delete.assert_called_once_with("c", [1, 3])
+
+    def test_old_points_survive_when_upsert_fails(self, mocker):
+        calls = self._wire(mocker, [1, 2])
+        mocker.patch("core.qdrant.upsert", side_effect=RuntimeError("embed down"))
+        with pytest.raises(RuntimeError):
+            q.replace_points("c", "file_path", "a.md", [{"id": 9}])
+        calls.delete.assert_not_called()
+
+    def test_keep_extra_ids_are_not_deleted(self, mocker):
+        calls = self._wire(mocker, [1, 2, 3])
+        q.replace_points("c", "file_path", "a.md", [{"id": 1}], keep_extra_ids={2})
+        calls.delete.assert_called_once_with("c", [3])
+
+    def test_no_points_deletes_every_old_point_without_upsert(self, mocker):
+        calls = self._wire(mocker, [1, 2])
+        q.replace_points("c", "file_path", "a.md", [])
+        calls.upsert.assert_not_called()
+        calls.delete.assert_called_once_with("c", [1, 2])
+
+    def test_nothing_stale_does_not_delete(self, mocker):
+        calls = self._wire(mocker, [1])
+        q.replace_points("c", "file_path", "a.md", [{"id": 1}])
+        calls.delete.assert_not_called()

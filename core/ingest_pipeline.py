@@ -14,7 +14,7 @@ from core.chunker import cap_chunks, chunk_markdown
 from core.distiller import DistillError
 from core.doc_key import doc_key, escapes_repo
 from core.ids import make_id
-from core.qdrant import delete_by_ids, ids_by_payload, upsert
+from core.qdrant import replace_points
 
 _log = logging.getLogger(__name__)
 
@@ -57,16 +57,13 @@ def ingest_markdown_files(
             _log.warning("skipping %s: symlink or resolves outside the repo", path)
         if unsafe or not path.exists():
             # 削除・リネームされた、または文書として無効になったファイル: その識別子の point を消す (#217)
-            gone = ids_by_payload(collection, "file_path", key)
-            if gone:
-                delete_by_ids(collection, gone)
-                _log.info("removed %d point(s) of %s → %s", len(gone), key, collection)
+            replace_points(collection, "file_path", key, [])
+            _log.info("removed %s from %s", key, collection)
             continue
         if path.stat().st_size > MAX_LOCAL_BYTES:
             # 巨大ファイルは読み込む前に見送る。既存の point は消さない (一時的な肥大化でデータを失わない)
             _log.warning("skipping %s: larger than MAX_LOCAL_BYTES=%d", key, MAX_LOCAL_BYTES)
             continue
-        old_ids = ids_by_payload(collection, "file_path", key)
         chunks = cap_chunks(chunk_markdown(path.read_text()), key)
         with ThreadPoolExecutor(max_workers=DISTILL_WORKERS) as ex:
             distilled_list = list(ex.map(lambda c: _distill_or_none(distill_fn, c["text"]), chunks))
@@ -92,11 +89,7 @@ def ingest_markdown_files(
             for chunk, distilled in zip(chunks, distilled_list)
             if distilled is not None
         ]
-        upsert(collection, points)
-        keep = {p["id"] for p in points} | failed_ids
-        stale = [i for i in old_ids if i not in keep]
-        if stale:
-            delete_by_ids(collection, stale)
+        replace_points(collection, "file_path", key, points, keep_extra_ids=failed_ids)
         _log.info("ingested %s (%d chunks) → %s", key, len(points), collection)
         if failed_ids:
             _log.warning("%s: distill failed for %d chunk(s), skipped", key, len(failed_ids))

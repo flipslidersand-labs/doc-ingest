@@ -24,9 +24,9 @@ def _run(path, **kw):
 def test_payload_fields_are_populated(mocker, tmp_path):
     md = tmp_path / "a.md"
     md.write_text("## Section\n" + "content " * 20)
-    mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
-    mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
-    mocker.patch("core.ingest_pipeline.delete_by_ids")
+    mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+    mock_upsert = mocker.patch("core.qdrant.upsert")
+    mocker.patch("core.qdrant.delete_by_ids")
 
     _run(md)
 
@@ -47,10 +47,10 @@ def test_payload_fields_are_populated(mocker, tmp_path):
 def test_upsert_precedes_stale_delete(mocker, tmp_path):
     md = tmp_path / "a.md"
     md.write_text("## Section\n" + "content " * 20)
-    mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=["stale-id"])
+    mocker.patch("core.qdrant.ids_by_payload", return_value=["stale-id"])
     calls = mocker.Mock()
-    mocker.patch("core.ingest_pipeline.upsert", calls.upsert)
-    mocker.patch("core.ingest_pipeline.delete_by_ids", calls.delete)
+    mocker.patch("core.qdrant.upsert", calls.upsert)
+    mocker.patch("core.qdrant.delete_by_ids", calls.delete)
 
     _run(md)
 
@@ -72,9 +72,9 @@ def _fail_on_second(text):
 
 def test_failed_chunk_is_not_embedded_and_counted(mocker, tmp_path):
     md = _two_sections(tmp_path)
-    mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
-    mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
-    mocker.patch("core.ingest_pipeline.delete_by_ids")
+    mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+    mock_upsert = mocker.patch("core.qdrant.upsert")
+    mocker.patch("core.qdrant.delete_by_ids")
 
     failed = ingest_markdown_files(
         [md], collection="c", source_label="l", distill_fn=_fail_on_second, git_sha="s", now="n"
@@ -91,9 +91,9 @@ def test_failed_chunk_keeps_its_existing_point(mocker, tmp_path):
     md = _two_sections(tmp_path)
     second_id = make_id(f"{md}:1")
     gone_id = "no-longer-exists"
-    mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[second_id, gone_id])
-    mocker.patch("core.ingest_pipeline.upsert")
-    mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
+    mocker.patch("core.qdrant.ids_by_payload", return_value=[second_id, gone_id])
+    mocker.patch("core.qdrant.upsert")
+    mock_delete = mocker.patch("core.qdrant.delete_by_ids")
 
     ingest_markdown_files(
         [md], collection="c", source_label="l", distill_fn=_fail_on_second, git_sha="s", now="n"
@@ -104,9 +104,9 @@ def test_failed_chunk_keeps_its_existing_point(mocker, tmp_path):
 
 def test_all_success_returns_zero(mocker, tmp_path):
     md = _two_sections(tmp_path)
-    mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
-    mocker.patch("core.ingest_pipeline.upsert")
-    mocker.patch("core.ingest_pipeline.delete_by_ids")
+    mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+    mocker.patch("core.qdrant.upsert")
+    mocker.patch("core.qdrant.delete_by_ids")
     assert (
         ingest_markdown_files(
             [md], collection="c", source_label="l", distill_fn=lambda t: "ok", git_sha="s", now="n"
@@ -147,11 +147,11 @@ def test_same_filename_in_two_repos_does_not_collide_or_delete_each_other(mocker
     a, b = _git_repo(tmp_path, "repoA"), _git_repo(tmp_path, "repoB")
     lookups = []
     mocker.patch(
-        "core.ingest_pipeline.ids_by_payload",
+        "core.qdrant.ids_by_payload",
         side_effect=lambda coll, key, val: lookups.append((key, val)) or [],
     )
-    up = mocker.patch("core.ingest_pipeline.upsert")
-    mocker.patch("core.ingest_pipeline.delete_by_ids")
+    up = mocker.patch("core.qdrant.upsert")
+    mocker.patch("core.qdrant.delete_by_ids")
 
     for repo in (a, b):
         ingest_markdown_files(
@@ -180,9 +180,9 @@ def test_file_outside_git_gets_an_explicit_no_repo_marker(mocker, tmp_path):
     """repo を空にすると、移行スクリプトが「未移行 (repo 無し)」と区別できない。"""
     md = tmp_path / "loose.md"
     md.write_text("## Section\n" + "content " * 30)
-    mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
-    up = mocker.patch("core.ingest_pipeline.upsert")
-    mocker.patch("core.ingest_pipeline.delete_by_ids")
+    mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+    up = mocker.patch("core.qdrant.upsert")
+    mocker.patch("core.qdrant.delete_by_ids")
     ingest_markdown_files(
         [md], collection="c", source_label="l", distill_fn=lambda t: "ok", git_sha="s", now="n"
     )
@@ -199,9 +199,9 @@ def test_failed_chunk_keeps_its_existing_point_inside_a_git_repo(mocker, tmp_pat
     doc = repo / "docs.md"
     doc.write_text("## First\n" + "alpha " * 60 + "\n\n## Second\n" + "beta " * 60)
     second_id = make_id("repoA/docs.md:1")
-    mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[second_id, "gone"])
-    mocker.patch("core.ingest_pipeline.upsert")
-    delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
+    mocker.patch("core.qdrant.ids_by_payload", return_value=[second_id, "gone"])
+    mocker.patch("core.qdrant.upsert")
+    delete = mocker.patch("core.qdrant.delete_by_ids")
 
     ingest_markdown_files(
         [doc],
@@ -240,11 +240,11 @@ def test_hook_flow_renaming_a_japanese_note_replaces_its_points(mocker, tmp_path
 
     old_key = "vault/10-projects/日本語のノート.md"
     mocker.patch(
-        "core.ingest_pipeline.ids_by_payload",
+        "core.qdrant.ids_by_payload",
         side_effect=lambda coll, key, val: ["old-point"] if val == old_key else [],
     )
-    up = mocker.patch("core.ingest_pipeline.upsert")
-    delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
+    up = mocker.patch("core.qdrant.upsert")
+    delete = mocker.patch("core.qdrant.delete_by_ids")
     mocker.patch("ingest.notes.distill_text", return_value="要約")
 
     from ingest.notes import ingest_notes
@@ -276,9 +276,9 @@ class TestSymlinksAreNotIngested:
         (repo / "docs").mkdir(parents=True)
         subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True, capture_output=True)
         (repo / "docs" / "real.md").write_text("## Real\n" + "genuine content " * 40)
-        self.up = mocker.patch("core.ingest_pipeline.upsert")
-        self.delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
-        self.ids = mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        self.up = mocker.patch("core.qdrant.upsert")
+        self.delete = mocker.patch("core.qdrant.delete_by_ids")
+        self.ids = mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         self.seen = []
         yield repo, outside
         _repo_info.cache_clear()
@@ -351,9 +351,9 @@ class TestSymlinksAreNotIngested:
 
     def test_a_symlink_outside_any_git_repo_is_skipped_too(self, mocker, tmp_path):
         """git 管理外でも symlink そのものは取り込まない。"""
-        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
-        up = mocker.patch("core.ingest_pipeline.upsert")
-        mocker.patch("core.ingest_pipeline.delete_by_ids")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        up = mocker.patch("core.qdrant.upsert")
+        mocker.patch("core.qdrant.delete_by_ids")
         real = tmp_path / "real.md"
         real.write_text("## S\n" + "content " * 40)
         link = tmp_path / "link.md"
@@ -371,9 +371,9 @@ class TestSizeAndChunkLimits:
         md = tmp_path / "huge.md"
         md.write_text("## S\n" + "content " * 50)
         mocker.patch("core.ingest_pipeline.MAX_LOCAL_BYTES", 10)
-        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=["old"])
-        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
-        mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=["old"])
+        mock_upsert = mocker.patch("core.qdrant.upsert")
+        mock_delete = mocker.patch("core.qdrant.delete_by_ids")
         distill = mocker.Mock(return_value="d")
 
         ingest_markdown_files(
@@ -393,9 +393,9 @@ class TestSizeAndChunkLimits:
         md = tmp_path / "edge.md"
         md.write_text("## S\n" + "content " * 20)
         mocker.patch("core.ingest_pipeline.MAX_LOCAL_BYTES", md.stat().st_size)
-        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
-        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
-        mocker.patch("core.ingest_pipeline.delete_by_ids")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("core.qdrant.upsert")
+        mocker.patch("core.qdrant.delete_by_ids")
 
         _run(md)
 
@@ -405,9 +405,9 @@ class TestSizeAndChunkLimits:
         md = tmp_path / "many.md"
         md.write_text("".join(f"## S{i}\n" + "content " * 20 + "\n" for i in range(8)))
         mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 3)
-        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
-        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
-        mocker.patch("core.ingest_pipeline.delete_by_ids")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("core.qdrant.upsert")
+        mocker.patch("core.qdrant.delete_by_ids")
         distill = mocker.Mock(return_value="d")
 
         ingest_markdown_files(
