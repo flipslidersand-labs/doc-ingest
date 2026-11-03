@@ -210,3 +210,66 @@ class TestIngestNotesIsLocalOnly:
 
         mock_distill.assert_called()
         assert all(c.kwargs.get("local_only") is True for c in mock_distill.call_args_list)
+
+
+class TestExplicitFile:
+    """#264: 手動実行の file 指定経路 (assert_safe_path 経由) の接続点を固定する。"""
+
+    def test_file_goes_through_assert_safe_path_and_skips_changed_files(self, mocker):
+        resolved = Path("/resolved/10-projects/a.md")
+        safe = mocker.patch("core.ingest_pipeline.assert_safe_path", return_value=resolved)
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
+        changed = mocker.patch("ingest.notes._changed_files")
+        git_changed = mocker.patch("core.ingest_pipeline.changed_files")
+        ingest = mocker.patch("core.ingest_pipeline.ingest_markdown_files")
+
+        from ingest.notes import COLLECTION, ingest_notes
+
+        ingest_notes(file="rel/a.md")
+
+        safe.assert_called_once_with("rel/a.md")
+        changed.assert_not_called()
+        git_changed.assert_not_called()
+        # 解決前の文字列ではなく、assert_safe_path が返したパスがそのまま渡る
+        assert ingest.call_args.args[0] == [resolved]
+        assert ingest.call_args.kwargs["collection"] == COLLECTION
+
+    def test_path_outside_base_raises_before_any_write(self, mocker, tmp_path, monkeypatch):
+        base = tmp_path / "base"
+        base.mkdir()
+        outside = tmp_path / "outside.md"
+        outside.write_text("## S\n" + "x" * 100)
+        monkeypatch.setenv("DOC_INGEST_BASE_DIR", str(base))
+        monkeypatch.chdir(base)
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
+        upsert = mocker.patch("core.qdrant.upsert")
+        delete = mocker.patch("core.qdrant.delete_by_ids")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=["old"])
+        distill = mocker.patch("ingest.notes.distill_text")
+
+        from ingest.notes import ingest_notes
+
+        with pytest.raises(PermissionError):
+            ingest_notes(file="../outside.md")
+
+        upsert.assert_not_called()
+        delete.assert_not_called()
+        distill.assert_not_called()
+
+    def test_md_outside_note_dirs_is_ingested_when_given_explicitly(self, mocker, tmp_path):
+        """現仕様: file 指定には NOTE_DIRS の絞り込みがかからない (00-inbox も入る)。"""
+        from ingest.notes import _is_note, ingest_notes
+
+        scratch = tmp_path / "00-inbox" / "scratch.md"
+        scratch.parent.mkdir()
+        scratch.write_text("## Section\n" + "x" * 100)
+        assert _is_note(Path("00-inbox/scratch.md")) is False
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("core.qdrant.upsert")
+        mocker.patch("ingest.notes.distill_text", return_value="distilled")
+
+        ingest_notes(file=str(scratch))
+
+        mock_upsert.assert_called_once()
+        assert mock_upsert.call_args.args[0] == "notes"
