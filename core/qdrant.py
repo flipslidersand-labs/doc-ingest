@@ -3,6 +3,7 @@
 import logging
 import os
 import threading
+from collections.abc import Iterable
 from typing import Any
 
 from qdrant_client import QdrantClient
@@ -150,6 +151,29 @@ def delete_by_ids(collection: str, ids: list[int]) -> None:
     if not _collection_exists(collection):
         return
     client().delete(collection_name=collection, points_selector=ids)
+
+
+def replace_points(
+    collection: str,
+    key: str,
+    value: str,
+    points: list[dict[str, Any]],
+    keep_extra_ids: Iterable[int] = (),
+) -> None:
+    """Replace the points of one document (payload[key] == value) with *points*.
+
+    The order is the invariant (#57/#60/#85/#215): fetch the old ids, upsert, and only then delete
+    the old ids that are not in the new set, so a failed distill/embed/upsert leaves the old data.
+    *keep_extra_ids* are ids to keep although they are not in *points* (chunks whose distillation
+    failed this time: keep their previous point instead of losing it).
+    """
+    old_ids = ids_by_payload(collection, key, value)
+    if points:
+        upsert(collection, points)
+    keep = {p["id"] for p in points} | set(keep_extra_ids)
+    stale = [i for i in old_ids if i not in keep]
+    if stale:
+        delete_by_ids(collection, stale)
 
 
 def list_collections() -> list[dict]:

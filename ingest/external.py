@@ -13,7 +13,7 @@ from ruamel.yaml import YAML
 from core.chunker import cap_chunks, chunk_markdown
 from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
-from core.qdrant import delete_by_ids, ids_by_payload, upsert
+from core.qdrant import replace_points
 from core.redact import redact_urls
 from core.retry import with_retry
 from core.url_guard import UnsafeURLError, assert_safe_url, safe_get
@@ -222,13 +222,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             continue
 
         try:
-            old_ids = ids_by_payload(COLLECTION, "source_url", url)
-            if points:
-                upsert(COLLECTION, points)
-            new_ids = {p["id"] for p in points}
-            stale = [i for i in old_ids if i not in new_ids]
-            if stale:
-                delete_by_ids(COLLECTION, stale)
+            replace_points(COLLECTION, "source_url", url, points)
         except Exception as e:  # noqa: BLE001 - isolate one source's failure from the rest
             _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e))
             source["failed_at"] = now
