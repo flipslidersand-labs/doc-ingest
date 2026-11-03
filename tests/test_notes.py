@@ -46,7 +46,7 @@ class TestIngestNotesNoFiles:
 
         mocker.patch("ingest.notes._changed_files", return_value=[])
         mocker.patch("ingest.notes.head_sha", return_value="abc1234")
-        mock_upsert = mocker.patch("ingest.notes.upsert")
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
 
         from ingest.notes import ingest_notes
 
@@ -58,19 +58,37 @@ class TestIngestNotesNoFiles:
 
 
 class TestIngestNotesFileArg:
-    def test_nonexistent_explicit_file_is_skipped(self, mocker, tmp_path):
+    def test_nonexistent_explicit_file_removes_its_points_and_ingests_nothing(
+        self, mocker, tmp_path
+    ):
+        """#217: 存在しないファイル (= 削除・リネームされた) は、検索に出続けないよう point を消す。"""
         missing = tmp_path / "10-projects" / "ghost.md"  # never created
         mocker.patch("ingest.notes.assert_safe_path", return_value=missing)
         mocker.patch("ingest.notes.head_sha", return_value="abc")
-        mock_upsert = mocker.patch("ingest.notes.upsert")
-        mock_ids = mocker.patch("ingest.notes.ids_by_payload")
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=["p1", "p2"])
+        mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
 
         from ingest.notes import ingest_notes
 
         ingest_notes(file=str(missing))
 
         mock_upsert.assert_not_called()
-        mock_ids.assert_not_called()
+        mock_delete.assert_called_once_with("notes", ["p1", "p2"])
+
+    def test_nonexistent_file_without_points_deletes_nothing(self, mocker, tmp_path):
+        missing = tmp_path / "10-projects" / "ghost.md"
+        mocker.patch("ingest.notes.assert_safe_path", return_value=missing)
+        mocker.patch("ingest.notes.head_sha", return_value="abc")
+        mocker.patch("core.ingest_pipeline.upsert")
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
+
+        from ingest.notes import ingest_notes
+
+        ingest_notes(file=str(missing))
+
+        mock_delete.assert_not_called()
 
     def test_existing_explicit_file_is_ingested(self, mocker, tmp_path):
         note = tmp_path / "10-projects" / "real.md"
@@ -79,9 +97,9 @@ class TestIngestNotesFileArg:
 
         mocker.patch("ingest.notes.assert_safe_path", return_value=note)
         mocker.patch("ingest.notes.head_sha", return_value="abc")
-        mocker.patch("ingest.notes.ids_by_payload", return_value=[])
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
         mocker.patch("ingest.notes.distill_text", return_value="distilled")
-        mock_upsert = mocker.patch("ingest.notes.upsert")
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
 
         from ingest.notes import ingest_notes
 
@@ -103,10 +121,10 @@ class TestIngestNotesStaleCleanup:
         stale_id = "stale-id-from-before"
         mocker.patch("ingest.notes._changed_files", return_value=[note])
         mocker.patch("ingest.notes.head_sha", return_value="abc")
-        mocker.patch("ingest.notes.ids_by_payload", return_value=[stale_id])
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[stale_id])
         mocker.patch("ingest.notes.distill_text", return_value="distilled")
-        mocker.patch("ingest.notes.upsert")
-        mock_delete = mocker.patch("ingest.notes.delete_by_ids")
+        mocker.patch("core.ingest_pipeline.upsert")
+        mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
 
         from ingest.notes import ingest_notes
 
@@ -123,10 +141,10 @@ class TestIngestNotesStaleCleanup:
 
         mocker.patch("ingest.notes._changed_files", return_value=[note])
         mocker.patch("ingest.notes.head_sha", return_value="abc")
-        mocker.patch("ingest.notes.ids_by_payload", return_value=[])
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
         mocker.patch("ingest.notes.distill_text", return_value="distilled")
-        mocker.patch("ingest.notes.upsert")
-        mock_delete = mocker.patch("ingest.notes.delete_by_ids")
+        mocker.patch("core.ingest_pipeline.upsert")
+        mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
 
         from ingest.notes import ingest_notes
 
@@ -147,13 +165,13 @@ class TestIngestNotesParallelDistillOrder:
 
         mocker.patch("ingest.notes._changed_files", return_value=[note])
         mocker.patch("ingest.notes.head_sha", return_value="abc")
-        mocker.patch("ingest.notes.ids_by_payload", return_value=[])
-        mock_upsert = mocker.patch("ingest.notes.upsert")
-        mocker.patch("ingest.notes.delete_by_ids")
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
+        mocker.patch("core.ingest_pipeline.delete_by_ids")
 
         # Distill deterministically based on input content so we can verify
         # each output landed on the chunk it actually came from.
-        def fake_distill(text, purpose):
+        def fake_distill(text, purpose, **kwargs):
             return f"summary-of[{text[:5]}]"
 
         mocker.patch("ingest.notes.distill_text", side_effect=fake_distill)
@@ -171,3 +189,24 @@ class TestIngestNotesParallelDistillOrder:
         assert sections == ["First", "Second"]
         assert points[0]["text"] == "summary-of[First]"
         assert points[1]["text"] == "summary-of[Secon]"
+
+
+class TestIngestNotesIsLocalOnly:
+    def test_notes_are_distilled_with_local_only(self, mocker, tmp_path):
+        """非公開ノートは Anthropic に送らない: distill_text は local_only=True で呼ばれる。"""
+        note = tmp_path / "10-projects" / "private.md"
+        note.parent.mkdir(parents=True)
+        note.write_text("## Section\n" + "secret " * 30)
+        mocker.patch("ingest.notes._changed_files", return_value=[note])
+        mocker.patch("ingest.notes.head_sha", return_value="abc")
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        mocker.patch("core.ingest_pipeline.upsert")
+        mocker.patch("core.ingest_pipeline.delete_by_ids")
+        mock_distill = mocker.patch("ingest.notes.distill_text", return_value="d")
+
+        from ingest.notes import ingest_notes
+
+        ingest_notes()
+
+        mock_distill.assert_called()
+        assert all(c.kwargs.get("local_only") is True for c in mock_distill.call_args_list)

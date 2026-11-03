@@ -3,6 +3,8 @@
 # .git/hooks/pre-commit として置く。本物は pre-commit.real に退避。出力を表示しつつ pclog.sh で記録する。
 # 自動修正で失敗した場合(files were modified)は、全体を stage 済みのファイルだけ再 stage して 1 回だけ再実行する(ADR-016 §3)。
 # 部分 stage のファイル(未 stage 差分あり)は触らない。git stash は使わない。
+# 設定のないブランチ(導入 PR のマージ前など)では何もせず通す(ADR-016: 環境の都合で commit を止めない)。hook の cwd は作業ツリー直下。
+[ -f .pre-commit-config.yaml ] || exit 0
 hd="$(dirname "$0")"; real="$hd/pre-commit.real"
 
 run_once() {

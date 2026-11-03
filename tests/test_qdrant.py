@@ -2,32 +2,12 @@
 
 import threading
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
-import respx
 
 import core.qdrant as q
-
-
-@respx.mock
-def test_embed_subbatches(monkeypatch):
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 4)
-    seen = []
-
-    def responder(request):
-        import json
-
-        n = len(json.loads(request.content)["texts"])
-        seen.append(n)
-        return httpx.Response(200, json={"vectors": [[0.0] * 768] * n})
-
-    respx.post(q.EMBED_URL).mock(side_effect=responder)
-    vectors = q.embed(["t"] * 10)
-    assert len(vectors) == 10
-    assert seen == [4, 4, 2]  # 10 texts → 4+4+2 across three POSTs
 
 
 def test_qdrant_api_key_none_when_unset(monkeypatch):
@@ -36,153 +16,9 @@ def test_qdrant_api_key_none_when_unset(monkeypatch):
     assert q.QDRANT_API_KEY is None
 
 
-def test_embed_api_key_none_when_unset(monkeypatch):
-    """EMBED_API_KEY resolves to None when env var is absent or empty."""
-    monkeypatch.setattr(q, "EMBED_API_KEY", None)
-    assert q.EMBED_API_KEY is None
-
-
-@respx.mock
-def test_embed_omits_auth_header_when_key_unset(monkeypatch):
-    """No X-API-Key header is sent when EMBED_API_KEY is None."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_API_KEY", None)
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    received_headers = {}
-
-    def responder(request):
-        received_headers.update(dict(request.headers))
-        return httpx.Response(200, json={"vectors": [[0.0] * 768]})
-
-    respx.post(q.EMBED_URL).mock(side_effect=responder)
-    q.embed(["t"])
-    assert "x-api-key" not in received_headers
-
-
-@respx.mock
-def test_embed_sends_auth_header_when_key_set(monkeypatch):
-    """X-API-Key header is sent when EMBED_API_KEY is set."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_API_KEY", "secret-key")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    received_headers = {}
-
-    def responder(request):
-        received_headers.update(dict(request.headers))
-        return httpx.Response(200, json={"vectors": [[0.0] * 768]})
-
-    respx.post(q.EMBED_URL).mock(side_effect=responder)
-    q.embed(["t"])
-    assert received_headers.get("x-api-key") == "secret-key"
-
-
-@respx.mock
-def test_embed_retries_on_timeout(monkeypatch):
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    calls = {"n": 0}
-
-    def responder(request):
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise httpx.ReadTimeout("timed out", request=request)
-        return httpx.Response(200, json={"vectors": [[0.0] * 768]})
-
-    respx.post(q.EMBED_URL).mock(side_effect=responder)
-    mock_sleep = MagicMock()
-    with patch("time.sleep", mock_sleep):
-        vectors = q.embed(["t"])
-    assert len(vectors) == 1
-    assert calls["n"] == 2  # first attempt timed out, second succeeded
-    mock_sleep.assert_called_once_with(1)  # 2**0 = 1s after first failure
-
-
 # ---------------------------------------------------------------------------
 # Tests for #21: primary→fallback routing
 # ---------------------------------------------------------------------------
-
-PRIMARY_URL = "http://primary:9093/embed/batch"
-FALLBACK_URL = "http://fallback:9092/embed/batch"
-
-
-@respx.mock
-def test_fallback_on_connect_error(monkeypatch):
-    """When primary is unreachable, fallback URL is used."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", FALLBACK_URL)
-    monkeypatch.setattr(q, "EMBED_RETRIES", 1)
-
-    respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
-    respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.1] * 768]}))
-
-    with patch("time.sleep"):
-        vecs = q.embed(["test"])
-    assert len(vecs) == 1
-
-
-@respx.mock
-def test_fallback_on_501(monkeypatch):
-    """When primary returns 501 (collection not served), fallback is tried immediately."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", FALLBACK_URL)
-    monkeypatch.setattr(q, "EMBED_RETRIES", 3)
-
-    primary_calls = {"n": 0}
-
-    def primary_responder(request):
-        primary_calls["n"] += 1
-        return httpx.Response(501, json={"detail": "not served"})
-
-    respx.post(PRIMARY_URL).mock(side_effect=primary_responder)
-    respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.2] * 768]}))
-
-    with patch("time.sleep"):
-        vecs = q.embed(["snippet code"])
-    assert len(vecs) == 1
-    assert primary_calls["n"] == 1  # no retry on 501
-
-
-@respx.mock
-def test_no_fallback_when_unset(monkeypatch):
-    """When EMBED_FALLBACK_URL is empty, error propagates as before."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", "")
-    monkeypatch.setattr(q, "EMBED_RETRIES", 1)
-
-    respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
-
-    import pytest
-
-    with patch("time.sleep"), pytest.raises(httpx.ConnectError):
-        q.embed(["test"])
-
-
-@respx.mock
-def test_primary_used_when_available(monkeypatch):
-    """When primary is healthy, fallback URL is never called."""
-    monkeypatch.setattr(q, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(q, "EMBED_BATCH", 16)
-    monkeypatch.setattr(q, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(q, "EMBED_FALLBACK_URL", FALLBACK_URL)
-
-    fallback_calls = {"n": 0}
-
-    def fallback_responder(request):
-        fallback_calls["n"] += 1
-        return httpx.Response(200, json={"vectors": [[0.3] * 768]})
-
-    respx.post(PRIMARY_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.4] * 768]}))
-    respx.post(FALLBACK_URL).mock(side_effect=fallback_responder)
-
-    vecs = q.embed(["test"])
-    assert len(vecs) == 1
-    assert fallback_calls["n"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -334,8 +170,6 @@ def test_ensure_collection_non_409_error_propagates(monkeypatch):
     )
     monkeypatch.setattr(q, "_client", mock_client)
 
-    import pytest
-
     with pytest.raises(UnexpectedResponse):
         q.ensure_collection("broken-col")
 
@@ -384,24 +218,42 @@ def test_list_collections_uses_order_by_limit_1(monkeypatch):
 
 
 class TestUpsert:
-    def test_upsert_empty_points_is_noop_call(self, monkeypatch):
-        """upsert() with an empty points list still calls client().upsert with
-        an empty structs list — no crash on the empty zip()."""
+    def test_upsert_empty_points_does_not_touch_qdrant_or_the_embedder(self, monkeypatch):
+        """#229: 空リスト (全チャンクの要約失敗など) は何もしない。Qdrant が空リストを受け付けるかは
+        実機未確認なので送らない。embed も呼ばない。"""
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts: [])
+        monkeypatch.setattr(q, "embed", lambda texts, **kw: pytest.fail("embed must not be called"))
         mock_client = MagicMock()
         monkeypatch.setattr(q, "_client", mock_client)
 
         q.upsert("col", [])
 
-        mock_client.upsert.assert_called_once_with(collection_name="col", points=[])
+        mock_client.upsert.assert_not_called()
+        mock_client.get_collections.assert_not_called()
+
+    def test_upsert_raises_instead_of_silently_dropping_points_on_a_short_embedding(
+        self, monkeypatch
+    ):
+        """#229: ベクトルが入力より少ないとき、zip が後ろの point を黙って落としていた。"""
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        monkeypatch.setattr(q, "embed", lambda texts, **kw: [[0.1] * 768])  # 3 件に 1 件だけ
+        mock_client = MagicMock()
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        with pytest.raises(ValueError):
+            q.upsert(
+                "col",
+                [{"id": "a", "text": "x"}, {"id": "b", "text": "y"}, {"id": "c", "text": "z"}],
+            )
+
+        mock_client.upsert.assert_not_called()  # 部分的な保存もしない
 
     def test_upsert_builds_point_structs_without_id_in_payload(self, monkeypatch):
         """upsert() must pass id= separately and never leak 'id' back into payload."""
         from qdrant_client.models import PointStruct
 
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts: [[0.1] * 768])
+        monkeypatch.setattr(q, "embed", lambda texts, **kw: [[0.1] * 768])
         mock_client = MagicMock()
         monkeypatch.setattr(q, "_client", mock_client)
 
@@ -424,7 +276,7 @@ class TestSearch:
         from types import SimpleNamespace
 
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts: [[0.1] * 768])
+        monkeypatch.setattr(q, "embed", lambda texts, **kw: [[0.1] * 768])
         mock_client = MagicMock()
         hit = SimpleNamespace(score=0.987654, id="pt1", payload=None)
         mock_client.query_points.return_value = SimpleNamespace(points=[hit])
@@ -438,7 +290,7 @@ class TestSearch:
         from types import SimpleNamespace
 
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts: [[0.1] * 768])
+        monkeypatch.setattr(q, "embed", lambda texts, **kw: [[0.1] * 768])
         mock_client = MagicMock()
         hit = SimpleNamespace(score=0.5, id="pt2", payload={"text": "hi", "source": "x"})
         mock_client.query_points.return_value = SimpleNamespace(points=[hit])
@@ -447,6 +299,38 @@ class TestSearch:
         results = q.search("col", "query text")
 
         assert results == [{"score": 0.5, "id": "pt2", "text": "hi", "source": "x"}]
+
+    def test_search_embeds_the_query_and_queries_with_that_vector(self, monkeypatch):
+        """#155: ベクトルは core.embedding.embed() から来る。クエリを embed し、その結果で検索する。"""
+        from types import SimpleNamespace
+
+        calls = []
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        monkeypatch.setattr(
+            q, "embed", lambda texts, **kw: calls.append((texts, kw.get("mode"))) or [[0.25] * 768]
+        )
+        mock_client = MagicMock()
+        mock_client.query_points.return_value = SimpleNamespace(points=[])
+        monkeypatch.setattr(q, "_client", mock_client)
+
+        q.search("col", "my query", limit=3)
+
+        assert calls == [(["my query"], "search")]  # #222: クエリは query: で埋め込む
+        kwargs = mock_client.query_points.call_args.kwargs
+        assert kwargs["query"] == [0.25] * 768 and kwargs["limit"] == 3
+
+
+class TestUpsertEmbedsAsDocuments:
+    def test_upsert_embeds_with_index_mode(self, monkeypatch):
+        """文書側は passage: (index)。検索クエリ側 (search) と取り違えない。"""
+        calls = []
+        monkeypatch.setattr(q, "_known_collections", {"col"})
+        monkeypatch.setattr(
+            q, "embed", lambda texts, **kw: calls.append(kw.get("mode", "index")) or [[0.1] * 768]
+        )
+        monkeypatch.setattr(q, "_client", MagicMock())
+        q.upsert("col", [{"id": "a", "text": "hello"}])
+        assert calls == ["index"]
 
 
 class TestDeleteByPayload:
@@ -559,38 +443,58 @@ class TestDeleteByIds:
 # ---------------------------------------------------------------------------
 
 
-class TestEmbedBatchValidation:
-    """core.qdrant is a shared module object (sys.modules-cached) across every
-    test file, and importlib.reload() executes top-to-bottom in-place —  a
-    raised exception mid-reload still leaves EMBED_BATCH set to the bad
-    value. Always reload back to a clean default afterward so other tests
-    (in this file and others) don't inherit a broken module."""
+# ---------------------------------------------------------------------------
+# #154: retry semantics preserved after moving to core.retry.with_retry
+# ---------------------------------------------------------------------------
 
-    @pytest.fixture(autouse=True)
-    def _restore_qdrant_module(self, monkeypatch):
-        import importlib
 
-        yield
-        monkeypatch.delenv("EMBED_BATCH", raising=False)
-        importlib.reload(q)
+class TestListCollectionsIsolatesAFailingCollection:
+    """#229: 共有 Qdrant には ingested_at の index が無いコレクションがあり、order_by が失敗しうる。
+    1 件の失敗で一覧全体 (doc-ingest list) を落とさない。"""
 
-    def test_zero_raises_at_import(self, monkeypatch):
-        import importlib
+    @staticmethod
+    def _client(fail_for):
+        from types import SimpleNamespace
 
-        monkeypatch.setenv("EMBED_BATCH", "0")
-        with pytest.raises(ValueError, match="EMBED_BATCH must be >= 1"):
-            importlib.reload(q)
+        c = MagicMock()
+        c.get_collections.return_value = SimpleNamespace(
+            collections=[SimpleNamespace(name=n) for n in ("alpha", "sessions", "zeta")]
+        )
+        c.get_collection.side_effect = lambda name: SimpleNamespace(points_count=len(name))
 
-    def test_negative_raises_at_import(self, monkeypatch):
-        import importlib
+        def scroll(collection_name, **kw):
+            if collection_name in fail_for:
+                raise RuntimeError("Bad request: Index required but not found for ingested_at")
+            return ([SimpleNamespace(payload={"ingested_at": "2026-11-01T09:30:00+00:00"})], None)
 
-        monkeypatch.setenv("EMBED_BATCH", "-1")
-        with pytest.raises(ValueError, match="EMBED_BATCH must be >= 1"):
-            importlib.reload(q)
+        c.scroll.side_effect = scroll
+        return c
 
-    def test_valid_value_does_not_raise(self, monkeypatch):
-        import importlib
+    def test_other_collections_are_still_listed(self, monkeypatch):
+        monkeypatch.setattr(q, "_client", self._client(fail_for={"sessions"}))
+        rows = q.list_collections()
+        assert [r["name"] for r in rows] == ["alpha", "sessions", "zeta"]
+        by = {r["name"]: r for r in rows}
+        assert by["alpha"]["last_ingested"] == "2026-11-01 09:30:00"
+        assert by["zeta"]["last_ingested"] == "2026-11-01 09:30:00"
 
-        monkeypatch.setenv("EMBED_BATCH", "32")
-        importlib.reload(q)
-        assert q.EMBED_BATCH == 32
+    def test_the_failing_collection_is_marked_not_hidden(self, monkeypatch):
+        monkeypatch.setattr(q, "_client", self._client(fail_for={"sessions"}))
+        by = {r["name"]: r for r in q.list_collections()}
+        assert by["sessions"]["last_ingested"] == "?"  # 空 ("—") と区別する
+        assert by["sessions"]["points"] == len("sessions")  # 件数は取れている
+
+    def test_the_failure_is_logged_with_the_collection_name(self, monkeypatch, caplog):
+        import logging
+
+        monkeypatch.setattr(q, "_client", self._client(fail_for={"sessions"}))
+        with caplog.at_level(logging.WARNING, logger="core.qdrant"):
+            q.list_collections()
+        assert "sessions" in caplog.text and "RuntimeError" in caplog.text
+
+    def test_a_keyboard_interrupt_is_not_swallowed(self, monkeypatch):
+        c = self._client(fail_for=set())
+        c.scroll.side_effect = KeyboardInterrupt
+        monkeypatch.setattr(q, "_client", c)
+        with pytest.raises(KeyboardInterrupt):
+            q.list_collections()
