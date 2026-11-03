@@ -8,99 +8,88 @@
   check_interval: weekly
   tags: [anthropic, claude, api]
   last_etag: ''
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
 
-  failed_at: '2026-09-05T01:38:15.119286+00:00'
 - url: https://docs.anthropic.com/en/docs/about-claude/models/overview
   type: external-api
   check_interval: weekly
   tags: [anthropic, claude, models]
   last_etag: ''
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
 
 # --- GitHub ---
-  failed_at: '2026-09-05T01:38:15.119286+00:00'
 - url: https://docs.github.com/en/rest
   type: external-api
   check_interval: weekly
   tags: [github, api]
   last_etag: ''
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
 
 # --- Qdrant ---
-  failed_at: '2026-09-05T01:38:15.119286+00:00'
 - url: https://qdrant.tech/documentation/concepts/
   type: external-api
   render: true
   check_interval: weekly
   tags: [qdrant, vector-db]
   last_etag: ''
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
 
-  failed_at: '2026-09-05T01:38:15.119286+00:00'
 - url: https://qdrant.tech/documentation/interfaces/
   type: external-api
   render: true
   check_interval: weekly
   tags: [qdrant, api]
   last_etag: ''
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
 
 # --- Go ---
-  failed_at: '2026-09-05T01:38:15.119286+00:00'
 - url: https://pkg.go.dev/net/http
   type: external-api
   check_interval: weekly
   tags: [go, stdlib]
   last_etag: ''
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
 
-  failed_at: '2026-09-05T01:38:15.119286+00:00'
 - url: https://pkg.go.dev/sync
   type: external-api
   check_interval: weekly
   tags: [go, stdlib]
   last_etag: ''
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
 
 # --- Elixir ---
-  failed_at: '2026-09-05T01:38:15.119286+00:00'
 - url: https://hexdocs.pm/elixir/Kernel.html
   type: external-api
   check_interval: weekly
   tags: [elixir, stdlib]
-  last_etag: 'W/"260c8040f6fa5bd4cb39119dc8cd1b69"'
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_etag: 'W/"4d0277bfb9b0552cd3a519cb06303cc8"'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
 
-  failed_at: '2026-09-05T01:38:15.119286+00:00'
 - url: https://hexdocs.pm/elixir/GenServer.html
   type: external-api
   check_interval: weekly
   tags: [elixir, otp, genserver]
-  last_etag: 'W/"041a9ff56f6749709b65177d228abcf5"'
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_etag: 'W/"3380a2299d3f6f72648dea58f5fc0019"'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
 
-  failed_at: '2026-09-05T01:38:15.119286+00:00'
 - url: https://hexdocs.pm/phoenix/overview.html
   type: external-api
   check_interval: weekly
   tags: [elixir, phoenix]
-  last_etag: 'W/"196219b2e5831cbc8df327ffdd6bde83"'
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_etag: 'W/"3eb53dca09f1737ab68beb61ad4b2257"'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
 
-  failed_at: '2026-09-05T01:38:15.119286+00:00'
 - url: https://hexdocs.pm/ecto/Ecto.html
   type: external-api
   check_interval: weekly
   tags: [elixir, ecto, db]
   last_etag: 'W/"c3c4a5c9eab82af6f85f0852bcab1bee"'
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
 
 # --- Kubernetes ---
-  failed_at: '2026-09-05T01:38:15.119286+00:00'
 - url: https://kubernetes.io/docs/reference/kubernetes-api/
   type: external-api
   check_interval: weekly
   tags: [kubernetes, api]
-  last_etag: '"3dfc8b02ac224ba268c29c5e3825fac1-ssl-df"'
-  last_synced: '2026-09-05T01:37:51.645526+00:00'
+  last_etag: '"d1467f7e210d676370e9d40bf5a60873-ssl-df"'
+  last_synced: '2026-10-31T18:00:02.992030+00:00'
