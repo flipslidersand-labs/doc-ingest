@@ -6,9 +6,14 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
-    uses: flipslidersand-labs/qa-workflows/.github/workflows/python-test.yml@main
+    permissions:
+      contents: read
+    uses: flipslidersand-labs/qa-workflows/.github/workflows/python-test.yml@d33890a74113f8ba8d8841a55b290007f72852ef
     with:
       python-version: "3.12"
       # Passed as --cov-fail-under, which overrides pyproject.toml's
@@ -23,4 +28,4 @@ jobs:
       contents: read
       pull-requests: write
       checks: write
-    uses: flipslidersand-labs/qa-workflows/.github/workflows/reviewdog-python.yml@main
+    uses: flipslidersand-labs/qa-workflows/.github/workflows/reviewdog-python.yml@d33890a74113f8ba8d8841a55b290007f72852ef
