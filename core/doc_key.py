@@ -10,6 +10,7 @@ parent), so a linked worktree resolves to the same repo as the main checkout.
 Files outside any git repo fall back to their absolute path (repo = "").
 """
 
+import os
 import subprocess
 from functools import lru_cache
 from pathlib import Path
@@ -55,3 +56,22 @@ def doc_key(path: str | Path) -> DocKey:
         except ValueError:
             pass  # the file resolves outside the repo (symlink) → absolute fallback
     return DocKey("", str(resolved))
+
+
+def escapes_repo(path: str | Path) -> bool:
+    """True if *path* sits inside a git repo but resolves, through symlinks, to somewhere outside it.
+
+    The repo root is found by walking up the *lexical* path to the nearest directory holding a
+    ``.git`` (file or dir), without following symlinks. Using ``git rev-parse`` from the path's
+    resolved location would miss ``docs -> ~/.ssh``: the resolved parent is not in the repo at all.
+    A path outside every git repo cannot "escape" one, so it is not flagged here.
+    """
+    lexical = Path(os.path.abspath(path))
+    top = next((p for p in lexical.parents if os.path.lexists(p / ".git")), None)
+    if top is None:
+        return False
+    try:
+        lexical.resolve().relative_to(top.resolve())
+    except ValueError:
+        return True
+    return False

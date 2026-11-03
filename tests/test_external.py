@@ -431,3 +431,151 @@ class TestExternalChunkLimit:
         from ingest.external import EXTERNAL_MAX_SECTION_TOKENS
 
         assert EXTERNAL_MAX_SECTION_TOKENS < MAX_SECTION_TOKENS
+
+
+class TestWorkerErrorLogsAreRedacted:
+    def test_an_exception_message_with_a_url_does_not_reach_the_log(self, mocker, caplog):
+        """sync の Phase 1 で予期しない例外が出たとき、メッセージ中の URL (トークン付き) を伏せる。"""
+        import logging
+
+        import ingest.external as ext
+
+        sources = [{"url": "https://docs.example.com/x"}]
+        mocker.patch.object(ext, "_load_sources", return_value=sources)
+        mocker.patch.object(ext, "_save_sources")
+        mocker.patch.object(
+            ext,
+            "_fetch_source",
+            side_effect=RuntimeError("boom https://other.example/p?token=SECRET"),
+        )
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            ext.sync_external(force=True)
+        assert "SECRET" not in caplog.text and "boom <url>" in caplog.text
+
+    def test_a_phase2_write_error_with_a_url_is_redacted_and_the_rest_continue(
+        self, mocker, caplog
+    ):
+        """Phase 2 (Qdrant への書き込み) の例外のログ。メッセージ中の URL を伏せ、失敗として記録する。"""
+        import logging
+
+        import ingest.external as ext
+
+        source = {"url": "https://docs.example.com/x"}
+        mocker.patch.object(ext, "_load_sources", return_value=[source])
+        mocker.patch.object(ext, "_save_sources")
+        ready = {
+            "status": "ready",
+            "url": source["url"],
+            "source": source,
+            "new_etag": "e",
+            "points": [{"id": "p1", "text": "t"}],
+        }
+        mocker.patch.object(ext, "_fetch_source", return_value=ready)
+        mocker.patch.object(ext, "ids_by_payload", return_value=[])
+        mocker.patch.object(
+            ext,
+            "upsert",
+            side_effect=RuntimeError("write failed at https://qdrant.internal/x?api-key=SECRET"),
+        )
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            ext.sync_external(force=True)
+        assert "SECRET" not in caplog.text and "write failed at <url>" in caplog.text
+        assert "failed_at" in source  # 失敗として記録される
+
+    def test_a_retry_debug_log_does_not_carry_a_url_from_the_error(self, mocker, caplog):
+        """retry のデバッグログ (-v で出る)。httpx.RequestError のメッセージに URL が入っていても伏せる。"""
+        import logging
+
+        import httpx
+
+        import ingest.external as ext
+
+        mocker.patch("time.sleep")
+        mocker.patch.object(
+            ext,
+            "safe_get",
+            side_effect=httpx.ConnectError("refused: https://h.example/p?token=SECRET"),
+        )
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            assert ext._fetch_with_retry("https://h.example/p", {}) is None
+        assert "SECRET" not in caplog.text and "refused: <url>" in caplog.text
+
+
+class TestFailedResult:
+    """#227: 同じ形の失敗結果を 4 か所に書いていたのを _failed に集約した。形を固定する。"""
+
+    def test_shape(self):
+        from ingest.external import _failed
+
+        source = {"url": "https://example.com/x", "check_interval": "weekly"}
+        assert _failed("https://example.com/x", source) == {
+            "status": "failed",
+            "url": "https://example.com/x",
+            "source": source,
+            "new_etag": "",
+            "points": [],
+        }
+
+    def test_each_call_gets_its_own_points_list(self):
+        from ingest.external import _failed
+
+        a, b = _failed("u", {}), _failed("u", {})
+        a["points"].append("x")
+        assert b["points"] == []  # 共有された可変オブジェクトにしない
+
+    def test_a_blocked_url_is_reported_failed_not_skipped(self, mocker):
+        from core.url_guard import UnsafeURLError
+        from ingest.external import _fetch_source
+
+        mocker.patch("ingest.external.assert_safe_url", side_effect=UnsafeURLError("blocked"))
+        result = _fetch_source({"url": "https://10.0.0.1/x"}, force=False, now="n")
+        assert result["status"] == "failed" and result["points"] == []
+
+    def test_an_exception_in_a_worker_is_reported_failed_and_the_rest_continue(self, mocker):
+        """スレッド内の予期しない例外 (Phase 1 の隔離) も _failed で返る。"""
+        import ingest.external as ext
+
+        sources = [{"url": "https://a.example/x"}, {"url": "https://b.example/x"}]
+        mocker.patch.object(ext, "_load_sources", return_value=sources)
+        mocker.patch.object(ext, "_save_sources")
+
+        def fake_fetch(source, force, now):
+            if source["url"].startswith("https://a."):
+                raise RuntimeError("boom")
+            return {
+                "status": "skipped",
+                "url": source["url"],
+                "source": source,
+                "new_etag": "",
+                "points": [],
+            }
+
+        mocker.patch.object(ext, "_fetch_source", side_effect=fake_fetch)
+        mocker.patch.object(ext, "upsert")
+        ext.sync_external(force=True)
+        assert ext._save_sources.called  # 失敗しても最後まで進む
+
+
+class TestOversizedPage:
+    def test_a_page_over_the_limit_is_reported_failed_and_nothing_is_stored(self, mocker, caplog):
+        """#224: 巨大な応答を全量メモリに読まない。上限超過は取得失敗として扱う。"""
+        import logging
+
+        import ingest.external as ext
+        from core.url_guard import UnsafeURLError
+
+        mocker.patch("time.sleep")
+        mocker.patch.object(ext, "assert_safe_url")
+        mocker.patch.object(
+            ext,
+            "safe_get",
+            side_effect=UnsafeURLError(
+                "response exceeds 52428800 bytes: 'https://docs.example.com/x'"
+            ),
+        )
+        up = mocker.patch.object(ext, "upsert")
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            result = ext._fetch_source({"url": "https://docs.example.com/x"}, force=True, now="n")
+        assert result["status"] == "failed" and result["points"] == []
+        up.assert_not_called()
+        assert "blocked" in caplog.text and "exceeds" in caplog.text

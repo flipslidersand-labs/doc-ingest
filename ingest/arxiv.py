@@ -1,22 +1,23 @@
 """Ingest arxiv papers and tech blog posts into Qdrant research collection."""
 
+import io
 import logging
 import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
-import httpx
 import pymupdf
 
 from core.distiller import distill_paper, distill_webpage
 from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
 from core.qdrant import upsert
-from core.url_guard import assert_safe_url, safe_get
+from core.url_guard import assert_safe_url, safe_download, safe_get
 
 _log = logging.getLogger(__name__)
 
 COLLECTION = "research"
+_PDF_TEXT_LIMIT = 8000  # 要約に渡す本文の最大文字数
 _ATOM_NS = "http://www.w3.org/2005/Atom"
 _ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
 
@@ -40,10 +41,7 @@ def _validate_arxiv_id(arxiv_id: str) -> str:
 
 def _fetch_arxiv(arxiv_id: str) -> dict:
     _validate_arxiv_id(arxiv_id)
-    resp = httpx.get(
-        f"https://export.arxiv.org/api/query?id_list={arxiv_id}",
-        timeout=30,
-    )
+    resp = safe_get(f"https://export.arxiv.org/api/query?id_list={arxiv_id}", timeout=30)
     resp.raise_for_status()
     root = ET.fromstring(resp.text)
     entries = root.findall(f"{{{_ATOM_NS}}}entry")
@@ -72,15 +70,17 @@ def _fetch_arxiv(arxiv_id: str) -> dict:
 
 def _fetch_pdf_text(arxiv_id: str) -> str:
     try:
-        resp = httpx.get(
-            f"https://arxiv.org/pdf/{arxiv_id}",
-            timeout=60,
-            follow_redirects=True,
-        )
-        resp.raise_for_status()
-        with pymupdf.open(stream=resp.content, filetype="pdf") as doc:
-            pages = [page.get_text() for page in doc]
-        return "\n\n".join(pages)[:8000]
+        buf = io.BytesIO()
+        # arxiv.org 宛の固定 URL でも、上限なしの全量読みと未検証のリダイレクトは避ける (#224)
+        safe_download(f"https://arxiv.org/pdf/{arxiv_id}", buf, timeout=60)
+        text, n = [], 0
+        with pymupdf.open(stream=buf.getvalue(), filetype="pdf") as doc:
+            for page in doc:
+                text.append(page.get_text())
+                n += len(text[-1]) + 2
+                if n >= _PDF_TEXT_LIMIT:  # 要約に使うのは先頭だけ。巨大な PDF の全ページは読まない
+                    break
+        return "\n\n".join(text)[:_PDF_TEXT_LIMIT]
     except Exception as e:  # noqa: BLE001
         _log.warning("PDF fetch failed (%s), using abstract only", e)
         return ""
