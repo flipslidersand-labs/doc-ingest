@@ -325,3 +325,78 @@ class TestSearchTrust:
 
     def test_points_without_trust_show_unknown(self, mocker):
         assert "trust: unknown" in self._search(mocker)
+
+
+class TestDesignCommand:
+    """#263: design の FILE 引数の受け渡し (省略 = git フック経路 / 指定 = 単一ファイル)。"""
+
+    def test_no_argument_passes_none(self, mocker):
+        mock_ingest = mocker.patch("cli.ingest_design_docs")
+        result = CliRunner().invoke(main, ["design"])
+        assert result.exit_code == 0
+        mock_ingest.assert_called_once_with(None)
+
+    def test_file_argument_is_passed_as_given(self, mocker):
+        mock_ingest = mocker.patch("cli.ingest_design_docs")
+        result = CliRunner().invoke(main, ["design", "docs/a.md"])
+        assert result.exit_code == 0
+        mock_ingest.assert_called_once_with("docs/a.md")
+
+    def test_does_not_call_notes_ingest(self, mocker):
+        mocker.patch("cli.ingest_design_docs")
+        mock_notes = mocker.patch("cli.ingest_notes")
+        CliRunner().invoke(main, ["design", "docs/a.md"])
+        mock_notes.assert_not_called()
+
+    def test_path_outside_base_is_an_unhandled_permission_error(
+        self, mocker, monkeypatch, tmp_path
+    ):
+        # 現状の振る舞いを固定: CLI は PermissionError を捕捉せず、ClickException にもならない
+        # (実プロセスでは Traceback + 終了コード 1。CliRunner では result.exception に残る)。
+        base = tmp_path / "base"
+        base.mkdir()
+        monkeypatch.chdir(base)
+        monkeypatch.delenv("DOC_INGEST_BASE_DIR", raising=False)
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
+        result = CliRunner().invoke(main, ["design", "../outside.md"])
+        assert result.exit_code == 1
+        assert isinstance(result.exception, PermissionError)
+        assert "outside the allowed base directory" in str(result.exception)
+        assert result.output == ""
+
+
+class TestNotesCommand:
+    """#263: notes の FILE 引数の受け渡し (省略 = git フック経路 / 指定 = 単一ファイル)。"""
+
+    def test_no_argument_passes_none(self, mocker):
+        mock_ingest = mocker.patch("cli.ingest_notes")
+        result = CliRunner().invoke(main, ["notes"])
+        assert result.exit_code == 0
+        mock_ingest.assert_called_once_with(None)
+
+    def test_file_argument_is_passed_as_given(self, mocker):
+        mock_ingest = mocker.patch("cli.ingest_notes")
+        result = CliRunner().invoke(main, ["notes", "10-projects/a.md"])
+        assert result.exit_code == 0
+        mock_ingest.assert_called_once_with("10-projects/a.md")
+
+    def test_does_not_call_design_ingest(self, mocker):
+        mocker.patch("cli.ingest_notes")
+        mock_design = mocker.patch("cli.ingest_design_docs")
+        CliRunner().invoke(main, ["notes", "10-projects/a.md"])
+        mock_design.assert_not_called()
+
+    def test_path_outside_base_is_an_unhandled_permission_error(
+        self, mocker, monkeypatch, tmp_path
+    ):
+        # design と同じく、現状は未捕捉の PermissionError (Traceback 経路)。
+        base = tmp_path / "base"
+        base.mkdir()
+        monkeypatch.chdir(base)
+        monkeypatch.delenv("DOC_INGEST_BASE_DIR", raising=False)
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
+        result = CliRunner().invoke(main, ["notes", "../outside.md"])
+        assert result.exit_code == 1
+        assert isinstance(result.exception, PermissionError)
+        assert "outside the allowed base directory" in str(result.exception)
+        assert result.output == ""
