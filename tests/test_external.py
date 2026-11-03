@@ -426,6 +426,27 @@ class TestExternalChunkLimit:
         assert len(points) > 1
         assert max(_count_tokens(p["text"]) for p in points) <= EXTERNAL_MAX_SECTION_TOKENS
 
+    @respx.mock
+    def test_chunks_over_the_cap_are_truncated(self, mocker):
+        """チャンク数の上限を超える本文は、先頭だけを upsert する (#224)。"""
+        sources, _ = self._source_with_html("")
+        big = "".join(f"## S{i}\n" + "word " * 30 + "\n" for i in range(8))
+        respx.get("https://example.com/big").mock(
+            return_value=httpx.Response(200, text=big, headers={"content-type": "text/markdown"})
+        )
+        mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 3)
+        mocker.patch("ingest.external._load_sources", return_value=sources)
+        mocker.patch("ingest.external._save_sources")
+        mocker.patch("ingest.external.ids_by_payload", return_value=[])
+        mocker.patch("ingest.external.delete_by_ids")
+        up = mocker.patch("ingest.external.upsert")
+
+        from ingest.external import sync_external
+
+        sync_external(force=True)
+
+        assert len(up.call_args[0][1]) == 3
+
     def test_limit_is_below_the_default_chunker_limit(self):
         from core.chunker import MAX_SECTION_TOKENS
         from ingest.external import EXTERNAL_MAX_SECTION_TOKENS

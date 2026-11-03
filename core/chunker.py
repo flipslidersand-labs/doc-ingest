@@ -1,14 +1,34 @@
 """Markdown section-level chunker and plain text chunker."""
 
+import logging
+import os
 import re
 
 import tiktoken
 
+_log = logging.getLogger(__name__)
+
 # multilingual-e5-base context window: 512 tokens. Leave headroom for the
 # "query: " / "passage: " prefix that the embedding service prepends.
 MAX_SECTION_TOKENS = 400
+# 1 文書から作るチャンク数の上限。巨大・悪意ある入力で LLM 要約と埋め込みが際限なく走るのを防ぐ (#224)。
+MAX_CHUNKS_PER_DOC = int(os.getenv("MAX_CHUNKS_PER_DOC", "1000"))
 
 _enc = tiktoken.get_encoding("cl100k_base")
+
+
+def cap_chunks(chunks: list[dict], label: str) -> list[dict]:
+    """Keep at most :data:`MAX_CHUNKS_PER_DOC` chunks (the first ones); warn when truncating."""
+    if len(chunks) <= MAX_CHUNKS_PER_DOC:
+        return chunks
+    _log.warning(
+        "%s: %d chunks exceeds MAX_CHUNKS_PER_DOC=%d, keeping the first %d",
+        label,
+        len(chunks),
+        MAX_CHUNKS_PER_DOC,
+        MAX_CHUNKS_PER_DOC,
+    )
+    return chunks[:MAX_CHUNKS_PER_DOC]
 
 
 def _count_tokens(text: str) -> int:
