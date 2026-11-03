@@ -361,3 +361,57 @@ class TestSymlinksAreNotIngested:
             [link], collection="c", source_label="l", distill_fn=lambda t: "s", git_sha="s", now="n"
         )
         up.assert_not_called()
+
+
+class TestSizeAndChunkLimits:
+    """巨大なファイル・大量のチャンクで LLM 要約と埋め込みが際限なく走らない (#224)。"""
+
+    def test_a_file_over_the_byte_limit_is_skipped_without_deleting_points(self, mocker, tmp_path):
+        md = tmp_path / "huge.md"
+        md.write_text("## S\n" + "content " * 50)
+        mocker.patch("core.ingest_pipeline.MAX_LOCAL_BYTES", 10)
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=["old"])
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
+        mock_delete = mocker.patch("core.ingest_pipeline.delete_by_ids")
+        distill = mocker.Mock(return_value="d")
+
+        ingest_markdown_files(
+            [md], collection="col", source_label="l", distill_fn=distill, git_sha="s", now="n"
+        )
+
+        distill.assert_not_called()
+        mock_upsert.assert_not_called()
+        mock_delete.assert_not_called()
+
+    def test_default_byte_limit_is_10_mib(self):
+        from core.ingest_pipeline import MAX_LOCAL_BYTES
+
+        assert MAX_LOCAL_BYTES == 10 * 1024 * 1024
+
+    def test_a_file_exactly_at_the_byte_limit_is_ingested(self, mocker, tmp_path):
+        md = tmp_path / "edge.md"
+        md.write_text("## S\n" + "content " * 20)
+        mocker.patch("core.ingest_pipeline.MAX_LOCAL_BYTES", md.stat().st_size)
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
+        mocker.patch("core.ingest_pipeline.delete_by_ids")
+
+        _run(md)
+
+        mock_upsert.assert_called_once()
+
+    def test_chunks_over_the_cap_are_not_distilled(self, mocker, tmp_path):
+        md = tmp_path / "many.md"
+        md.write_text("".join(f"## S{i}\n" + "content " * 20 + "\n" for i in range(8)))
+        mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 3)
+        mocker.patch("core.ingest_pipeline.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("core.ingest_pipeline.upsert")
+        mocker.patch("core.ingest_pipeline.delete_by_ids")
+        distill = mocker.Mock(return_value="d")
+
+        ingest_markdown_files(
+            [md], collection="col", source_label="l", distill_fn=distill, git_sha="s", now="n"
+        )
+
+        assert distill.call_count == 3
+        assert len(mock_upsert.call_args.args[1]) == 3
