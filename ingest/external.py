@@ -4,8 +4,10 @@ import logging
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 import httpx
 from ruamel.yaml import YAML
@@ -74,19 +76,37 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
     return None
 
 
-def _failed(url: str, source: dict) -> dict:
-    """The result `_fetch_source` returns when a source could not be fetched."""
-    return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+@dataclass
+class FetchResult:
+    """Phase 1 (取得) の結果。Phase 2 (反映) はこれだけを見る。"""
+
+    status: Literal["ready", "skipped", "failed"]
+    url: str
+    source: dict
+    new_etag: str = ""
+    points: list[dict] = field(default_factory=list)
+
+    @classmethod
+    def skipped(cls, url: str, source: dict) -> "FetchResult":
+        return cls("skipped", url, source)
+
+    @classmethod
+    def failed(cls, url: str, source: dict) -> "FetchResult":
+        return cls("failed", url, source)
+
+    @classmethod
+    def ready(cls, url: str, source: dict, new_etag: str, points: list[dict]) -> "FetchResult":
+        return cls("ready", url, source, new_etag, points)
 
 
-def _fetch_source(source: dict, force: bool, now: str) -> dict:
+def _fetch_source(source: dict, force: bool, now: str) -> FetchResult:
     """Fetch + extract content for one source. Thread-safe: reads source, never writes it."""
     url = source["url"]
     try:
         assert_safe_url(url)
     except UnsafeURLError as exc:
         _log.warning("blocked unsafe URL: %s", exc)
-        return _failed(url, source)
+        return FetchResult.failed(url, source)
     stored_etag = source.get("last_etag", "")
     headers: dict[str, str] = {}
     if stored_etag and not force:
@@ -98,15 +118,15 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
     resp = _fetch_with_retry(fetch_url, headers)
     if resp is None:
         _log.warning("failed %s (gave up after %d attempts)", url, MAX_RETRIES)
-        return _failed(url, source)
+        return FetchResult.failed(url, source)
 
     if resp.status_code == 304:
         _log.info("up-to-date %s", url)
-        return {"status": "skipped", "url": url, "source": source, "new_etag": "", "points": []}
+        return FetchResult.skipped(url, source)
 
     if not resp.is_success:
         _log.warning("failed %s → HTTP %d (continuing)", url, resp.status_code)
-        return _failed(url, source)
+        return FetchResult.failed(url, source)
 
     new_etag = resp.headers.get("etag", "")
     body = resp.text
@@ -114,14 +134,14 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
     if use_jina:
         if not body.strip():
             _log.warning("Jina returned empty body, skipping: %s", url)
-            return {"status": "skipped", "url": url, "source": source, "new_etag": "", "points": []}
+            return FetchResult.skipped(url, source)
     elif looks_like_html(resp.headers.get("content-type", ""), body):
         extracted = extract_markdown(body)
         if extracted:
             body = extracted
         else:
             _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", url)
-            return {"status": "skipped", "url": url, "source": source, "new_etag": "", "points": []}
+            return FetchResult.skipped(url, source)
 
     chunks = cap_chunks(chunk_markdown(body, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS), url)
     points = [
@@ -138,7 +158,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
         }
         for c in chunks
     ]
-    return {"status": "ready", "url": url, "source": source, "new_etag": new_etag, "points": points}
+    return FetchResult.ready(url, source, new_etag, points)
 
 
 def _notify_discord(
@@ -168,18 +188,71 @@ def _notify_discord(
         _log.warning("Discord notify failed: %s", redact_urls(e))
 
 
+@dataclass
+class _Summary:
+    """Phase 2 の集計。通知とソース保存の要否に使う。"""
+
+    synced: int = 0
+    total_chunks: int = 0
+    skipped: list[str] = field(default_factory=list)
+    failed: list[str] = field(default_factory=list)
+    changed: bool = False
+
+
+def _apply_result(result: FetchResult, now: str, dry_run: bool, summary: _Summary) -> None:
+    """ソース1件の結果を Qdrant とソースのメタデータ (source dict) に反映し、summary に積む。"""
+    source = result.source
+    url = result.url
+
+    if result.status == "failed":
+        source["failed_at"] = now
+        summary.changed = True
+        summary.failed.append(url)
+        return
+
+    if result.status == "skipped":
+        summary.skipped.append(url)
+        return
+
+    # status == "ready"
+    points = result.points
+    if dry_run:
+        _log.info("dry-run %s → %d chunks (not written)", url, len(points))
+        return
+
+    try:
+        replace_points(COLLECTION, "source_url", url, points)
+    except Exception as e:  # noqa: BLE001 - isolate one source's failure from the rest
+        _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e))
+        source["failed_at"] = now
+        summary.changed = True
+        summary.failed.append(url)
+        return
+
+    if result.new_etag:
+        source["last_etag"] = result.new_etag
+    source["last_synced"] = now
+    source.pop("failed_at", None)
+    summary.changed = True
+    summary.synced += 1
+    summary.total_chunks += len(points)
+    _log.info("synced %s (%d chunks) → %s", url, len(points), COLLECTION)
+
+
+def _finish_sync(sources: list, summary: _Summary) -> None:
+    """ソースの書き戻しと、全体のサマリ通知。"""
+    if summary.changed:
+        _save_sources(sources)
+    ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    _notify_discord(summary.synced, summary.total_chunks, summary.skipped, summary.failed, ts)
+
+
 def sync_external(force: bool = False, dry_run: bool = False) -> None:
     sources = _load_sources()
     now = datetime.now(UTC).isoformat()
-    changed = False
-
-    synced_count = 0
-    total_chunks = 0
-    skipped_urls: list[str] = []
-    failed_urls: list[str] = []
 
     # Phase 1: parallel fetch + content extraction (I/O bound)
-    fetch_results: list[dict] = [{}] * len(sources)
+    fetch_results: list[FetchResult | None] = [None] * len(sources)
     with ThreadPoolExecutor(max_workers=SYNC_WORKERS) as pool:
         future_to_idx = {
             pool.submit(_fetch_source, source, force, now): i for i, source in enumerate(sources)
@@ -193,54 +266,13 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
                 _log.warning(
                     "failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e)
                 )
-                fetch_results[i] = _failed(url, sources[i])
+                fetch_results[i] = FetchResult.failed(url, sources[i])
 
     # Phase 2: sequential upsert + metadata update (preserves source order)
+    summary = _Summary()
     for result in fetch_results:
-        if not result:
-            continue
-        source = result["source"]
-        url = result["url"]
-        status = result["status"]
-
-        if status == "failed":
-            source["failed_at"] = now
-            changed = True
-            failed_urls.append(url)
-            continue
-
-        if status == "skipped":
-            skipped_urls.append(url)
-            continue
-
-        # status == "ready"
-        points = result["points"]
-        new_etag = result["new_etag"]
-
-        if dry_run:
-            _log.info("dry-run %s → %d chunks (not written)", url, len(points))
-            continue
-
-        try:
-            replace_points(COLLECTION, "source_url", url, points)
-        except Exception as e:  # noqa: BLE001 - isolate one source's failure from the rest
-            _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e))
-            source["failed_at"] = now
-            changed = True
-            failed_urls.append(url)
-            continue
-
-        if new_etag:
-            source["last_etag"] = new_etag
-        source["last_synced"] = now
-        source.pop("failed_at", None)
-        changed = True
-        synced_count += 1
-        total_chunks += len(points)
-        _log.info("synced %s (%d chunks) → %s", url, len(points), COLLECTION)
+        if result is not None:
+            _apply_result(result, now, dry_run, summary)
 
     if not dry_run:
-        if changed:
-            _save_sources(sources)
-        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-        _notify_discord(synced_count, total_chunks, skipped_urls, failed_urls, ts)
+        _finish_sync(sources, summary)
