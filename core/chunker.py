@@ -16,9 +16,39 @@ def _count_tokens(text: str) -> int:
 
 
 def _hard_split_tokens(text: str, max_tokens: int) -> list[str]:
-    """Split a single oversized text into pieces each <= max_tokens using the tokenizer."""
-    ids = _enc.encode(text)
-    return [_enc.decode(ids[i : i + max_tokens]) for i in range(0, len(ids), max_tokens)]
+    """Split a single oversized text into pieces of at most *max_tokens* tokens.
+
+    A token can end in the middle of a multi-byte character (Japanese, emoji, ...). Decoding
+    fixed-size token slices turned those into U+FFFD and lost characters (#220), so the cut is
+    moved back to the nearest token boundary that is also a valid UTF-8 boundary. Joining the
+    pieces gives back exactly *text*.
+    """
+    token_bytes = _enc.decode_tokens_bytes(_enc.encode(text))
+    n = len(token_bytes)
+    pieces: list[str] = []
+    start = 0
+    while start < n:
+        end = min(start + max(max_tokens, 1), n)
+        piece = None
+        # 1) shrink to the nearest cut that is a whole-character boundary (at most a few tokens)
+        for e in range(end, start, -1):
+            try:
+                piece, end = b"".join(token_bytes[start:e]).decode("utf-8"), e
+                break
+            except UnicodeDecodeError:
+                continue
+        # 2) if not even one whole character fits in max_tokens, take the smallest whole
+        #    character instead of looping (the remainder is valid UTF-8, so this terminates)
+        if piece is None:
+            for e in range(end + 1, n + 1):
+                try:
+                    piece, end = b"".join(token_bytes[start:e]).decode("utf-8"), e
+                    break
+                except UnicodeDecodeError:
+                    continue
+        pieces.append(piece)
+        start = end
+    return pieces
 
 
 def _split_by_tokens(text: str, max_tokens: int) -> list[str]:
@@ -50,7 +80,7 @@ def _split_by_tokens(text: str, max_tokens: int) -> list[str]:
     return pieces
 
 
-def chunk_text(text: str, source_url: str = "", chunk_tokens: int = 200) -> list[dict]:
+def chunk_text(text: str, chunk_tokens: int = 200) -> list[dict]:
     """Split plain text into chunks bounded by token count."""
     paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
     chunks, current, size, idx = [], [], 0, 0
@@ -60,23 +90,17 @@ def chunk_text(text: str, source_url: str = "", chunk_tokens: int = 200) -> list
         size += t
         if size >= chunk_tokens:
             body = "\n\n".join(current)
-            chunks.append(
-                {"text": body, "section": "", "chunk_index": idx, "source_url": source_url}
-            )
+            chunks.append({"text": body, "section": "", "chunk_index": idx})
             idx += 1
             current, size = [], 0
     if current:
         body = "\n\n".join(current)
         if _count_tokens(body) >= 10:
-            chunks.append(
-                {"text": body, "section": "", "chunk_index": idx, "source_url": source_url}
-            )
+            chunks.append({"text": body, "section": "", "chunk_index": idx})
     return chunks
 
 
-def chunk_markdown(
-    text: str, source_url: str = "", max_section_tokens: int = MAX_SECTION_TOKENS
-) -> list[dict]:
+def chunk_markdown(text: str, max_section_tokens: int = MAX_SECTION_TOKENS) -> list[dict]:
     sections = re.split(r"(?m)^#{2,3} ", text)
     chunks = []
     idx = 0
@@ -98,7 +122,6 @@ def chunk_markdown(
                     "text": piece,
                     "section": heading,
                     "chunk_index": idx,
-                    "source_url": source_url,
                 }
             )
             idx += 1

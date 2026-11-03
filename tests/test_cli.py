@@ -151,6 +151,14 @@ class TestArxivCommand:
         CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762"])
         mock_ingest.assert_called_once_with("https://arxiv.org/abs/1706.03762", tags=[])
 
+    def test_arxiv_value_error_is_a_clear_message_not_a_traceback(self, mocker):
+        mocker.patch("cli.assert_safe_url")
+        mocker.patch("cli.ingest_arxiv", side_effect=ValueError("本文を抽出できませんでした: x"))
+        result = CliRunner().invoke(main, ["arxiv", "https://example.com/blog"])
+        assert result.exit_code != 0
+        assert "本文を抽出できませんでした" in result.output
+        assert "Traceback" not in result.output
+
     def test_arxiv_tags_parsed(self, mocker):
         mocker.patch("cli.assert_safe_url")
         mock_ingest = mocker.patch("cli.ingest_arxiv")
@@ -243,7 +251,23 @@ class TestPdfValidation:
     def test_pdf_calls_ingest_pdf(self, mocker):
         mock_ingest = mocker.patch("ingest.pdf.ingest_pdf")
         CliRunner().invoke(main, ["pdf", "/some/file.pdf"])
-        mock_ingest.assert_called_once_with("/some/file.pdf", tags=[])
+        mock_ingest.assert_called_once_with("/some/file.pdf", tags=[], allow_cloud=False)
+
+    def test_pdf_unsafe_url_shows_a_clear_error_not_a_traceback(self, mocker):
+        from core.url_guard import UnsafeURLError
+
+        mocker.patch(
+            "ingest.pdf.ingest_pdf", side_effect=UnsafeURLError("blocked address 10.0.0.1")
+        )
+        result = CliRunner().invoke(main, ["pdf", "https://10.0.0.1/a.pdf"])
+        assert result.exit_code != 0
+        assert "取り込めない URL" in result.output and "blocked address" in result.output
+        assert "Traceback" not in result.output
+
+    def test_pdf_allow_cloud_flag_is_opt_in(self, mocker):
+        mock_ingest = mocker.patch("ingest.pdf.ingest_pdf")
+        CliRunner().invoke(main, ["pdf", "/some/file.pdf", "--allow-cloud"])
+        mock_ingest.assert_called_once_with("/some/file.pdf", tags=[], allow_cloud=True)
 
 
 class TestListCommand:

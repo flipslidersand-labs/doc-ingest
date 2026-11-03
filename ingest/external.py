@@ -1,8 +1,8 @@
 """Sync external API docs with ETag-based freshness detection."""
 
+import logging
 import os
 import tempfile
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,15 +13,20 @@ from ruamel.yaml import YAML
 from core.chunker import chunk_markdown
 from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
-from core.logging import get_logger
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
+from core.redact import redact_urls
+from core.retry import with_retry
 from core.url_guard import UnsafeURLError, assert_safe_url, safe_get
 
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 COLLECTION = "external-docs"
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
 MAX_RETRIES = 3
+# 生チャンクをそのまま埋め込むので、e5 の 512 token 上限 (超過は黙って切り詰め) に収める。
+# チャンカーの既定 400 は tiktoken 基準で、e5 のトークナイザではコードの多い文章が最大 1.41 倍になり
+# 13/412 チャンクが 512 を超えた (#211)。300 なら e5 の最大 422 で、文脈を ~50 tokens 前置しても収まる。
+EXTERNAL_MAX_SECTION_TOKENS = 300
 JINA_BASE = "https://r.jina.ai/"
 SYNC_WORKERS = int(os.getenv("SYNC_WORKERS", "4"))
 _yaml = YAML()
@@ -41,21 +46,37 @@ def _save_sources(sources) -> None:
     tmp.replace(SOURCES_FILE)  # POSIX atomic rename
 
 
+class _ServerError(Exception):
+    """5xx response — retried like a network error."""
+
+
 def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
-    for attempt in range(MAX_RETRIES):
-        try:
-            resp = safe_get(url, headers=headers, timeout=30)
-            if resp.status_code < 500:
-                return resp
-            _log.debug("retry %d/%d %s → HTTP %d", attempt + 1, MAX_RETRIES, url, resp.status_code)
-        except UnsafeURLError as e:
-            _log.warning("blocked unsafe redirect from %s: %s", url, e)
-            return None
-        except httpx.RequestError as e:
-            _log.debug("retry %d/%d %s → %s", attempt + 1, MAX_RETRIES, url, e)
-        if attempt < MAX_RETRIES - 1:
-            time.sleep(2**attempt)  # 1s, 2s, 4s
+    def attempt() -> httpx.Response:
+        resp = safe_get(url, headers=headers, timeout=30)
+        if resp.status_code >= 500:
+            raise _ServerError(f"HTTP {resp.status_code}")
+        return resp
+
+    def log_retry(n: int, e: Exception) -> None:
+        _log.debug("retry %d/%d %s → %s", n + 1, MAX_RETRIES, url, redact_urls(e))
+
+    try:
+        return with_retry(
+            attempt,
+            retries=MAX_RETRIES,
+            is_retryable=lambda e: isinstance(e, (_ServerError, httpx.RequestError)),
+            on_retry=log_retry,
+        )
+    except UnsafeURLError as e:
+        _log.warning("blocked %s: %s", url, redact_urls(e))
+    except (_ServerError, httpx.RequestError):
+        pass  # gave up — the caller logs the failure
     return None
+
+
+def _failed(url: str, source: dict) -> dict:
+    """The result `_fetch_source` returns when a source could not be fetched."""
+    return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
 
 
 def _fetch_source(source: dict, force: bool, now: str) -> dict:
@@ -65,7 +86,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
         assert_safe_url(url)
     except UnsafeURLError as exc:
         _log.warning("blocked unsafe URL: %s", exc)
-        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+        return _failed(url, source)
     stored_etag = source.get("last_etag", "")
     headers: dict[str, str] = {}
     if stored_etag and not force:
@@ -77,7 +98,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
     resp = _fetch_with_retry(fetch_url, headers)
     if resp is None:
         _log.warning("failed %s (gave up after %d attempts)", url, MAX_RETRIES)
-        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+        return _failed(url, source)
 
     if resp.status_code == 304:
         _log.info("up-to-date %s", url)
@@ -85,7 +106,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
 
     if not resp.is_success:
         _log.warning("failed %s → HTTP %d (continuing)", url, resp.status_code)
-        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+        return _failed(url, source)
 
     new_etag = resp.headers.get("etag", "")
     body = resp.text
@@ -102,7 +123,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
             _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", url)
             return {"status": "skipped", "url": url, "source": source, "new_etag": "", "points": []}
 
-    chunks = chunk_markdown(body, source_url=url)
+    chunks = chunk_markdown(body, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS)
     points = [
         {
             "id": make_id(f"{url}:{c['chunk_index']}"),
@@ -142,7 +163,8 @@ def _notify_discord(
         resp = httpx.post(webhook_url, json={"content": "\n".join(lines)}, timeout=10)
         resp.raise_for_status()
     except Exception as e:  # noqa: BLE001
-        _log.warning("Discord notify failed: %s", e)
+        # webhook の URL はそれ自体が認証情報。httpx の例外メッセージは URL を含むので伏せる
+        _log.warning("Discord notify failed: %s", redact_urls(e))
 
 
 def sync_external(force: bool = False, dry_run: bool = False) -> None:
@@ -167,14 +189,10 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
                 fetch_results[i] = fut.result()
             except Exception as e:  # noqa: BLE001
                 url = sources[i]["url"]
-                _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, e)
-                fetch_results[i] = {
-                    "status": "failed",
-                    "url": url,
-                    "source": sources[i],
-                    "new_etag": "",
-                    "points": [],
-                }
+                _log.warning(
+                    "failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e)
+                )
+                fetch_results[i] = _failed(url, sources[i])
 
     # Phase 2: sequential upsert + metadata update (preserves source order)
     for result in fetch_results:
@@ -211,7 +229,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             if stale:
                 delete_by_ids(COLLECTION, stale)
         except Exception as e:  # noqa: BLE001 - isolate one source's failure from the rest
-            _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, e)
+            _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e))
             source["failed_at"] = now
             changed = True
             failed_urls.append(url)

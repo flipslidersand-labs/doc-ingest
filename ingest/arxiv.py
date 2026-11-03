@@ -1,27 +1,34 @@
 """Ingest arxiv papers and tech blog posts into Qdrant research collection."""
 
+import io
+import logging
 import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 
-import httpx
 import pymupdf
 
 from core.distiller import distill_paper, distill_webpage
+from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
-from core.logging import get_logger
 from core.qdrant import upsert
-from core.url_guard import assert_safe_url
+from core.url_guard import assert_safe_url, safe_download, safe_get
 
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 COLLECTION = "research"
+_PDF_TEXT_LIMIT = 8000  # 要約に渡す本文の最大文字数
 _ATOM_NS = "http://www.w3.org/2005/Atom"
 _ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
 
 
 def _arxiv_id(url: str) -> str | None:
-    m = re.search(r"arxiv\.org/(?:abs|pdf)/([\d.]+)", url)
+    """New-style arXiv id from an abs/pdf URL. The version (``v2``) and ``.pdf`` are dropped.
+
+    The id is matched exactly (``YYMM.NNNNN``) so a trailing ``.`` from ``….pdf`` is not
+    swallowed into it (#219) and an over-long digit run is not silently truncated.
+    """
+    m = re.search(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})(?!\d)", url)
     return m.group(1) if m else None
 
 
@@ -34,10 +41,7 @@ def _validate_arxiv_id(arxiv_id: str) -> str:
 
 def _fetch_arxiv(arxiv_id: str) -> dict:
     _validate_arxiv_id(arxiv_id)
-    resp = httpx.get(
-        f"https://export.arxiv.org/api/query?id_list={arxiv_id}",
-        timeout=30,
-    )
+    resp = safe_get(f"https://export.arxiv.org/api/query?id_list={arxiv_id}", timeout=30)
     resp.raise_for_status()
     root = ET.fromstring(resp.text)
     entries = root.findall(f"{{{_ATOM_NS}}}entry")
@@ -66,15 +70,17 @@ def _fetch_arxiv(arxiv_id: str) -> dict:
 
 def _fetch_pdf_text(arxiv_id: str) -> str:
     try:
-        resp = httpx.get(
-            f"https://arxiv.org/pdf/{arxiv_id}",
-            timeout=60,
-            follow_redirects=True,
-        )
-        resp.raise_for_status()
-        with pymupdf.open(stream=resp.content, filetype="pdf") as doc:
-            pages = [page.get_text() for page in doc]
-        return "\n\n".join(pages)[:8000]
+        buf = io.BytesIO()
+        # arxiv.org 宛の固定 URL でも、上限なしの全量読みと未検証のリダイレクトは避ける (#224)
+        safe_download(f"https://arxiv.org/pdf/{arxiv_id}", buf, timeout=60)
+        text, n = [], 0
+        with pymupdf.open(stream=buf.getvalue(), filetype="pdf") as doc:
+            for page in doc:
+                text.append(page.get_text())
+                n += len(text[-1]) + 2
+                if n >= _PDF_TEXT_LIMIT:  # 要約に使うのは先頭だけ。巨大な PDF の全ページは読まない
+                    break
+        return "\n\n".join(text)[:_PDF_TEXT_LIMIT]
     except Exception as e:  # noqa: BLE001
         _log.warning("PDF fetch failed (%s), using abstract only", e)
         return ""
@@ -103,11 +109,20 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
             }
         ]
     else:
-        # tech blog — validate before fetching to prevent SSRF
+        # tech blog — validate before fetching to prevent SSRF; safe_get re-validates every
+        # redirect hop (httpx.get does not follow redirects, so a 301 to the canonical URL failed)
         assert_safe_url(url)
-        resp = httpx.get(url, timeout=30)
+        resp = safe_get(url, timeout=30)
         resp.raise_for_status()
-        distilled = distill_webpage(resp.text)
+        body = resp.text
+        if looks_like_html(resp.headers.get("content-type", ""), body):
+            # Summarise the article, not <head>/scripts/CSS (distill_webpage truncates to 5000 chars)
+            body = extract_markdown(body)
+            if not body:
+                raise ValueError(
+                    f"本文を抽出できませんでした (HTML から記事本文が見つからない): {url}"
+                )
+        distilled = distill_webpage(body)
         uid = make_id(url)
         points = [
             {

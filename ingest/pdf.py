@@ -1,5 +1,6 @@
 """Ingest local or remote PDF files into Qdrant research collection."""
 
+import logging
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,19 +10,12 @@ import pymupdf
 from core.chunker import chunk_text
 from core.distiller import distill_text
 from core.ids import make_id
-from core.logging import get_logger
-from core.qdrant import delete_by_payload, upsert
+from core.qdrant import delete_by_ids, ids_by_payload, upsert
+from core.url_guard import safe_download
 
-_log = get_logger(__name__)
+_log = logging.getLogger(__name__)
 
 COLLECTION = "research"
-
-
-def extract_text(pdf_bytes: bytes) -> str:
-    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
-    pages = [page.get_text() for page in doc]
-    doc.close()
-    return "\n\n".join(pages)
 
 
 def _extract_text_from_path(path: Path) -> str:
@@ -34,20 +28,22 @@ def _extract_text_from_path(path: Path) -> str:
     return "\n\n".join(pages)
 
 
-def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
-    """Ingest a local PDF path or remote PDF URL."""
+def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = False) -> None:
+    """Ingest a local PDF path or remote PDF URL.
+
+    A local file may be private, so by default it is summarised by the local LLM only and is
+    never sent to Anthropic (``allow_cloud=True`` opts in). A URL is a public document.
+    """
     tags = tags or []
     now = datetime.now(UTC).isoformat()
     source_url = source
+    is_url = source.startswith("http")
+    local_only = not is_url and not allow_cloud
 
-    if source.startswith("http"):
-        import httpx
-
+    if is_url:
+        # URL は利用者入力。https 以外・内部アドレス・内部へのリダイレクトを拒否し、サイズに上限を設ける (#214)
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
-            with httpx.stream("GET", source, timeout=60, follow_redirects=True) as resp:
-                resp.raise_for_status()
-                for chunk in resp.iter_bytes():
-                    tmp.write(chunk)
+            safe_download(source, tmp)
             tmp.flush()
             text = _extract_text_from_path(Path(tmp.name))
     else:
@@ -59,13 +55,13 @@ def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
         _log.warning("no text extracted from %s", source)
         return
 
-    delete_by_payload(COLLECTION, "source_url", source_url)
-
-    chunks = chunk_text(text, source_url=source_url)
+    chunks = chunk_text(text)
     points = [
         {
             "id": make_id(f"{source_url}:{c['chunk_index']}"),
-            "text": distill_text(c["text"], "この資料の要点・実装に使える知見を200字以内で。"),
+            "text": distill_text(
+                c["text"], "この資料の要点・実装に使える知見を200字以内で。", local_only=local_only
+            ),
             "source": "pdf",
             "source_url": source_url,
             "chunk_index": c["chunk_index"],
@@ -74,6 +70,13 @@ def ingest_pdf(source: str, tags: list[str] | None = None) -> None:
         }
         for c in chunks
     ]
+    # 旧チャンクを先に消さない: distill / 埋め込み (upsert) のどちらが失敗しても旧データが残る。
+    # ID は決定的なので、upsert してから新しい集合に無い旧 ID だけを消す (ingest_pipeline と同じ順)。
+    old_ids = ids_by_payload(COLLECTION, "source_url", source_url)
     if points:
         upsert(COLLECTION, points)
+    keep = {p["id"] for p in points}
+    stale = [i for i in old_ids if i not in keep]
+    if stale:
+        delete_by_ids(COLLECTION, stale)
     _log.info("ingested %s (%d chunks) → %s", source, len(points), COLLECTION)

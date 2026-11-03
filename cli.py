@@ -12,14 +12,26 @@ from ingest.design_docs import ingest_design_docs
 from ingest.external import sync_external
 from ingest.notes import ingest_notes
 
+# このリポのパッケージ。レベルはここにだけ設定し、root は WARNING のままにして httpx / urllib3 /
+# qdrant_client など第三者のログ (httpx は INFO でリクエスト URL を出す) を静かに保つ。
+_OWN_LOGGERS = ("core", "ingest", "cli", "__main__")
+
+
+def setup_logging(verbose: bool) -> None:
+    """`-v` で自パッケージだけ DEBUG、通常は INFO。出力は stderr (root のハンドラ)。"""
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    level = logging.DEBUG if verbose else logging.INFO
+    for name in _OWN_LOGGERS:
+        logging.getLogger(name).setLevel(level)
+
 
 @click.group()
 @click.option("--verbose", "-v", is_flag=True, help="Enable DEBUG logging")
 def main(verbose: bool):
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    setup_logging(verbose)
 
 
 @main.command()
@@ -32,7 +44,10 @@ def arxiv(url: str, tags: str):
     except UnsafeURLError as exc:
         raise click.BadParameter(str(exc), param_hint="'URL'") from exc
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
-    ingest_arxiv(url, tags=tag_list)
+    try:
+        ingest_arxiv(url, tags=tag_list)
+    except ValueError as exc:  # 不正な arXiv ID・論文が見つからない・本文を抽出できない
+        raise click.ClickException(str(exc)) from exc
 
 
 @main.command()
@@ -129,15 +144,22 @@ def list_cmd():
 @main.command()
 @click.argument("path")
 @click.option("--tags", default="", help="Comma-separated tags")
-def pdf(path: str, tags: str):
+@click.option(
+    "--allow-cloud",
+    is_flag=True,
+    help="Allow summarising a local PDF with Anthropic when the local LLM fails (default: local only)",
+)
+def pdf(path: str, tags: str, allow_cloud: bool):
     """Ingest a local PDF file into the research collection."""
     from ingest.pdf import ingest_pdf
 
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     try:
-        ingest_pdf(path, tags=tag_list)
+        ingest_pdf(path, tags=tag_list, allow_cloud=allow_cloud)
     except FileNotFoundError:
         raise click.ClickException(f"ファイルが見つかりません: {path}")
+    except UnsafeURLError as e:
+        raise click.ClickException(f"取り込めない URL です: {e}")
 
 
 if __name__ == "__main__":
