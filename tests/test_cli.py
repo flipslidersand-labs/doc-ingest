@@ -357,7 +357,7 @@ class TestDesignCommand:
         base.mkdir()
         monkeypatch.chdir(base)
         monkeypatch.delenv("DOC_INGEST_BASE_DIR", raising=False)
-        mocker.patch("ingest.design_docs.head_sha", return_value="sha")
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
         result = CliRunner().invoke(main, ["design", "../outside.md"])
         assert result.exit_code == 1
         assert isinstance(result.exception, PermissionError)
@@ -394,7 +394,7 @@ class TestNotesCommand:
         base.mkdir()
         monkeypatch.chdir(base)
         monkeypatch.delenv("DOC_INGEST_BASE_DIR", raising=False)
-        mocker.patch("ingest.notes.head_sha", return_value="sha")
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
         result = CliRunner().invoke(main, ["notes", "../outside.md"])
         assert result.exit_code == 1
         assert isinstance(result.exception, PermissionError)
