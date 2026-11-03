@@ -1,6 +1,7 @@
 """Tests for core/url_guard.py"""
 
 import socket
+from pathlib import Path
 
 import httpx
 import pytest
@@ -13,6 +14,8 @@ from core.url_guard import (
     safe_download,
     safe_get,
 )
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class TestAssertSafeUrl:
@@ -457,13 +460,174 @@ class TestSafeDownload:
         with pytest.raises(httpx.HTTPStatusError):
             self._dl("https://example.com/missing")
 
-    def test_default_limit_is_50_mib_and_overridable_by_env(self, monkeypatch):
-        import importlib
+    def test_default_limit_is_50_mib_and_overridable_by_env(self):
+        """環境変数の効果は子プロセスで確かめる。importlib.reload すると UnsafeURLError が別のクラスに
+        入れ替わり、他のテストの pytest.raises(UnsafeURLError) が例外を捕まえられなくなる。"""
+        import subprocess
+        import sys
 
+        code = "import core.url_guard as g; print(g.MAX_DOWNLOAD_BYTES)"
+
+        def run(env):
+            out = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-c",
+                    f"import sys; sys.path.insert(0, {str(REPO_ROOT)!r}); {code}",
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+                env=env,
+                timeout=60,
+            )
+            return int(out.stdout.strip())
+
+        base = {"PATH": "/usr/bin:/bin"}
+        assert run(base) == 50 * 1024 * 1024
+        assert run({**base, "MAX_DOWNLOAD_BYTES": "1234"}) == 1234
+
+
+class TestSafeGetBodyLimit:
+    """#224: safe_get は本文を全量メモリに読んでいた。ストリームで読み、上限 (展開後) を超えたら拒否する。"""
+
+    @pytest.fixture(autouse=True)
+    def _no_real_network(self):
+        with respx.mock:
+            yield
+
+    @pytest.fixture
+    def public_dns(self, mocker):
+        """ホスト名は公開 IP に解決し、IP リテラルはそのまま判定させる (内部アドレスを公開扱いにしない)。"""
+        import ipaddress
+        import socket
+
+        def fake(host, *a, **kw):
+            try:
+                ipaddress.ip_address(host)
+                addr = host
+            except ValueError:
+                addr = "93.184.216.34"
+            return [(socket.AF_INET, None, None, None, (addr, 0))]
+
+        return mocker.patch("socket.getaddrinfo", side_effect=fake)
+
+    @staticmethod
+    def _stream(n, chunk=1):
+        def gen():
+            for _ in range(n):
+                yield b"x" * chunk
+
+        return gen()
+
+    def test_a_declared_content_length_over_the_limit_is_refused(self):
+        respx.get("https://example.com/big").mock(
+            return_value=httpx.Response(
+                200, headers={"content-length": "1000"}, content=b"x" * 1000
+            )
+        )
+        with pytest.raises(UnsafeURLError, match="too large"):
+            safe_get("https://example.com/big", max_bytes=100)
+
+    def test_a_chunked_body_without_content_length_is_cut_off(self):
+        respx.get("https://example.com/s").mock(
+            return_value=httpx.Response(200, content=self._stream(500))
+        )
+        with pytest.raises(UnsafeURLError, match="exceeds"):
+            safe_get("https://example.com/s", max_bytes=100)
+
+    def test_the_boundary_exactly_at_the_limit_passes_and_one_over_fails(self):
+        respx.get("https://example.com/b100").mock(
+            return_value=httpx.Response(200, content=self._stream(100))
+        )
+        respx.get("https://example.com/b101").mock(
+            return_value=httpx.Response(200, content=self._stream(101))
+        )
+        assert len(safe_get("https://example.com/b100", max_bytes=100).content) == 100
+        with pytest.raises(UnsafeURLError, match="exceeds"):
+            safe_get("https://example.com/b101", max_bytes=100)
+
+    def test_a_small_gzip_body_that_expands_past_the_limit_is_refused(self):
+        """圧縮後は小さいが展開すると巨大 (zip 爆弾)。展開後のバイト数で数える。"""
+        import gzip
+
+        packed = gzip.compress(b"A" * 100_000)
+        assert len(packed) < 1000  # 圧縮後は小さい
+        respx.get("https://example.com/bomb").mock(
+            return_value=httpx.Response(200, headers={"content-encoding": "gzip"}, content=packed)
+        )
+        with pytest.raises(UnsafeURLError, match="exceeds"):
+            safe_get("https://example.com/bomb", max_bytes=10_000)
+
+    def test_a_gzip_body_within_the_limit_is_returned_decoded_exactly_once(self):
+        """再構築した Response が、展開済みの本文をもう一度展開しようとして壊れない。"""
+        import gzip
+
+        respx.get("https://example.com/gz").mock(
+            return_value=httpx.Response(
+                200,
+                headers={"content-encoding": "gzip", "content-type": "text/plain; charset=utf-8"},
+                content=gzip.compress("日本語の本文".encode()),
+            )
+        )
+        resp = safe_get("https://example.com/gz")
+        assert resp.text == "日本語の本文"
+        assert "content-encoding" not in resp.headers  # 二重展開させない
+
+    def test_the_default_limit_applies_when_max_bytes_is_not_given(self, monkeypatch):
+        """呼び出し側が max_bytes を指定しなくても、共通の既定値 (MAX_DOWNLOAD_BYTES) が効く。
+        既定の 50MiB は試せないので、モジュールの値を小さくして確かめる。"""
         import core.url_guard as g
 
-        assert g.MAX_DOWNLOAD_BYTES == 50 * 1024 * 1024
-        monkeypatch.setenv("MAX_DOWNLOAD_BYTES", "1234")
-        assert importlib.reload(g).MAX_DOWNLOAD_BYTES == 1234
-        monkeypatch.delenv("MAX_DOWNLOAD_BYTES")
-        importlib.reload(g)
+        monkeypatch.setattr(g, "MAX_DOWNLOAD_BYTES", 100)
+        respx.get("https://example.com/small").mock(
+            return_value=httpx.Response(200, content=b"x" * 100)
+        )
+        respx.get("https://example.com/over").mock(
+            return_value=httpx.Response(200, content=b"x" * 101)
+        )
+        assert len(safe_get("https://example.com/small").content) == 100
+        with pytest.raises(UnsafeURLError):
+            safe_get("https://example.com/over")  # max_bytes を渡していない
+
+    def test_an_explicit_max_bytes_overrides_the_default(self, monkeypatch):
+        import core.url_guard as g
+
+        monkeypatch.setattr(g, "MAX_DOWNLOAD_BYTES", 10)
+        respx.get("https://example.com/m").mock(return_value=httpx.Response(200, content=b"x" * 50))
+        assert len(safe_get("https://example.com/m", max_bytes=100).content) == 50
+
+    def test_the_response_keeps_what_callers_use(self):
+        respx.get("https://example.com/r").mock(
+            return_value=httpx.Response(
+                404, headers={"etag": '"abc"', "content-type": "text/html"}, content=b"nope"
+            )
+        )
+        resp = safe_get("https://example.com/r")
+        assert resp.status_code == 404 and resp.headers["etag"] == '"abc"'
+        assert resp.is_success is False and resp.text == "nope"
+        assert str(resp.url) == "https://example.com/r"
+        with pytest.raises(httpx.HTTPStatusError):
+            resp.raise_for_status()
+
+    def test_redirects_are_still_followed_and_validated(self, public_dns):
+        respx.get("https://example.com/old").mock(
+            return_value=httpx.Response(301, headers={"location": "/new"})
+        )
+        respx.get("https://example.com/new").mock(
+            return_value=httpx.Response(200, content=b"moved")
+        )
+        assert safe_get("https://example.com/old").content == b"moved"
+        respx.get("https://example.com/evil").mock(
+            return_value=httpx.Response(302, headers={"location": "https://192.168.1.1/x"})
+        )
+        with pytest.raises(UnsafeURLError, match="blocked"):
+            safe_get("https://example.com/evil")
+
+    def test_the_limit_applies_to_the_final_hop_not_the_redirect_body(self, public_dns):
+        respx.get("https://example.com/a").mock(
+            return_value=httpx.Response(302, headers={"location": "/b"}, content=b"r" * 500)
+        )
+        respx.get("https://example.com/b").mock(return_value=httpx.Response(200, content=b"x" * 50))
+        assert len(safe_get("https://example.com/a", max_bytes=100).content) == 50

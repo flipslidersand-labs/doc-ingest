@@ -12,7 +12,7 @@ from pathlib import Path
 
 from core.chunker import chunk_markdown
 from core.distiller import DistillError
-from core.doc_key import doc_key
+from core.doc_key import doc_key, escapes_repo
 from core.ids import make_id
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
 
@@ -47,15 +47,21 @@ def ingest_markdown_files(
         # 識別子は <repo>/<リポ内の相対パス>。フック(相対パス)と手動(絶対パス)で同じになり、
         # 別リポの同名ファイルとは衝突しない (#216)。
         repo, key = doc_key(path)
-        if not path.exists():
-            # 削除・リネームされたファイル: 検索に出続けないよう、その識別子の point を消す (#217)
+        unsafe = path.exists() and (path.is_symlink() or escapes_repo(path))
+        if unsafe:
+            # symlink は文書ではなく「指す先のパス」を持つだけ。リポ外 (~/.ssh など) の中身を LLM と
+            # Qdrant に入れない。親ディレクトリが symlink でリポ外へ出る場合も同様 (#224)。
+            # key は解決後 (= リポ外の実パス) になりうるので、原因の symlink があるリポ内のパスを出す
+            _log.warning("skipping %s: symlink or resolves outside the repo", path)
+        if unsafe or not path.exists():
+            # 削除・リネームされた、または文書として無効になったファイル: その識別子の point を消す (#217)
             gone = ids_by_payload(collection, "file_path", key)
             if gone:
                 delete_by_ids(collection, gone)
-                _log.info("removed %d point(s) of deleted %s → %s", len(gone), key, collection)
+                _log.info("removed %d point(s) of %s → %s", len(gone), key, collection)
             continue
         old_ids = ids_by_payload(collection, "file_path", key)
-        chunks = chunk_markdown(path.read_text(), source_url=key)
+        chunks = chunk_markdown(path.read_text())
         with ThreadPoolExecutor(max_workers=DISTILL_WORKERS) as ex:
             distilled_list = list(ex.map(lambda c: _distill_or_none(distill_fn, c["text"]), chunks))
         # 要約に失敗したチャンクは埋め込まず、既存の point も消さない(一時障害でデータを失わない)

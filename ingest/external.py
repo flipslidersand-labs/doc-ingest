@@ -14,6 +14,7 @@ from core.chunker import chunk_markdown
 from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
 from core.qdrant import delete_by_ids, ids_by_payload, upsert
+from core.redact import redact_urls
 from core.retry import with_retry
 from core.url_guard import UnsafeURLError, assert_safe_url, safe_get
 
@@ -57,7 +58,7 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
         return resp
 
     def log_retry(n: int, e: Exception) -> None:
-        _log.debug("retry %d/%d %s → %s", n + 1, MAX_RETRIES, url, e)
+        _log.debug("retry %d/%d %s → %s", n + 1, MAX_RETRIES, url, redact_urls(e))
 
     try:
         return with_retry(
@@ -67,10 +68,15 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
             on_retry=log_retry,
         )
     except UnsafeURLError as e:
-        _log.warning("blocked unsafe redirect from %s: %s", url, e)
+        _log.warning("blocked %s: %s", url, redact_urls(e))
     except (_ServerError, httpx.RequestError):
         pass  # gave up — the caller logs the failure
     return None
+
+
+def _failed(url: str, source: dict) -> dict:
+    """The result `_fetch_source` returns when a source could not be fetched."""
+    return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
 
 
 def _fetch_source(source: dict, force: bool, now: str) -> dict:
@@ -80,7 +86,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
         assert_safe_url(url)
     except UnsafeURLError as exc:
         _log.warning("blocked unsafe URL: %s", exc)
-        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+        return _failed(url, source)
     stored_etag = source.get("last_etag", "")
     headers: dict[str, str] = {}
     if stored_etag and not force:
@@ -92,7 +98,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
     resp = _fetch_with_retry(fetch_url, headers)
     if resp is None:
         _log.warning("failed %s (gave up after %d attempts)", url, MAX_RETRIES)
-        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+        return _failed(url, source)
 
     if resp.status_code == 304:
         _log.info("up-to-date %s", url)
@@ -100,7 +106,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
 
     if not resp.is_success:
         _log.warning("failed %s → HTTP %d (continuing)", url, resp.status_code)
-        return {"status": "failed", "url": url, "source": source, "new_etag": "", "points": []}
+        return _failed(url, source)
 
     new_etag = resp.headers.get("etag", "")
     body = resp.text
@@ -117,7 +123,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> dict:
             _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", url)
             return {"status": "skipped", "url": url, "source": source, "new_etag": "", "points": []}
 
-    chunks = chunk_markdown(body, source_url=url, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS)
+    chunks = chunk_markdown(body, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS)
     points = [
         {
             "id": make_id(f"{url}:{c['chunk_index']}"),
@@ -157,7 +163,8 @@ def _notify_discord(
         resp = httpx.post(webhook_url, json={"content": "\n".join(lines)}, timeout=10)
         resp.raise_for_status()
     except Exception as e:  # noqa: BLE001
-        _log.warning("Discord notify failed: %s", e)
+        # webhook の URL はそれ自体が認証情報。httpx の例外メッセージは URL を含むので伏せる
+        _log.warning("Discord notify failed: %s", redact_urls(e))
 
 
 def sync_external(force: bool = False, dry_run: bool = False) -> None:
@@ -182,14 +189,10 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
                 fetch_results[i] = fut.result()
             except Exception as e:  # noqa: BLE001
                 url = sources[i]["url"]
-                _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, e)
-                fetch_results[i] = {
-                    "status": "failed",
-                    "url": url,
-                    "source": sources[i],
-                    "new_etag": "",
-                    "points": [],
-                }
+                _log.warning(
+                    "failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e)
+                )
+                fetch_results[i] = _failed(url, sources[i])
 
     # Phase 2: sequential upsert + metadata update (preserves source order)
     for result in fetch_results:
@@ -226,7 +229,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             if stale:
                 delete_by_ids(COLLECTION, stale)
         except Exception as e:  # noqa: BLE001 - isolate one source's failure from the rest
-            _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, e)
+            _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e))
             source["failed_at"] = now
             changed = True
             failed_urls.append(url)
