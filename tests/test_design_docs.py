@@ -1,53 +1,67 @@
 """Tests for ingest/design_docs.py"""
 
-from unittest.mock import MagicMock
+from pathlib import Path
+
+import pytest
+
+from ingest.design_docs import _changed_files
+
+
+@pytest.fixture
+def git_changed(mocker):
+    """Stub what core.git.changed_files returns, as seen by core.ingest_pipeline."""
+
+    def _set(paths):
+        return mocker.patch(
+            "core.ingest_pipeline.changed_files", return_value=[Path(p) for p in paths]
+        )
+
+    return _set
 
 
 class TestChangedFiles:
-    def test_returns_matching_design_docs(self, mocker, tmp_path):
-        claude_md = tmp_path / "CLAUDE.md"
-        claude_md.write_text("content")
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "CLAUDE.md",
+            "AGENTS.md",
+            "docs/a.md",
+            "adr/0001.md",
+            "ADR/0001.md",
+            # Path.match matches from the right, so nested dirs still count.
+            "pkg/CLAUDE.md",
+            "pkg/AGENTS.md",
+            "sub/docs/a.md",
+        ],
+    )
+    def test_design_docs_included(self, git_changed, path):
+        git_changed([path])
+        assert _changed_files() == [Path(path)]
 
-        mocker.patch(
-            "subprocess.run",
-            return_value=MagicMock(returncode=0, stdout=f"{claude_md}\0"),
-        )
-        import importlib
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "README.md",
+            "src/main.go",
+            "docs/a.txt",
+            "CLAUDE.txt",
+            "adr/0001.rst",
+            "notes/a.md",
+            # current spec: docs/*.md is one level only
+            "docs/sub/a.md",
+        ],
+    )
+    def test_non_design_docs_excluded(self, git_changed, path):
+        git_changed([path])
+        assert _changed_files() == []
 
-        import ingest.design_docs as m
+    def test_mixed_input_keeps_only_design_docs_in_order(self, git_changed):
+        git_changed(["src/main.go", "docs/a.md", "README.md", "ADR/0001.md"])
+        assert _changed_files() == [Path("docs/a.md"), Path("ADR/0001.md")]
 
-        importlib.reload(m)
-
-        result = m._changed_files()
-        assert any(p.name == "CLAUDE.md" for p in result)
-
-    def test_first_commit_error_returns_empty(self, mocker):
-        mocker.patch(
-            "subprocess.run",
-            return_value=MagicMock(returncode=128, stdout=""),
-        )
-
-        import importlib
-
-        import ingest.design_docs as m
-
-        importlib.reload(m)
-        result = m._changed_files()
-
-        assert result == []
-
-    def test_non_design_docs_excluded(self, mocker):
-        mocker.patch(
-            "subprocess.run",
-            return_value=MagicMock(returncode=0, stdout="src/main.go\nREADME.md\n"),
-        )
-        import importlib
-
-        import ingest.design_docs as m
-
-        importlib.reload(m)
-        result = m._changed_files()
-        assert result == []
+    def test_no_changes_returns_empty(self, git_changed):
+        git_changed([])
+        assert _changed_files() == []
 
 
 class TestIngestDesignDocs:
