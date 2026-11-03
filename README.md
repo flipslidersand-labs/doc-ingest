@@ -26,7 +26,7 @@ cp .env.example .env  # fill in QDRANT_URL, EMBED_URL, EMBED_API_KEY
 ```
 
 Hook results are appended to `~/.local/state/precommit-metrics/events.jsonl` (`pass` / `fixed` / `fail`).
-Do not run `pre-commit install` afterwards; re-run `scripts/install-precommit.sh` instead (it is idempotent).
+The script sets `core.hooksPath` to `.git/managed-hooks` (same for every worktree and branch). `pre-commit install` is refused once it is set, so it cannot overwrite the logging wrapper; hooks other than `pre-commit` (e.g. a `pre-push` secret check) are forwarded to `.git/hooks`. Re-run the script to update; it is idempotent and removes the old `.git/hooks/pre-commit` wrapper.
 
 ### Usage
 
@@ -142,7 +142,7 @@ cp .env.example .env  # QDRANT_URL, EMBED_URL, EMBED_API_KEY を設定
 ```
 
 フックの結果は `~/.local/state/precommit-metrics/events.jsonl` に追記されます（`pass` / `fixed` / `fail`）。
-以降に `pre-commit install` を実行しないでください（ラッパーが外れる）。やり直すときは `scripts/install-precommit.sh` を再実行します（何度実行しても同じ状態になります）。
+スクリプトは `core.hooksPath` を `.git/managed-hooks`（全 worktree・全ブランチで共通）に設定します。設定後は `pre-commit install` が拒否されるため、記録用ラッパーを上書きされません。`pre-commit` 以外のフック（`pre-push` の秘密検査など）は `.git/hooks` の同名ファイルへ転送されます。更新するときは再実行します（何度実行しても同じ状態になり、旧方式の `.git/hooks/pre-commit` ラッパーは削除されます）。
 
 ### 使い方
 
