@@ -1,5 +1,6 @@
 """Tests for core/url_guard.py"""
 
+import io
 import socket
 from pathlib import Path
 
@@ -631,3 +632,95 @@ class TestSafeGetBodyLimit:
         )
         respx.get("https://example.com/b").mock(return_value=httpx.Response(200, content=b"x" * 50))
         assert len(safe_get("https://example.com/a", max_bytes=100).content) == 50
+
+
+def _addr(ip):
+    family = socket.AF_INET6 if ":" in ip else socket.AF_INET
+    return (family, socket.SOCK_STREAM, 6, "", (ip, 443))
+
+
+class TestDnsRebinding:
+    """#224: 検証した後に DNS が内部アドレスへ変わっても、そこへは接続しない。"""
+
+    def test_connect_to_a_name_that_now_resolves_private_is_refused(self, mocker):
+        from core.url_guard import _PinnedBackend
+
+        mocker.patch("socket.getaddrinfo", return_value=[_addr("169.254.169.254")])
+        base = mocker.patch("httpcore.SyncBackend.connect_tcp")
+
+        with pytest.raises(UnsafeURLError, match="blocked"):
+            _PinnedBackend().connect_tcp("rebind.example", 443)
+
+        base.assert_not_called()
+
+    def test_a_name_with_one_private_record_is_refused(self, mocker):
+        from core.url_guard import _PinnedBackend
+
+        mocker.patch("socket.getaddrinfo", return_value=[_addr("93.184.216.34"), _addr("10.0.0.5")])
+        base = mocker.patch("httpcore.SyncBackend.connect_tcp")
+
+        with pytest.raises(UnsafeURLError, match="blocked"):
+            _PinnedBackend().connect_tcp("mixed.example", 443)
+
+        base.assert_not_called()
+
+    def test_connects_to_the_validated_address_not_the_name(self, mocker):
+        from core.url_guard import _PinnedBackend
+
+        mocker.patch("socket.getaddrinfo", return_value=[_addr("93.184.216.34")])
+        base = mocker.patch("httpcore.SyncBackend.connect_tcp", return_value="stream")
+
+        assert _PinnedBackend().connect_tcp("example.com", 443, 5.0) == "stream"
+
+        assert base.call_args.args[:2] == ("93.184.216.34", 443)
+
+    def test_falls_back_to_the_next_validated_address(self, mocker):
+        import httpcore
+
+        from core.url_guard import _PinnedBackend
+
+        mocker.patch(
+            "socket.getaddrinfo", return_value=[_addr("93.184.216.34"), _addr("93.184.216.35")]
+        )
+        base = mocker.patch(
+            "httpcore.SyncBackend.connect_tcp", side_effect=[httpcore.ConnectError("down"), "ok"]
+        )
+
+        assert _PinnedBackend().connect_tcp("example.com", 443) == "ok"
+
+        assert [c.args[0] for c in base.call_args_list] == ["93.184.216.34", "93.184.216.35"]
+
+    def test_download_is_refused_when_dns_changes_after_the_check(self, mocker):
+        """assert_safe_url は公開 IP を見て通し、接続時の再解決は内部 IP を返す。"""
+        answers = iter([[_addr("93.184.216.34")], [_addr("127.0.0.1")], [_addr("127.0.0.1")]])
+        mocker.patch("socket.getaddrinfo", side_effect=lambda *a, **k: next(answers))
+        base = mocker.patch("httpcore.SyncBackend.connect_tcp")
+
+        with pytest.raises(UnsafeURLError, match="blocked"):
+            safe_download("https://rebind.example/x", io.BytesIO())
+
+        base.assert_not_called()
+
+    def test_environment_proxy_is_not_used(self, monkeypatch):
+        """プロキシ経由だと DNS 解決を検証できない。"""
+        from core.url_guard import _client
+
+        monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:3128")
+
+        with _client(5) as client:
+            assert not client._mounts
+
+    def test_duplicate_records_are_tried_once(self, mocker):
+        import httpcore
+
+        from core.url_guard import _PinnedBackend
+
+        mocker.patch("socket.getaddrinfo", return_value=[_addr("93.184.216.34")] * 3)
+        base = mocker.patch(
+            "httpcore.SyncBackend.connect_tcp", side_effect=httpcore.ConnectError("down")
+        )
+
+        with pytest.raises(httpcore.ConnectError):
+            _PinnedBackend().connect_tcp("example.com", 443)
+
+        assert base.call_count == 1
