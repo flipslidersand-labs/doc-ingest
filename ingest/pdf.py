@@ -63,6 +63,7 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
                 c["text"], "この資料の要点・実装に使える知見を200字以内で。", local_only=local_only
             ),
             "source": "pdf",
+            "trust": "external",
             "source_url": source_url,
             "chunk_index": c["chunk_index"],
             "tags": tags,

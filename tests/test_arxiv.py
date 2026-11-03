@@ -168,6 +168,7 @@ class TestIngestArxiv:
         points = mock_upsert.call_args[0][1]
         assert len(points) == 1
         assert points[0]["source"] == "arxiv"
+        assert points[0]["trust"] == "external"
         assert points[0]["arxiv_id"] == "1706.03762"
         assert points[0]["tags"] == ["ml"]
 
@@ -186,6 +187,7 @@ class TestIngestArxiv:
         mock_upsert.assert_called_once()
         points = mock_upsert.call_args[0][1]
         assert points[0]["source"] == "blog"
+        assert points[0]["trust"] == "external"
         assert points[0]["source_url"] == "https://example.com/blog/post"
 
     @respx.mock
