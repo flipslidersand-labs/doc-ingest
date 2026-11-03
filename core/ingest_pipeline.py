@@ -8,12 +8,15 @@ import logging
 import os
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
 
 from core.chunker import cap_chunks, chunk_markdown
 from core.distiller import DistillError
+from core.git import changed_files, head_sha
 from core.doc_key import doc_key, escapes_repo
 from core.ids import make_id
+from core.path_guard import assert_safe_path
 from core.qdrant import replace_points
 
 _log = logging.getLogger(__name__)
@@ -94,3 +97,38 @@ def ingest_markdown_files(
         if failed_ids:
             _log.warning("%s: distill failed for %d chunk(s), skipped", key, len(failed_ids))
     return failed
+
+
+def changed_matching(is_target: Callable[[Path], bool]) -> list[Path]:
+    """The files changed in the last commit for which *is_target* is true."""
+    return [p for p in changed_files() if is_target(p)]
+
+
+def ingest_changed_or_file(
+    file: str | None,
+    *,
+    changed: Callable[[], list[Path]],
+    collection: str,
+    source_label: str,
+    distill_fn: Callable[[str], str],
+    nothing_msg: str,
+) -> None:
+    """Ingest *file* (validated by ``assert_safe_path``) or, without it, what *changed* returns.
+
+    The entry point shared by the markdown collections (design, notes): they differ only in
+    which files count (*changed*), the collection, the source label and the distiller.
+    """
+    now = datetime.now(UTC).isoformat()
+    sha = head_sha()
+    files = [assert_safe_path(file)] if file else changed()
+    if not files:
+        _log.debug(nothing_msg)
+        return
+    ingest_markdown_files(
+        files,
+        collection=collection,
+        source_label=source_label,
+        distill_fn=distill_fn,
+        git_sha=sha,
+        now=now,
+    )
