@@ -71,7 +71,7 @@ class TestIngestPdf:
         pdf = tmp_path / "empty.pdf"
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf._extract_text_from_path", return_value="   ")
-        mock_upsert = mocker.patch("ingest.pdf.upsert")
+        mock_upsert = mocker.patch("core.qdrant.upsert")
 
         import logging
 
@@ -88,9 +88,9 @@ class TestIngestPdf:
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
         mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
-        mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
-        mocker.patch("ingest.pdf.delete_by_ids")
-        mock_upsert = mocker.patch("ingest.pdf.upsert")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("core.qdrant.delete_by_ids")
+        mock_upsert = mocker.patch("core.qdrant.upsert")
 
         from ingest.pdf import ingest_pdf
 
@@ -111,9 +111,9 @@ class TestIngestPdf:
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
         mocker.patch("ingest.pdf.distill_text", side_effect=DistillError("down"))
-        mock_delete = mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
-        mocker.patch("ingest.pdf.delete_by_ids")
-        mock_upsert = mocker.patch("ingest.pdf.upsert")
+        mock_delete = mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("core.qdrant.delete_by_ids")
+        mock_upsert = mocker.patch("core.qdrant.upsert")
 
         from ingest.pdf import ingest_pdf
 
@@ -139,9 +139,9 @@ class TestIngestPdf:
         )
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
         mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
-        mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
-        mocker.patch("ingest.pdf.delete_by_ids")
-        mock_upsert = mocker.patch("ingest.pdf.upsert")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("core.qdrant.delete_by_ids")
+        mock_upsert = mocker.patch("core.qdrant.upsert")
 
         from ingest.pdf import ingest_pdf
 
@@ -164,9 +164,9 @@ class TestIngestPdf:
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
         mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
-        mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
-        mocker.patch("ingest.pdf.delete_by_ids")
-        mock_upsert = mocker.patch("ingest.pdf.upsert")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("core.qdrant.delete_by_ids")
+        mock_upsert = mocker.patch("core.qdrant.upsert")
 
         from ingest.pdf import ingest_pdf
 
@@ -185,10 +185,10 @@ class TestIngestPdfSafety:
 
     def _patches(self, mocker, old_ids=()):
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.ids_by_payload", return_value=list(old_ids))
+        mocker.patch("core.qdrant.ids_by_payload", return_value=list(old_ids))
         order = mocker.Mock()
-        mocker.patch("ingest.pdf.upsert", order.upsert)
-        mocker.patch("ingest.pdf.delete_by_ids", order.delete)
+        mocker.patch("core.qdrant.upsert", order.upsert)
+        mocker.patch("core.qdrant.delete_by_ids", order.delete)
         return order
 
     def test_embedding_failure_keeps_old_chunks(self, mocker, tmp_path):
@@ -274,9 +274,9 @@ class TestIngestPdfUrlSafety:
 
     @pytest.fixture(autouse=True)
     def _no_side_effects(self, mocker):
-        mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
-        mocker.patch("ingest.pdf.delete_by_ids")
-        self.upsert = mocker.patch("ingest.pdf.upsert")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("core.qdrant.delete_by_ids")
+        self.upsert = mocker.patch("core.qdrant.upsert")
         mocker.patch("ingest.pdf.distill_text", return_value="d")
         self.extract = mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
 
@@ -364,9 +364,9 @@ def test_pdf_chunks_over_the_cap_are_not_distilled(mocker, tmp_path):
     mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 2)
     mocker.patch("ingest.pdf._extract_text_from_path", return_value=text)
     distill = mocker.patch("ingest.pdf.distill_text", side_effect=lambda t, p, **kw: t)
-    mocker.patch("ingest.pdf.ids_by_payload", return_value=[])
-    mocker.patch("ingest.pdf.delete_by_ids")
-    mock_upsert = mocker.patch("ingest.pdf.upsert")
+    mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+    mocker.patch("core.qdrant.delete_by_ids")
+    mock_upsert = mocker.patch("core.qdrant.upsert")
 
     from ingest.pdf import ingest_pdf
 

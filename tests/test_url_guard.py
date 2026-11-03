@@ -8,6 +8,7 @@ import httpx
 import pytest
 import respx
 
+from core import qdrant
 from core.url_guard import (
     MAX_REDIRECTS,
     UnsafeURLError,
@@ -164,16 +165,14 @@ class TestExternalSsrf:
         }
         mocker.patch("ingest.external._load_sources", return_value=[source])
         mocker.patch("ingest.external._save_sources")
-        mocker.patch("ingest.external.ids_by_payload", return_value=[])
-        mocker.patch("ingest.external.upsert")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("core.qdrant.upsert")
 
         from ingest.external import sync_external
 
         sync_external()
 
-        import ingest.external as ext
-
-        ext.upsert.assert_not_called()
+        qdrant.upsert.assert_not_called()
 
     def test_http_url_in_source_is_blocked(self, mocker):
         source = {
@@ -187,16 +186,14 @@ class TestExternalSsrf:
         }
         mocker.patch("ingest.external._load_sources", return_value=[source])
         mocker.patch("ingest.external._save_sources")
-        mocker.patch("ingest.external.ids_by_payload", return_value=[])
-        mocker.patch("ingest.external.upsert")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("core.qdrant.upsert")
 
         from ingest.external import sync_external
 
         sync_external()
 
-        import ingest.external as ext
-
-        ext.upsert.assert_not_called()
+        qdrant.upsert.assert_not_called()
 
 
 class TestSafeGet:

@@ -10,7 +10,7 @@ import pymupdf
 from core.chunker import cap_chunks, chunk_text
 from core.distiller import distill_text
 from core.ids import make_id
-from core.qdrant import delete_by_ids, ids_by_payload, upsert
+from core.qdrant import replace_points
 from core.url_guard import safe_download
 
 _log = logging.getLogger(__name__)
@@ -71,13 +71,6 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
         }
         for c in chunks
     ]
-    # 旧チャンクを先に消さない: distill / 埋め込み (upsert) のどちらが失敗しても旧データが残る。
-    # ID は決定的なので、upsert してから新しい集合に無い旧 ID だけを消す (ingest_pipeline と同じ順)。
-    old_ids = ids_by_payload(COLLECTION, "source_url", source_url)
-    if points:
-        upsert(COLLECTION, points)
-    keep = {p["id"] for p in points}
-    stale = [i for i in old_ids if i not in keep]
-    if stale:
-        delete_by_ids(COLLECTION, stale)
+    # 旧チャンクを先に消さない: distill / 埋め込み (upsert) のどちらが失敗しても旧データが残る
+    replace_points(COLLECTION, "source_url", source_url, points)
     _log.info("ingested %s (%d chunks) → %s", source, len(points), COLLECTION)
