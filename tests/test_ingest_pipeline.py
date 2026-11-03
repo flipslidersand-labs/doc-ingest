@@ -36,6 +36,7 @@ def test_payload_fields_are_populated(mocker, tmp_path):
     p = points[0]
     assert p["id"] == make_id(f"{md}:0")
     assert p["source"] == "label"
+    assert p["trust"] == "internal"
     assert p["file_path"] == str(md)
     assert p["git_sha"] == "sha123"
     assert p["ingested_at"] == "2026-11-01T00:00:00+00:00"

@@ -306,3 +306,22 @@ class TestListCommand:
         lines = result.output.splitlines()
         ends = {self._points_col(line) for line in (lines[0], lines[2], lines[3])}
         assert len(ends) == 1
+
+
+class TestSearchTrust:
+    """#225: 検索結果に出所の信頼度を出す。"""
+
+    @staticmethod
+    def _search(mocker, **payload):
+        mocker.patch(
+            "core.qdrant.search",
+            return_value=[{"score": 0.9, "source_url": "https://e.com", "text": "t", **payload}],
+        )
+        return CliRunner().invoke(main, ["search", "q"]).output
+
+    def test_trust_is_shown(self, mocker):
+        assert "trust: external" in self._search(mocker, trust="external")
+        assert "trust: internal" in self._search(mocker, trust="internal")
+
+    def test_points_without_trust_show_unknown(self, mocker):
+        assert "trust: unknown" in self._search(mocker)

@@ -82,6 +82,7 @@ def ingest_markdown_files(
                 "id": make_id(f"{key}:{chunk['chunk_index']}"),
                 "text": distilled,
                 "source": source_label,
+                "trust": "internal",
                 "file_path": key,
                 "repo": repo or NO_REPO,
                 "section": chunk["section"],
