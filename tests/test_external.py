@@ -600,3 +600,38 @@ class TestOversizedPage:
         assert result["status"] == "failed" and result["points"] == []
         up.assert_not_called()
         assert "blocked" in caplog.text and "exceeds" in caplog.text
+
+
+class TestExternalTrust:
+    @respx.mock
+    def test_points_are_marked_external(self, mocker):
+        """取り込んだ外部文書は trust=external で保存する (#225)。"""
+        sources = [
+            {
+                "url": "https://example.com/doc",
+                "type": "external-api",
+                "check_interval": "weekly",
+                "tags": [],
+                "last_etag": "",
+                "last_synced": "",
+            }
+        ]
+        respx.get("https://example.com/doc").mock(
+            return_value=httpx.Response(
+                200,
+                text="## S\n" + "word " * 30,
+                headers={"content-type": "text/markdown"},
+            )
+        )
+        mocker.patch("ingest.external._load_sources", return_value=sources)
+        mocker.patch("ingest.external._save_sources")
+        mocker.patch("ingest.external.ids_by_payload", return_value=[])
+        mocker.patch("ingest.external.delete_by_ids")
+        up = mocker.patch("ingest.external.upsert")
+
+        from ingest.external import sync_external
+
+        sync_external(force=True)
+
+        points = up.call_args[0][1]
+        assert points and {p["trust"] for p in points} == {"external"}

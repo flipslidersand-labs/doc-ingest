@@ -100,6 +100,7 @@ class TestIngestPdf:
         points = mock_upsert.call_args[0][1]
         assert len(points) > 0
         assert points[0]["source"] == "pdf"
+        assert points[0]["trust"] == "external"
         assert points[0]["tags"] == ["research"]
 
     def test_distill_failure_keeps_old_chunks(self, mocker, tmp_path):
