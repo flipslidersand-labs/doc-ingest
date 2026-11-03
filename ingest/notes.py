@@ -5,16 +5,10 @@ ingested — scratch dirs (00-inbox, 90-daily) are skipped to avoid polluting th
 collection with unfinished thinking.
 """
 
-import logging
-from datetime import UTC, datetime
 from pathlib import Path
 
 from core.distiller import distill_text
-from core.git import changed_files, head_sha
-from core.ingest_pipeline import ingest_markdown_files
-from core.path_guard import assert_safe_path
-
-_log = logging.getLogger(__name__)
+from core.ingest_pipeline import changed_matching, ingest_changed_or_file
 
 COLLECTION = "notes"
 
@@ -30,29 +24,17 @@ def _is_note(p: Path) -> bool:
 
 
 def _changed_files() -> list[Path]:
-    return [p for p in changed_files() if _is_note(p)]
+    return changed_matching(_is_note)
 
 
 def ingest_notes(file: str | None = None) -> None:
-    now = datetime.now(UTC).isoformat()
-    sha = head_sha()
-
-    if file:
-        files = [assert_safe_path(file)]
-    else:
-        files = _changed_files()
-
-    if not files:
-        _log.debug("no curated notes changed")
-        return
-
-    ingest_markdown_files(
-        files,
+    ingest_changed_or_file(
+        file,
+        changed=_changed_files,
         collection=COLLECTION,
         source_label="obsidian-note",
         distill_fn=lambda text: distill_text(
             text, "この Obsidian ノートの要点・決定理由・制約を200字以内で。", local_only=True
         ),
-        git_sha=sha,
-        now=now,
+        nothing_msg="no curated notes changed",
     )
