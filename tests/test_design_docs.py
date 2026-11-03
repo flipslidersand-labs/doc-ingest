@@ -53,12 +53,12 @@ class TestChangedFiles:
 class TestIngestDesignDocs:
     def test_no_files_logs_message(self, mocker, caplog):
         mocker.patch("ingest.design_docs._changed_files", return_value=[])
-        mocker.patch("ingest.design_docs.head_sha", return_value="abc1234")
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc1234")
         import logging
 
         from ingest.design_docs import ingest_design_docs
 
-        with caplog.at_level(logging.DEBUG, logger="ingest.design_docs"):
+        with caplog.at_level(logging.DEBUG, logger="core.ingest_pipeline"):
             ingest_design_docs()
         assert "no design docs changed" in caplog.text
 
@@ -68,7 +68,7 @@ class TestIngestDesignDocs:
 
         old_id = 9999
         mocker.patch("ingest.design_docs._changed_files", return_value=[md])
-        mocker.patch("ingest.design_docs.head_sha", return_value="abc")
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
         mocker.patch("core.qdrant.ids_by_payload", return_value=[old_id])
         mock_upsert = mocker.patch("core.qdrant.upsert")
         mock_delete_ids = mocker.patch("core.qdrant.delete_by_ids")
@@ -89,7 +89,7 @@ class TestIngestDesignDocs:
         md.write_text("## Section\n" + "x" * 100)
 
         mocker.patch("ingest.design_docs._changed_files", return_value=[md])
-        mocker.patch("ingest.design_docs.head_sha", return_value="abc")
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mock_upsert = mocker.patch("core.qdrant.upsert")
         mock_delete_ids = mocker.patch("core.qdrant.delete_by_ids")
