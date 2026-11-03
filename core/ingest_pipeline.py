@@ -13,8 +13,8 @@ from pathlib import Path
 
 from core.chunker import cap_chunks, chunk_markdown
 from core.distiller import DistillError
-from core.git import changed_files, head_sha
 from core.doc_key import doc_key, escapes_repo
+from core.git import changed_files, head_sha
 from core.ids import make_id
 from core.path_guard import assert_safe_path
 from core.qdrant import replace_points
