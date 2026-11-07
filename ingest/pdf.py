@@ -11,11 +11,12 @@ from core.chunker import cap_chunks, chunk_text
 from core.distiller import distill_text
 from core.ids import make_id
 from core.qdrant import replace_points
+from core.schema import Collection
 from core.url_guard import safe_download
 
 _log = logging.getLogger(__name__)
 
-COLLECTION = "research"
+COLLECTION = Collection.RESEARCH.value
 
 
 def _extract_text_from_path(path: Path) -> str:

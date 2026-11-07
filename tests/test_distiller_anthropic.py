@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from core import distiller
+from tests.conftest import override_settings
 
 DUMMY_KEY = "sk-ant-dummy-key-for-tests"
 
@@ -20,8 +21,8 @@ def _msg(*texts):
 
 @pytest.fixture(autouse=True)
 def _dummy_config(mocker):
-    mocker.patch.object(distiller, "ANTHROPIC_API_KEY", DUMMY_KEY)
-    mocker.patch.object(distiller, "ANTHROPIC_MODEL", "claude-test-model")
+    override_settings(anthropic_api_key=DUMMY_KEY)
+    override_settings(anthropic_model="claude-test-model")
 
 
 @pytest.fixture

@@ -12,11 +12,12 @@ from core.distiller import distill_paper, distill_webpage
 from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
 from core.qdrant import upsert
+from core.schema import Collection
 from core.url_guard import assert_safe_url, safe_download, safe_get
 
 _log = logging.getLogger(__name__)
 
-COLLECTION = "research"
+COLLECTION = Collection.RESEARCH.value
 _PDF_TEXT_LIMIT = 8000  # 要約に渡す本文の最大文字数
 _ATOM_NS = "http://www.w3.org/2005/Atom"
 _ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
