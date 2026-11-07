@@ -4,20 +4,15 @@ Both failing raises DistillError."""
 
 import json
 import logging
-import os
 import urllib.request
+
+from core.config import get_settings
 
 _log = logging.getLogger(__name__)
 
 # llama-server の OpenAI 互換 API (/v1/chat/completions)。Ollama は撤去済み。
 # 入力は最大 5000 字なので n_ctx が十分な台を指す (yuki gemma-4-12b: localhost:18080, n_ctx 32768)。
-LOCAL_LLM_URL = os.getenv("LOCAL_LLM_URL", "http://localhost:8080")
-LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "")  # llama-server は未指定で可
-LOCAL_LLM_TIMEOUT = float(os.getenv("LOCAL_LLM_TIMEOUT", "120"))
 # 思考するモデルは max_tokens が小さいと本文が空になる (40 で空、1500 で正答: llm CLI の実測)。
-LOCAL_LLM_MAX_TOKENS = int(os.getenv("LOCAL_LLM_MAX_TOKENS", "1500"))
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 
 
 class DistillError(RuntimeError):
@@ -25,20 +20,21 @@ class DistillError(RuntimeError):
 
 
 def _local(prompt: str) -> str:
+    cfg = get_settings()
     body = {
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": LOCAL_LLM_MAX_TOKENS,
+        "max_tokens": cfg.local_llm_max_tokens,
         "temperature": 0,
         "stream": False,
     }
-    if LOCAL_LLM_MODEL:
-        body["model"] = LOCAL_LLM_MODEL
+    if cfg.local_llm_model:
+        body["model"] = cfg.local_llm_model
     req = urllib.request.Request(
-        f"{LOCAL_LLM_URL.rstrip('/')}/v1/chat/completions",
+        f"{cfg.local_llm_url.rstrip('/')}/v1/chat/completions",
         data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=LOCAL_LLM_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=cfg.local_llm_timeout) as resp:
         choice = json.loads(resp.read())["choices"][0]
     text = (choice["message"].get("content") or "").strip()
     if not text:
@@ -50,9 +46,11 @@ def _local(prompt: str) -> str:
 def _anthropic(prompt: str) -> str:
     import anthropic
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    cfg = get_settings()
+
+    client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
     msg = client.messages.create(
-        model=ANTHROPIC_MODEL,
+        model=cfg.anthropic_model,
         max_tokens=300,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -72,7 +70,7 @@ def _generate(prompt: str, *, local_only: bool = False) -> str:
             ) from e
         _log.warning("local LLM unavailable (%s), trying Anthropic Haiku", e)
 
-    if not ANTHROPIC_API_KEY:
+    if not get_settings().anthropic_api_key:
         raise DistillError("local LLM failed and ANTHROPIC_API_KEY is not set")
     try:
         return _anthropic(prompt)

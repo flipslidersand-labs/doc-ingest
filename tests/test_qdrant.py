@@ -8,12 +8,14 @@ import httpx
 import pytest
 
 import core.qdrant as q
+from core.config import get_settings
+from tests.conftest import override_settings
 
 
 def test_qdrant_api_key_none_when_unset(monkeypatch):
     """QDRANT_API_KEY resolves to None when env var is absent or empty."""
-    monkeypatch.setattr(q, "QDRANT_API_KEY", None)
-    assert q.QDRANT_API_KEY is None
+    override_settings(qdrant_api_key=None)
+    assert get_settings().qdrant_api_key is None
 
 
 # ---------------------------------------------------------------------------
@@ -436,11 +438,6 @@ class TestDeleteByIds:
         mock_client.delete.assert_called_once_with(
             collection_name="col", points_selector=["id1", "id2"]
         )
-
-
-# ---------------------------------------------------------------------------
-# Tests for #135: EMBED_BATCH must be validated at import time
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------

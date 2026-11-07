@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 import core.embedding as emb
+from tests.conftest import override_settings
 
 HIDDEN = 4
 
@@ -116,8 +117,8 @@ def test_embed_dispatches_to_onnx_in_batches(monkeypatch):
         sizes.append(len(batch))
         return [[0.0] * HIDDEN for _ in batch]
 
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "onnx_gpu")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 2)
+    override_settings(embed_backend="onnx_gpu")
+    override_settings(embed_batch=2)
     monkeypatch.setattr(emb, "_embed_batch_onnx", fake_onnx)
     monkeypatch.setattr(emb, "_embed_batch", lambda b, m: pytest.fail("HTTP path must not be used"))
     assert len(emb.embed(["a", "b", "c", "d", "e"])) == 5
@@ -148,14 +149,14 @@ def _install_fake_runtime(monkeypatch, providers):
 
 
 def test_init_requires_model_path(monkeypatch):
-    monkeypatch.setattr(emb, "ONNX_MODEL_PATH", "")
+    override_settings(onnx_model_path="")
     _install_fake_runtime(monkeypatch, ["CUDAExecutionProvider"])
     with pytest.raises(RuntimeError, match="ONNX_MODEL_PATH"):
         emb._onnx_init()
 
 
 def test_init_requests_cuda_then_cpu_and_stays_quiet_when_cuda_is_active(monkeypatch, caplog):
-    monkeypatch.setattr(emb, "ONNX_MODEL_PATH", "/m/model.onnx")
+    override_settings(onnx_model_path="/m/model.onnx")
     created = _install_fake_runtime(monkeypatch, ["CUDAExecutionProvider", "CPUExecutionProvider"])
     with caplog.at_level(logging.INFO, logger="core.embedding"):
         emb._onnx_init()
@@ -167,7 +168,7 @@ def test_init_requests_cuda_then_cpu_and_stays_quiet_when_cuda_is_active(monkeyp
 
 def test_init_warns_loudly_when_it_silently_fell_back_to_cpu(monkeypatch, caplog):
     """CUDA ライブラリ不足だと onnxruntime は黙って CPU に落ちる。気づけること。"""
-    monkeypatch.setattr(emb, "ONNX_MODEL_PATH", "/m/model.onnx")
+    override_settings(onnx_model_path="/m/model.onnx")
     _install_fake_runtime(monkeypatch, ["CPUExecutionProvider"])
     with caplog.at_level(logging.INFO, logger="core.embedding"):
         emb._onnx_init()
