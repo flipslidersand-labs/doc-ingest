@@ -9,31 +9,15 @@ import os
 import threading
 from typing import Literal
 
+from core.config import get_settings
 from core.retry import with_retry
 
 _log = logging.getLogger(__name__)
 
-EMBED_URL = os.getenv("EMBED_URL", "http://localhost:9092/embed/batch")
-# EMBED_FALLBACK_URL: secondary endpoint used when EMBED_URL is unreachable or returns 501.
-# Unset by default — when absent, behaviour is identical to before this change.
-# C案: EMBED_URL=dev-nodee:9093 (GPU primary), EMBED_FALLBACK_URL=MINIPC:9092 (INT8 fallback)
-EMBED_FALLBACK_URL = os.getenv("EMBED_FALLBACK_URL", "")
-EMBED_API_KEY = os.getenv("EMBED_API_KEY") or None  # None → no X-API-Key header sent
-EMBED_COLLECTION = os.getenv("EMBED_COLLECTION", "sessions")  # embedding-svc のモデルルーティング用
-EMBED_TIMEOUT = float(os.getenv("EMBED_TIMEOUT", "180"))  # CPU e5 のコールドロードを許容
-EMBED_BATCH = int(os.getenv("EMBED_BATCH", "16"))  # 1 POST あたりの最大テキスト数
-if EMBED_BATCH < 1:
-    # embed()'s range(0, len(texts), EMBED_BATCH) raises an opaque ValueError
-    # for 0 and silently returns an empty batch list for negative values
-    # (upsert() then zips 0 vectors against N points, dropping payloads
-    # silently) — fail loudly and immediately at import time instead (#135).
-    raise ValueError(f"EMBED_BATCH must be >= 1, got {EMBED_BATCH}")
 EMBED_RETRIES = 3
 
 # EMBED_BACKEND=onnx_gpu: bypass HTTP and infer locally with onnxruntime CUDA EP.
 # Requires: ONNX_MODEL_PATH, LD_LIBRARY_PATH with CUDA/cuDNN libs (see .env.example).
-EMBED_BACKEND = os.getenv("EMBED_BACKEND", "http")  # "http" | "onnx_gpu"
-ONNX_MODEL_PATH = os.getenv("ONNX_MODEL_PATH", "")
 # e5 は文書に "passage: "、検索クエリに "query: " を付けて学習されている。HTTP embedding-svc は
 # mode="index" / "search" でこれを付け替えてから推論するので、ローカル ONNX 経路も同じ表で揃える。
 # 付けないと同じテキストでも cosine が 0.96〜0.99 ずれ、HTTP と混在すると検索順位が変わる (#156 で実測)。
@@ -58,12 +42,13 @@ def _onnx_init() -> None:
     import onnxruntime as ort
     from transformers import AutoTokenizer
 
-    if not ONNX_MODEL_PATH:
+    onnx_model_path = get_settings().onnx_model_path
+    if not onnx_model_path:
         raise RuntimeError("ONNX_MODEL_PATH is not set. Cannot use EMBED_BACKEND=onnx_gpu.")
-    model_dir = os.path.dirname(os.path.abspath(ONNX_MODEL_PATH))
-    _log.info("Loading ONNX model from %s …", ONNX_MODEL_PATH)
+    model_dir = os.path.dirname(os.path.abspath(onnx_model_path))
+    _log.info("Loading ONNX model from %s …", onnx_model_path)
     _onnx_sess = ort.InferenceSession(
-        ONNX_MODEL_PATH,
+        onnx_model_path,
         providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
     )
     _onnx_input_names = frozenset(i.name for i in _onnx_sess.get_inputs())
@@ -115,11 +100,12 @@ def _post_embed(url: str, texts: list[str], mode: Mode = "index") -> list[list[f
     """POST to *url* and return vectors. Raises on network error or non-2xx."""
     import httpx
 
+    cfg = get_settings()
     resp = httpx.post(
         url,
-        json={"texts": texts, "collection": EMBED_COLLECTION, "mode": mode},
-        headers={"X-API-Key": EMBED_API_KEY} if EMBED_API_KEY else {},
-        timeout=EMBED_TIMEOUT,
+        json={"texts": texts, "collection": cfg.embed_collection, "mode": mode},
+        headers={"X-API-Key": cfg.embed_api_key} if cfg.embed_api_key else {},
+        timeout=cfg.embed_timeout,
     )
     resp.raise_for_status()
     return resp.json()["vectors"]
@@ -139,7 +125,9 @@ def _embed_batch(texts: list[str], mode: Mode = "index") -> list[list[float]]:
 
     import httpx
 
-    urls = [u for u in [EMBED_URL, EMBED_FALLBACK_URL] if u]
+    cfg = get_settings()
+
+    urls = [u for u in [cfg.embed_url, cfg.embed_fallback_url] if u]
     last_exc: Exception = RuntimeError("no EMBED_URL configured")
     for url in urls:
 
@@ -168,7 +156,7 @@ def _embed_batch(texts: list[str], mode: Mode = "index") -> list[list[float]]:
             _log.warning("embed: %s unreachable (%s), trying fallback", url, type(e).__name__)
             last_exc = e
         else:
-            if url != EMBED_URL:
+            if url != cfg.embed_url:
                 _log.warning("embed: using fallback %s (primary unavailable)", url)
             return vectors
     raise last_exc
@@ -181,10 +169,11 @@ def embed(texts: list[str], mode: Mode = "index") -> list[list[float]]:
     """
     if mode not in E5_PREFIX:
         raise ValueError(f"mode must be one of {sorted(E5_PREFIX)}, got {mode!r}")
-    batch_fn = _embed_batch_onnx if EMBED_BACKEND == "onnx_gpu" else _embed_batch
+    cfg = get_settings()
+    batch_fn = _embed_batch_onnx if cfg.embed_backend == "onnx_gpu" else _embed_batch
     vectors: list[list[float]] = []
-    for i in range(0, len(texts), EMBED_BATCH):
-        batch = texts[i : i + EMBED_BATCH]
+    for i in range(0, len(texts), cfg.embed_batch):
+        batch = texts[i : i + cfg.embed_batch]
         got = batch_fn(batch, mode)
         if len(got) != len(batch):
             # 少なく返ると、呼び出し側の zip が後ろの文書を黙って落とす (ペイロードの欠損)
