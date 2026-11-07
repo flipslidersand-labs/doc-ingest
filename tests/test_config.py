@@ -162,3 +162,11 @@ def test_non_float_error_names_the_variable():
 def test_size_limits_below_one_rejected(name, value):
     with pytest.raises(ValueError, match=name):
         load_settings({name: value})
+
+
+def test_doc_ingest_base_dir_maps_from_env():
+    assert load_settings({"DOC_INGEST_BASE_DIR": "/x"}).doc_ingest_base_dir == "/x"
+
+
+def test_doc_ingest_base_dir_defaults_to_empty():
+    assert load_settings({}).doc_ingest_base_dir == ""
