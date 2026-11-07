@@ -144,3 +144,21 @@ def test_get_settings_loads_once_under_concurrency(monkeypatch):
     for t in threads:
         t.join()
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("name", ["EMBED_BATCH", "SYNC_WORKERS", "MAX_LOCAL_BYTES"])
+def test_non_integer_error_names_the_variable(name):
+    with pytest.raises(ValueError, match=name):
+        load_settings({name: "abc"})
+
+
+def test_non_float_error_names_the_variable():
+    with pytest.raises(ValueError, match="EMBED_TIMEOUT"):
+        load_settings({"EMBED_TIMEOUT": "abc"})
+
+
+@pytest.mark.parametrize("name", ["MAX_CHUNKS_PER_DOC", "MAX_LOCAL_BYTES", "MAX_DOWNLOAD_BYTES"])
+@pytest.mark.parametrize("value", ["0", "-5"])
+def test_size_limits_below_one_rejected(name, value):
+    with pytest.raises(ValueError, match=name):
+        load_settings({name: value})

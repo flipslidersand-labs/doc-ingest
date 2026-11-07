@@ -62,6 +62,30 @@ class Settings:
             raise ValueError(f"DISTILL_WORKERS must be >= 1, got {self.distill_workers}")
         if self.sync_workers < 1:
             raise ValueError(f"SYNC_WORKERS must be >= 1, got {self.sync_workers}")
+        # 0 以下だと全チャンク/全ファイル/全ダウンロードを拒否してしまう。
+        for env_name, value in (
+            ("MAX_CHUNKS_PER_DOC", self.max_chunks_per_doc),
+            ("MAX_LOCAL_BYTES", self.max_local_bytes),
+            ("MAX_DOWNLOAD_BYTES", self.max_download_bytes),
+        ):
+            if value < 1:
+                raise ValueError(f"{env_name} must be >= 1, got {value}")
+
+
+def _int(env: Mapping[str, str], name: str, default: str | int) -> int:
+    raw = env.get(name, str(default))
+    try:
+        return int(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be an integer, got {raw!r}") from None
+
+
+def _float(env: Mapping[str, str], name: str, default: str) -> float:
+    raw = env.get(name, default)
+    try:
+        return float(raw)
+    except ValueError:
+        raise ValueError(f"{name} must be a number, got {raw!r}") from None
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -79,24 +103,24 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         embed_fallback_url=s("EMBED_FALLBACK_URL", d.embed_fallback_url),
         embed_api_key=env.get("EMBED_API_KEY") or None,
         embed_collection=s("EMBED_COLLECTION", d.embed_collection),
-        embed_timeout=float(s("EMBED_TIMEOUT", "180")),
-        embed_batch=int(s("EMBED_BATCH", "16")),
+        embed_timeout=_float(env, "EMBED_TIMEOUT", "180"),
+        embed_batch=_int(env, "EMBED_BATCH", "16"),
         embed_backend=s("EMBED_BACKEND", d.embed_backend),
         onnx_model_path=s("ONNX_MODEL_PATH", d.onnx_model_path),
         qdrant_url=s("QDRANT_URL", d.qdrant_url),
         qdrant_api_key=env.get("QDRANT_API_KEY") or None,
         local_llm_url=s("LOCAL_LLM_URL", d.local_llm_url),
         local_llm_model=s("LOCAL_LLM_MODEL", d.local_llm_model),
-        local_llm_timeout=float(s("LOCAL_LLM_TIMEOUT", "120")),
-        local_llm_max_tokens=int(s("LOCAL_LLM_MAX_TOKENS", "1500")),
+        local_llm_timeout=_float(env, "LOCAL_LLM_TIMEOUT", "120"),
+        local_llm_max_tokens=_int(env, "LOCAL_LLM_MAX_TOKENS", "1500"),
         anthropic_api_key=s("ANTHROPIC_API_KEY", d.anthropic_api_key),
         anthropic_model=s("ANTHROPIC_MODEL", d.anthropic_model),
-        distill_workers=int(s("DISTILL_WORKERS", "1")),
-        sync_workers=int(s("SYNC_WORKERS", "4")),
+        distill_workers=_int(env, "DISTILL_WORKERS", "1"),
+        sync_workers=_int(env, "SYNC_WORKERS", "4"),
         discord_webhook_url=s("DISCORD_WEBHOOK_URL", d.discord_webhook_url),
-        max_chunks_per_doc=int(s("MAX_CHUNKS_PER_DOC", str(d.max_chunks_per_doc))),
-        max_local_bytes=int(s("MAX_LOCAL_BYTES", str(d.max_local_bytes))),
-        max_download_bytes=int(s("MAX_DOWNLOAD_BYTES", str(d.max_download_bytes))),
+        max_chunks_per_doc=_int(env, "MAX_CHUNKS_PER_DOC", str(d.max_chunks_per_doc)),
+        max_local_bytes=_int(env, "MAX_LOCAL_BYTES", str(d.max_local_bytes)),
+        max_download_bytes=_int(env, "MAX_DOWNLOAD_BYTES", str(d.max_download_bytes)),
     )
 
 
