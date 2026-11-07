@@ -1,7 +1,6 @@
 """URL safety guard: reject non-HTTPS and private/reserved addresses."""
 
 import ipaddress
-import os
 import socket
 from collections.abc import Iterator
 from typing import BinaryIO
@@ -10,9 +9,9 @@ from urllib.parse import urljoin, urlparse
 import httpcore
 import httpx
 
+from core.config import get_settings
+
 MAX_REDIRECTS = 5
-# safe_download の既定の上限 (展開後のバイト数)。巨大な応答でディスク/メモリを埋めさせない。
-MAX_DOWNLOAD_BYTES = int(os.getenv("MAX_DOWNLOAD_BYTES", str(50 * 1024 * 1024)))
 
 # NAT64 (RFC 6052 / 8215): 内部の IPv4 を埋め込んで到達できる。is_global が True を返すので別に拒否する。
 _NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
@@ -153,14 +152,14 @@ def safe_get(
     request to a private address or metadata endpoint (#149). This calls
     ``assert_safe_url`` on every redirect hop before following it.
 
-    The body is streamed and refused past *max_bytes* (default :data:`MAX_DOWNLOAD_BYTES`,
+    The body is streamed and refused past *max_bytes* (default ``MAX_DOWNLOAD_BYTES``,
     decoded size) instead of being read whole into memory (#224). Raises
     :class:`UnsafeURLError` when it is exceeded. Non-2xx responses are returned, not raised.
 
     Does not itself validate *url* — call ``assert_safe_url(url)`` first if
     *url* is not already trusted.
     """
-    limit = MAX_DOWNLOAD_BYTES if max_bytes is None else max_bytes
+    limit = get_settings().max_download_bytes if max_bytes is None else max_bytes
     current = url
     for _ in range(max_redirects):
         with (
@@ -196,12 +195,12 @@ def safe_download(
 
     Unlike :func:`safe_get` this validates the **first** URL too (it is the trust boundary for
     user-supplied URLs), re-validates every redirect hop, and stops once more than *max_bytes*
-    (default :data:`MAX_DOWNLOAD_BYTES`) have been received — checked against ``Content-Length``
+    (default ``MAX_DOWNLOAD_BYTES``) have been received — checked against ``Content-Length``
     up front and against the decoded stream, so a missing or lying header cannot bypass it.
     Raises :class:`UnsafeURLError` for a blocked/oversized/too-redirected URL and lets
     ``httpx.HTTPStatusError`` propagate for non-2xx.
     """
-    limit = MAX_DOWNLOAD_BYTES if max_bytes is None else max_bytes
+    limit = get_settings().max_download_bytes if max_bytes is None else max_bytes
     current = url
     assert_safe_url(current)
     for _ in range(max_redirects):

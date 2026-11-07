@@ -8,6 +8,7 @@ import pytest
 import respx
 
 from ingest.external import _notify_discord
+from tests.conftest import override_settings
 
 WEBHOOK = "https://discord.example.invalid/api/webhooks/0000/dummy-token"
 TS = "2026-01-01 00:00 UTC"
@@ -15,7 +16,7 @@ TS = "2026-01-01 00:00 UTC"
 
 @pytest.fixture
 def webhook(monkeypatch):
-    monkeypatch.setenv("DISCORD_WEBHOOK_URL", WEBHOOK)
+    override_settings(discord_webhook_url=WEBHOOK)
 
 
 def _content(route) -> str:
@@ -26,10 +27,8 @@ class TestNoWebhook:
     @respx.mock
     @pytest.mark.parametrize("unset", [True, False])
     def test_no_request_when_unset_or_empty(self, monkeypatch, unset):
-        if unset:
-            monkeypatch.delenv("DISCORD_WEBHOOK_URL", raising=False)
-        else:
-            monkeypatch.setenv("DISCORD_WEBHOOK_URL", "")
+        if not unset:
+            override_settings(discord_webhook_url="")
         route = respx.post(url__regex=r".*").mock(return_value=httpx.Response(204))
         _notify_discord(1, 2, [], [], TS)
         assert not route.called
@@ -132,7 +131,7 @@ class TestNotifyFailureNeverLogsTheWebhook:
 
     @pytest.fixture(autouse=True)
     def _url(self, monkeypatch):
-        monkeypatch.setenv("DISCORD_WEBHOOK_URL", self.SECRET_URL)
+        override_settings(discord_webhook_url=self.SECRET_URL)
 
     @respx.mock
     @pytest.mark.parametrize("status", [400, 401, 403, 404, 429, 500, 502])
