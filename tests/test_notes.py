@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from ingest.notes import _is_note
+from tests.conftest import override_settings
 
 
 class TestIsNote:
@@ -239,7 +240,7 @@ class TestExplicitFile:
         base.mkdir()
         outside = tmp_path / "outside.md"
         outside.write_text("## S\n" + "x" * 100)
-        monkeypatch.setenv("DOC_INGEST_BASE_DIR", str(base))
+        override_settings(doc_ingest_base_dir=str(base))
         monkeypatch.chdir(base)
         mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
         upsert = mocker.patch("core.qdrant.upsert")
