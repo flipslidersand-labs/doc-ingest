@@ -8,6 +8,7 @@ import respx
 
 from core import qdrant
 from ingest.external import FetchResult, _apply_result, _Summary
+from tests.conftest import override_settings
 
 SOURCES = [
     {
@@ -143,7 +144,7 @@ class TestSyncExternal:
             return_value=httpx.Response(200, text=content, headers={"etag": '"abc"'})
         )
         notify = mocker.patch("ingest.external._notify_discord")
-        mocker.patch.dict("os.environ", {"DISCORD_WEBHOOK_URL": "https://discord.example/hook"})
+        override_settings(discord_webhook_url="https://discord.example/hook")
         from ingest.external import sync_external
 
         sync_external()
@@ -416,7 +417,7 @@ class TestExternalChunkLimit:
         respx.get("https://example.com/big").mock(
             return_value=httpx.Response(200, text=big, headers={"content-type": "text/markdown"})
         )
-        mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 3)
+        override_settings(max_chunks_per_doc=3)
         mocker.patch("ingest.external._load_sources", return_value=sources)
         mocker.patch("ingest.external._save_sources")
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])

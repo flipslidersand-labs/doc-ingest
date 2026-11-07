@@ -4,6 +4,8 @@ import httpx
 import pytest
 import respx
 
+from tests.conftest import override_settings
+
 FAKE_TEXT = "Introduction\n\n" + "word " * 200
 
 
@@ -361,7 +363,7 @@ def test_pdf_chunks_over_the_cap_are_not_distilled(mocker, tmp_path):
     pdf = tmp_path / "long.pdf"
     pdf.write_bytes(b"%PDF-fake")
     text = "\n\n".join(f"paragraph {i} " + "word " * 250 for i in range(10))
-    mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 2)
+    override_settings(max_chunks_per_doc=2)
     mocker.patch("ingest.pdf._extract_text_from_path", return_value=text)
     distill = mocker.patch("ingest.pdf.distill_text", side_effect=lambda t, p, **kw: t)
     mocker.patch("core.qdrant.ids_by_payload", return_value=[])
