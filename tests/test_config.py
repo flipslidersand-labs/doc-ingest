@@ -6,6 +6,11 @@ from core import config
 from core.config import Settings, load_settings
 
 
+@pytest.fixture(autouse=True)
+def _no_dotenv(monkeypatch):
+    monkeypatch.setattr(config, "load_dotenv", lambda *a, **k: None)
+
+
 def test_defaults_when_env_empty():
     s = load_settings({})
     assert s == Settings()
@@ -65,3 +70,31 @@ def test_get_settings_loads_once_and_caches(monkeypatch):
     assert first.embed_batch == 5
     monkeypatch.setenv("EMBED_BATCH", "6")
     assert config.get_settings() is first
+
+
+def test_remaining_fields_read_from_environment():
+    s = load_settings(
+        {
+            "EMBED_FALLBACK_URL": "http://fb:9092/embed/batch",
+            "EMBED_COLLECTION": "docs",
+            "LOCAL_LLM_URL": "http://llm:8080",
+            "LOCAL_LLM_MODEL": "gemma",
+            "LOCAL_LLM_TIMEOUT": "9.5",
+            "ANTHROPIC_MODEL": "claude-x",
+        }
+    )
+    assert s.embed_fallback_url == "http://fb:9092/embed/batch"
+    assert s.embed_collection == "docs"
+    assert s.local_llm_url == "http://llm:8080"
+    assert s.local_llm_model == "gemma"
+    assert s.local_llm_timeout == 9.5
+    assert s.anthropic_model == "claude-x"
+
+
+def test_repr_hides_api_keys():
+    values = ("alpha-one", "beta-two", "gamma-three")
+    s = Settings(**dict(zip(("embed_api_key", "qdrant_api_key", "anthropic_api_key"), values)))
+    r = repr(s)
+    for v in values:
+        assert v not in r
+    assert "embed_url" in r
