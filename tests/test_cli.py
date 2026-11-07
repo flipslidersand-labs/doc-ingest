@@ -436,3 +436,25 @@ class TestStartupConfig:
         import importlib.util
 
         assert importlib.util.find_spec("core.env") is None
+
+
+class TestHelpWithInvalidConfig:
+    """不正な設定でもサブコマンドの --help は出せる (group callback が先に走るため)。"""
+
+    def _bad(self, monkeypatch):
+        from core import config
+
+        def bad():
+            raise ValueError("EMBED_BATCH must be >= 1, got 0")
+
+        monkeypatch.setattr(config, "load_settings", bad)
+        config._settings = None
+
+    def test_subcommand_help_still_works(self, monkeypatch):
+        self._bad(monkeypatch)
+        for cmd in ("list", "sync", "search", "arxiv"):
+            assert CliRunner().invoke(main, [cmd, "--help"]).exit_code == 0, cmd
+
+    def test_non_help_invocation_still_fails(self, monkeypatch):
+        self._bad(monkeypatch)
+        assert CliRunner().invoke(main, ["list"]).exit_code != 0
