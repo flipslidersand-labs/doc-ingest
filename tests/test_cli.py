@@ -4,6 +4,7 @@ from click.testing import CliRunner
 
 from cli import main
 from core.url_guard import UnsafeURLError
+from tests.conftest import override_settings
 
 
 class TestHelp:
@@ -373,7 +374,7 @@ class TestDesignCommand:
         base = tmp_path / "base"
         base.mkdir()
         monkeypatch.chdir(base)
-        monkeypatch.delenv("DOC_INGEST_BASE_DIR", raising=False)
+        override_settings(doc_ingest_base_dir="")
         mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
         result = CliRunner().invoke(main, ["design", "../outside.md"])
         assert result.exit_code == 1
@@ -410,7 +411,7 @@ class TestNotesCommand:
         base = tmp_path / "base"
         base.mkdir()
         monkeypatch.chdir(base)
-        monkeypatch.delenv("DOC_INGEST_BASE_DIR", raising=False)
+        override_settings(doc_ingest_base_dir="")
         mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
         result = CliRunner().invoke(main, ["notes", "../outside.md"])
         assert result.exit_code == 1

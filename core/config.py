@@ -51,6 +51,8 @@ class Settings:
     max_local_bytes: int = 10 * 1024 * 1024
     # safe_download の既定の上限 (展開後のバイト数)。巨大な応答でディスク/メモリを埋めさせない。
     max_download_bytes: int = 50 * 1024 * 1024
+    # local file ingestion root (core/path_guard.py). Empty -> cwd at call time.
+    doc_ingest_base_dir: str = ""
 
     def __post_init__(self) -> None:
         if self.embed_batch < 1:
@@ -121,6 +123,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         max_chunks_per_doc=_int(env, "MAX_CHUNKS_PER_DOC", str(d.max_chunks_per_doc)),
         max_local_bytes=_int(env, "MAX_LOCAL_BYTES", str(d.max_local_bytes)),
         max_download_bytes=_int(env, "MAX_DOWNLOAD_BYTES", str(d.max_download_bytes)),
+        doc_ingest_base_dir=s("DOC_INGEST_BASE_DIR", d.doc_ingest_base_dir),
     )
 
 
