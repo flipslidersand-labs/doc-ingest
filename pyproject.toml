@@ -35,6 +35,8 @@ onnx-gpu = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# スレッド内の未処理例外を警告止まりにせず失敗にする (#284)
+filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
 
 [tool.coverage.run]
 source = ["core", "ingest", "cli"]
