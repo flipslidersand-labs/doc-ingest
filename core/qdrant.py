@@ -1,7 +1,6 @@
 """Thin Qdrant client wrapper. Vectors come from core.embedding.embed()."""
 
 import logging
-import os
 import threading
 from collections.abc import Iterable
 from typing import Any
@@ -10,12 +9,11 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
+from core.config import get_settings
 from core.embedding import embed
 
 _log = logging.getLogger(__name__)
 
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None  # None → unauthenticated (dev/localhost)
 VECTOR_SIZE = 768  # multilingual-e5-base
 
 _client: QdrantClient | None = None
@@ -33,7 +31,8 @@ def client() -> QdrantClient:
     if _client is None:  # fast path (no lock)
         with _client_lock:
             if _client is None:  # double-checked locking
-                _client = QdrantClient(url=QDRANT_URL, api_key=QDRANT_API_KEY)
+                cfg = get_settings()
+                _client = QdrantClient(url=cfg.qdrant_url, api_key=cfg.qdrant_api_key)
     return _client
 
 

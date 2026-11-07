@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from core import distiller
+from core.config import get_settings
+from tests.conftest import override_settings
 
 
 def _mock_urlopen(response_text: str, finish: str = "stop"):
@@ -26,13 +28,13 @@ class TestGenerate:
 
     def test_local_failure_no_api_key_raises(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
-        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "")
+        override_settings(anthropic_api_key="")
         with pytest.raises(distiller.DistillError):
             distiller._generate("prompt")
 
     def test_local_failure_with_api_key_tries_anthropic(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
-        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "sk-fake")
+        override_settings(anthropic_api_key="sk-fake")
         mock_anthropic = mocker.patch.object(distiller, "_anthropic", return_value="haiku result")
         out = distiller._generate("prompt")
         mock_anthropic.assert_called_once_with("prompt")
@@ -40,7 +42,7 @@ class TestGenerate:
 
     def test_both_fail_raises_and_never_returns_source_text(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
-        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "sk-fake")
+        override_settings(anthropic_api_key="sk-fake")
         mocker.patch.object(distiller, "_anthropic", side_effect=Exception("api error"))
         with pytest.raises(distiller.DistillError):
             distiller._generate("prompt")
@@ -51,7 +53,7 @@ class TestGenerate:
 
     def test_local_only_never_calls_anthropic_even_with_api_key(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
-        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "sk-fake")
+        override_settings(anthropic_api_key="sk-fake")
         mock_anthropic = mocker.patch.object(distiller, "_anthropic", return_value="LEAKED")
         with pytest.raises(distiller.DistillError):
             distiller._generate("private prompt", local_only=True)
@@ -65,7 +67,7 @@ class TestGenerate:
     def test_memory_error_not_swallowed_anthropic(self, mocker):
         """MemoryError は Exception のサブクラスなので、明示的に再送出しないと DistillError に化ける。"""
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
-        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "sk-fake")
+        override_settings(anthropic_api_key="sk-fake")
         mocker.patch.object(distiller, "_anthropic", side_effect=MemoryError("oom"))
         with pytest.raises(MemoryError):
             distiller._generate("prompt")
@@ -76,14 +78,14 @@ class TestGenerate:
         with pytest.raises(SystemExit):
             distiller._generate("prompt")
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
-        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "sk-fake")
+        override_settings(anthropic_api_key="sk-fake")
         mocker.patch.object(distiller, "_anthropic", side_effect=SystemExit(1))
         with pytest.raises(SystemExit):
             distiller._generate("prompt")
 
     def test_keyboard_interrupt_not_swallowed_anthropic(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
-        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "sk-fake")
+        override_settings(anthropic_api_key="sk-fake")
         mocker.patch.object(distiller, "_anthropic", side_effect=KeyboardInterrupt)
         with pytest.raises(KeyboardInterrupt):
             distiller._generate("prompt")
@@ -94,20 +96,20 @@ class TestLocalRequest:
         return mocker.patch("urllib.request.urlopen", return_value=_mock_urlopen(text, finish))
 
     def test_posts_openai_chat_completions(self, mocker):
-        mocker.patch.object(distiller, "LOCAL_LLM_URL", "http://h:18080/")
-        mocker.patch.object(distiller, "LOCAL_LLM_MODEL", "")
+        override_settings(local_llm_url="http://h:18080/")
+        override_settings(local_llm_model="")
         m = self._capture(mocker, "要約")
         assert distiller._local("hello") == "要約"
         req = m.call_args.args[0]
         assert req.full_url == "http://h:18080/v1/chat/completions"
         body = json.loads(req.data)
         assert body["messages"] == [{"role": "user", "content": "hello"}]
-        assert body["max_tokens"] == distiller.LOCAL_LLM_MAX_TOKENS >= 1500
+        assert body["max_tokens"] == get_settings().local_llm_max_tokens >= 1500
         assert body["temperature"] == 0 and body["stream"] is False
         assert "model" not in body
 
     def test_model_is_sent_when_configured(self, mocker):
-        mocker.patch.object(distiller, "LOCAL_LLM_MODEL", "gemma-4-12b")
+        override_settings(local_llm_model="gemma-4-12b")
         m = self._capture(mocker)
         distiller._local("p")
         assert json.loads(m.call_args.args[0].data)["model"] == "gemma-4-12b"
@@ -119,7 +121,7 @@ class TestLocalRequest:
 
     def test_empty_content_falls_to_anthropic_then_distill_error(self, mocker):
         self._capture(mocker, "", finish="length")
-        mocker.patch.object(distiller, "ANTHROPIC_API_KEY", "")
+        override_settings(anthropic_api_key="")
         with pytest.raises(distiller.DistillError):
             distiller._generate("p")
 
