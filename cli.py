@@ -4,8 +4,7 @@ import logging
 
 import click
 
-# 環境変数を import 時に読むモジュールがあるため、.env の読み込み(副作用 import)を最初に行う
-import core.env  # noqa: F401
+from core.config import get_settings
 from core.schema import Collection, collection_names, payload_origin
 from core.url_guard import UnsafeURLError, assert_safe_url
 from ingest.arxiv import ingest_arxiv
@@ -33,6 +32,11 @@ def setup_logging(verbose: bool) -> None:
 @click.option("--verbose", "-v", is_flag=True, help="Enable DEBUG logging")
 def main(verbose: bool):
     setup_logging(verbose)
+    # .env を読み、設定エラー (EMBED_BATCH<1 等) を初回利用ではなく起動時に出す。
+    try:
+        get_settings()
+    except ValueError as e:
+        raise click.ClickException(f"invalid configuration: {e}") from e
 
 
 @main.command()

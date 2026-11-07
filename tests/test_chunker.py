@@ -6,6 +6,7 @@ import pytest
 import tiktoken
 
 from core.chunker import chunk_markdown, chunk_text
+from tests.conftest import override_settings
 
 _enc = tiktoken.get_encoding("cl100k_base")
 
@@ -194,14 +195,15 @@ class TestCapChunks:
     """1 文書のチャンク数に上限をかける (#224)。"""
 
     def test_default_cap_is_1000(self):
-        from core.chunker import MAX_CHUNKS_PER_DOC
+        from core.config import load_settings
 
-        assert MAX_CHUNKS_PER_DOC == 1000
+        assert load_settings({}).max_chunks_per_doc == 1000
+        assert load_settings({"MAX_CHUNKS_PER_DOC": "7"}).max_chunks_per_doc == 7
 
     def test_exactly_at_the_cap_is_returned_unchanged_without_a_warning(self, mocker, caplog):
         from core.chunker import cap_chunks
 
-        mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 3)
+        override_settings(max_chunks_per_doc=3)
         chunks = [{"chunk_index": i} for i in range(3)]
 
         with caplog.at_level("WARNING"):
@@ -212,7 +214,7 @@ class TestCapChunks:
     def test_over_the_cap_keeps_the_first_chunks_and_warns(self, mocker, caplog):
         from core.chunker import cap_chunks
 
-        mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 3)
+        override_settings(max_chunks_per_doc=3)
         chunks = [{"chunk_index": i} for i in range(10)]
 
         with caplog.at_level("WARNING"):

@@ -417,3 +417,22 @@ class TestNotesCommand:
         assert isinstance(result.exception, PermissionError)
         assert "outside the allowed base directory" in str(result.exception)
         assert result.output == ""
+
+
+class TestStartupConfig:
+    def test_invalid_config_fails_at_startup(self, monkeypatch):
+        from core import config
+
+        def bad():
+            raise ValueError("EMBED_BATCH must be >= 1, got 0")
+
+        monkeypatch.setattr(config, "load_settings", bad)
+        config._settings = None
+        result = CliRunner().invoke(main, ["list"])
+        assert result.exit_code != 0
+        assert "EMBED_BATCH" in result.output
+
+    def test_core_env_module_removed(self):
+        import importlib.util
+
+        assert importlib.util.find_spec("core.env") is None

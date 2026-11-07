@@ -7,6 +7,7 @@ import pytest
 from core.distiller import DistillError
 from core.ids import make_id
 from core.ingest_pipeline import ingest_markdown_files
+from tests.conftest import override_settings
 
 
 def _run(path, **kw):
@@ -117,16 +118,10 @@ def test_all_success_returns_zero(mocker, tmp_path):
 
 def test_distill_workers_default_is_serial(monkeypatch):
     """llama-server は長い入力の並列で全滅する(n_ctx 共有)ので既定は直列。"""
-    import importlib
+    from core.config import load_settings
 
-    import core.ingest_pipeline as mod
-
-    monkeypatch.delenv("DISTILL_WORKERS", raising=False)
-    assert importlib.reload(mod).DISTILL_WORKERS == 1
-    monkeypatch.setenv("DISTILL_WORKERS", "3")
-    assert importlib.reload(mod).DISTILL_WORKERS == 3
-    monkeypatch.delenv("DISTILL_WORKERS")
-    importlib.reload(mod)
+    assert load_settings({}).distill_workers == 1
+    assert load_settings({"DISTILL_WORKERS": "3"}).distill_workers == 3
 
 
 def _git_repo(parent, name):
@@ -370,7 +365,7 @@ class TestSizeAndChunkLimits:
     def test_a_file_over_the_byte_limit_is_skipped_without_deleting_points(self, mocker, tmp_path):
         md = tmp_path / "huge.md"
         md.write_text("## S\n" + "content " * 50)
-        mocker.patch("core.ingest_pipeline.MAX_LOCAL_BYTES", 10)
+        override_settings(max_local_bytes=10)
         mocker.patch("core.qdrant.ids_by_payload", return_value=["old"])
         mock_upsert = mocker.patch("core.qdrant.upsert")
         mock_delete = mocker.patch("core.qdrant.delete_by_ids")
@@ -385,14 +380,15 @@ class TestSizeAndChunkLimits:
         mock_delete.assert_not_called()
 
     def test_default_byte_limit_is_10_mib(self):
-        from core.ingest_pipeline import MAX_LOCAL_BYTES
+        from core.config import load_settings
 
-        assert MAX_LOCAL_BYTES == 10 * 1024 * 1024
+        assert load_settings({}).max_local_bytes == 10 * 1024 * 1024
+        assert load_settings({"MAX_LOCAL_BYTES": "5"}).max_local_bytes == 5
 
     def test_a_file_exactly_at_the_byte_limit_is_ingested(self, mocker, tmp_path):
         md = tmp_path / "edge.md"
         md.write_text("## S\n" + "content " * 20)
-        mocker.patch("core.ingest_pipeline.MAX_LOCAL_BYTES", md.stat().st_size)
+        override_settings(max_local_bytes=md.stat().st_size)
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mock_upsert = mocker.patch("core.qdrant.upsert")
         mocker.patch("core.qdrant.delete_by_ids")
@@ -404,7 +400,7 @@ class TestSizeAndChunkLimits:
     def test_chunks_over_the_cap_are_not_distilled(self, mocker, tmp_path):
         md = tmp_path / "many.md"
         md.write_text("".join(f"## S{i}\n" + "content " * 20 + "\n" for i in range(8)))
-        mocker.patch("core.chunker.MAX_CHUNKS_PER_DOC", 3)
+        override_settings(max_chunks_per_doc=3)
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mock_upsert = mocker.patch("core.qdrant.upsert")
         mocker.patch("core.qdrant.delete_by_ids")
