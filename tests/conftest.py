@@ -4,20 +4,15 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _allow_any_base_dir(monkeypatch):
-    """Set DOC_INGEST_BASE_DIR=/ so path_guard allows tmp_path and other
-    arbitrary paths used in tests without requiring real project files."""
-    monkeypatch.setenv("DOC_INGEST_BASE_DIR", "/")
-
-
-@pytest.fixture(autouse=True)
 def _reset_settings():
     """Drop any cached/overridden Settings so tests never leak config into each other."""
     from core import config
 
     # Defaults only: never go through load_dotenv(), which would pull the developer's
     # real .env into os.environ for the whole process.
-    config._settings = config.Settings()
+    # doc_ingest_base_dir="/" lets path_guard allow tmp_path and other arbitrary paths
+    # without requiring real project files; tests of the guard itself override it.
+    config._settings = config.Settings(doc_ingest_base_dir="/")
     yield
     config._settings = config.Settings()
 

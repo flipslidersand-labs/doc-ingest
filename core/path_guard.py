@@ -7,13 +7,14 @@ Resolves a candidate path and verifies it lives inside *allowed_base*
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
+from core.config import get_settings
 
 
 def _allowed_base() -> Path:
     """Return the resolved base directory for file access."""
-    env = os.environ.get("DOC_INGEST_BASE_DIR")
+    env = get_settings().doc_ingest_base_dir
     if env:
         return Path(env).resolve()
     return Path.cwd().resolve()
@@ -27,8 +28,8 @@ def assert_safe_path(path: str | Path, base: Path | None = None) -> Path:
     path:
         The candidate file path supplied by the caller.
     base:
-        Allowed base directory.  Defaults to ``DOC_INGEST_BASE_DIR`` env var
-        or ``Path.cwd()`` when not provided.
+        Allowed base directory.  Defaults to ``Settings.doc_ingest_base_dir``
+        (env ``DOC_INGEST_BASE_DIR``) or ``Path.cwd()`` when not provided.
 
     Returns
     -------
