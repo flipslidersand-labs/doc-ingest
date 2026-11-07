@@ -3,11 +3,11 @@
 payload キーの改名はしない。読み出し側は旧キー(source_url / file_path / arxiv_id)を併記する。
 """
 
-from enum import Enum
+from enum import StrEnum
 from typing import TypedDict
 
 
-class Collection(str, Enum):
+class Collection(StrEnum):
     EXTERNAL_DOCS = "external-docs"
     RESEARCH = "research"
     DESIGN = "design"
@@ -37,6 +37,7 @@ _ORIGIN_KEYS = ("origin", "source_url", "file_path", "arxiv_id")
 
 
 def payload_origin(payload: dict) -> str:
+    """出典(origin)は取り込み元の URL かパス。新キー優先で旧キーにフォールバックする。"""
     for k in _ORIGIN_KEYS:
         v = payload.get(k)
         if v:
