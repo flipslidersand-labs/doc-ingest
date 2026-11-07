@@ -1,5 +1,6 @@
 """Tests for core/qdrant.py embed batching, retry, and auth handling."""
 
+import socket
 import threading
 import time
 from unittest.mock import MagicMock
@@ -15,6 +16,18 @@ from tests.conftest import override_settings
 @pytest.fixture(autouse=True)
 def _pin_qdrant_settings():
     override_settings(qdrant_url="http://localhost:6333", qdrant_api_key=None)
+
+
+@pytest.fixture(autouse=True)
+def _forbid_network(monkeypatch):
+    """#281: このファイルのテストは実ネットワーク (localhost:6333 含む) に出ない。
+    ソケット接続が発生したら失敗させる。"""
+
+    def _blocked(self, *args, **kwargs):
+        pytest.fail(f"network access is forbidden in test_qdrant.py: connect{args}")
+
+    monkeypatch.setattr(socket.socket, "connect", _blocked)
+    monkeypatch.setattr(socket.socket, "connect_ex", _blocked)
 
 
 def test_qdrant_api_key_none_when_unset(monkeypatch):
@@ -38,14 +51,15 @@ def test_client_singleton_threadsafe(monkeypatch):
     monkeypatch.setattr(q, "_client", None)
 
     created = []
-    original_init = q.QdrantClient.__init__
 
-    def slow_init(self, *args, **kwargs):
-        time.sleep(0.05)  # simulate slow network handshake
-        original_init(self, *args, **kwargs)
-        created.append(self)
+    class FakeQdrantClient:
+        """#281: 本物の QdrantClient は生成時にサーバーへ接続するので使わない。"""
 
-    monkeypatch.setattr(q.QdrantClient, "__init__", slow_init)
+        def __init__(self, *args, **kwargs):
+            time.sleep(0.05)  # simulate slow network handshake
+            created.append(self)
+
+    monkeypatch.setattr(q, "QdrantClient", FakeQdrantClient)
 
     results = []
 
