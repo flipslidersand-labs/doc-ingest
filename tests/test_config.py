@@ -98,3 +98,67 @@ def test_repr_hides_api_keys():
     for v in values:
         assert v not in r
     assert "embed_url" in r
+
+
+def test_workers_and_webhook_read_from_environment():
+    d = load_settings({})
+    assert (d.distill_workers, d.sync_workers, d.discord_webhook_url) == (1, 4, "")
+    s = load_settings(
+        {
+            "DISTILL_WORKERS": "2",
+            "SYNC_WORKERS": "8",
+            "DISCORD_WEBHOOK_URL": "https://dummy.invalid/h",
+        }
+    )
+    assert (s.distill_workers, s.sync_workers) == (2, 8)
+    assert s.discord_webhook_url == "https://dummy.invalid/h"
+
+
+@pytest.mark.parametrize("name", ["DISTILL_WORKERS", "SYNC_WORKERS"])
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_workers_below_one_rejected(name, value):
+    with pytest.raises(ValueError, match=name):
+        load_settings({name: value})
+
+
+def test_repr_hides_webhook_url():
+    assert "dummy-hook" not in repr(Settings(discord_webhook_url="https://x.invalid/dummy-hook"))
+
+
+def test_get_settings_loads_once_under_concurrency(monkeypatch):
+    import threading
+    import time
+
+    calls = []
+
+    def slow_load():
+        calls.append(1)
+        time.sleep(0.05)
+        return Settings()
+
+    monkeypatch.setattr(config, "load_settings", slow_load)
+    config._settings = None
+    threads = [threading.Thread(target=config.get_settings) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("name", ["EMBED_BATCH", "SYNC_WORKERS", "MAX_LOCAL_BYTES"])
+def test_non_integer_error_names_the_variable(name):
+    with pytest.raises(ValueError, match=name):
+        load_settings({name: "abc"})
+
+
+def test_non_float_error_names_the_variable():
+    with pytest.raises(ValueError, match="EMBED_TIMEOUT"):
+        load_settings({"EMBED_TIMEOUT": "abc"})
+
+
+@pytest.mark.parametrize("name", ["MAX_CHUNKS_PER_DOC", "MAX_LOCAL_BYTES", "MAX_DOWNLOAD_BYTES"])
+@pytest.mark.parametrize("value", ["0", "-5"])
+def test_size_limits_below_one_rejected(name, value):
+    with pytest.raises(ValueError, match=name):
+        load_settings({name: value})

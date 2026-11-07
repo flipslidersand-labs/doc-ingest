@@ -4,8 +4,7 @@ import logging
 
 import click
 
-# 環境変数を import 時に読むモジュールがあるため、.env の読み込み(副作用 import)を最初に行う
-import core.env  # noqa: F401
+from core.config import get_settings
 from core.schema import Collection, collection_names, payload_origin
 from core.url_guard import UnsafeURLError, assert_safe_url
 from ingest.arxiv import ingest_arxiv
@@ -15,6 +14,7 @@ from ingest.notes import ingest_notes
 
 # このリポのパッケージ。レベルはここにだけ設定し、root は WARNING のままにして httpx / urllib3 /
 # qdrant_client など第三者のログ (httpx は INFO でリクエスト URL を出す) を静かに保つ。
+_HELP_KEY = "doc_ingest.help_requested"
 _OWN_LOGGERS = ("core", "ingest", "cli", "__main__")
 
 
@@ -29,10 +29,25 @@ def setup_logging(verbose: bool) -> None:
         logging.getLogger(name).setLevel(level)
 
 
-@click.group()
+class _Group(click.Group):
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        # callback はサブコマンドの --help より先に走り、その時点で args は消費済み。先に控えておく。
+        ctx.meta[_HELP_KEY] = "--help" in args
+        return super().parse_args(ctx, args)
+
+
+@click.group(cls=_Group)
 @click.option("--verbose", "-v", is_flag=True, help="Enable DEBUG logging")
 def main(verbose: bool):
     setup_logging(verbose)
+    ctx = click.get_current_context(silent=True)
+    if ctx is not None and ctx.meta.get(_HELP_KEY):
+        return  # group callback はサブコマンドの --help より先に走る。help は設定なしで出せるようにする
+    # .env を読み、設定エラー (EMBED_BATCH<1 等) を初回利用ではなく起動時に出す。
+    try:
+        get_settings()
+    except ValueError as e:
+        raise click.ClickException(f"invalid configuration: {e}") from e
 
 
 @main.command()

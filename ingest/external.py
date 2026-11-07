@@ -1,7 +1,6 @@
 """Sync external API docs with ETag-based freshness detection."""
 
 import logging
-import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -13,6 +12,7 @@ import httpx
 from ruamel.yaml import YAML
 
 from core.chunker import cap_chunks, chunk_markdown
+from core.config import get_settings
 from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
 from core.qdrant import replace_points
@@ -31,7 +31,6 @@ MAX_RETRIES = 3
 # 13/412 チャンクが 512 を超えた (#211)。300 なら e5 の最大 422 で、文脈を ~50 tokens 前置しても収まる。
 EXTERNAL_MAX_SECTION_TOKENS = 300
 JINA_BASE = "https://r.jina.ai/"
-SYNC_WORKERS = int(os.getenv("SYNC_WORKERS", "4"))
 _yaml = YAML()
 _yaml.preserve_quotes = True
 
@@ -169,7 +168,7 @@ def _notify_discord(
     failed: list[str],
     ts: str,
 ) -> None:
-    webhook_url = os.getenv("DISCORD_WEBHOOK_URL", "")
+    webhook_url = get_settings().discord_webhook_url
     if not webhook_url:
         return
     status = "✅" if not failed else "⚠️"
@@ -254,7 +253,7 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
 
     # Phase 1: parallel fetch + content extraction (I/O bound)
     fetch_results: list[FetchResult | None] = [None] * len(sources)
-    with ThreadPoolExecutor(max_workers=SYNC_WORKERS) as pool:
+    with ThreadPoolExecutor(max_workers=get_settings().sync_workers) as pool:
         future_to_idx = {
             pool.submit(_fetch_source, source, force, now): i for i, source in enumerate(sources)
         }

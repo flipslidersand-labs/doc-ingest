@@ -16,6 +16,7 @@ from core.url_guard import (
     safe_download,
     safe_get,
 )
+from tests.conftest import override_settings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -459,32 +460,10 @@ class TestSafeDownload:
             self._dl("https://example.com/missing")
 
     def test_default_limit_is_50_mib_and_overridable_by_env(self):
-        """環境変数の効果は子プロセスで確かめる。importlib.reload すると UnsafeURLError が別のクラスに
-        入れ替わり、他のテストの pytest.raises(UnsafeURLError) が例外を捕まえられなくなる。"""
-        import subprocess
-        import sys
+        from core.config import load_settings
 
-        code = "import core.url_guard as g; print(g.MAX_DOWNLOAD_BYTES)"
-
-        def run(env):
-            out = subprocess.run(
-                [
-                    sys.executable,
-                    "-I",
-                    "-c",
-                    f"import sys; sys.path.insert(0, {str(REPO_ROOT)!r}); {code}",
-                ],
-                capture_output=True,
-                text=True,
-                check=True,
-                env=env,
-                timeout=60,
-            )
-            return int(out.stdout.strip())
-
-        base = {"PATH": "/usr/bin:/bin"}
-        assert run(base) == 50 * 1024 * 1024
-        assert run({**base, "MAX_DOWNLOAD_BYTES": "1234"}) == 1234
+        assert load_settings({}).max_download_bytes == 50 * 1024 * 1024
+        assert load_settings({"MAX_DOWNLOAD_BYTES": "1234"}).max_download_bytes == 1234
 
 
 class TestSafeGetBodyLimit:
@@ -576,9 +555,7 @@ class TestSafeGetBodyLimit:
     def test_the_default_limit_applies_when_max_bytes_is_not_given(self, monkeypatch):
         """呼び出し側が max_bytes を指定しなくても、共通の既定値 (MAX_DOWNLOAD_BYTES) が効く。
         既定の 50MiB は試せないので、モジュールの値を小さくして確かめる。"""
-        import core.url_guard as g
-
-        monkeypatch.setattr(g, "MAX_DOWNLOAD_BYTES", 100)
+        override_settings(max_download_bytes=100)
         respx.get("https://example.com/small").mock(
             return_value=httpx.Response(200, content=b"x" * 100)
         )
@@ -590,9 +567,7 @@ class TestSafeGetBodyLimit:
             safe_get("https://example.com/over")  # max_bytes を渡していない
 
     def test_an_explicit_max_bytes_overrides_the_default(self, monkeypatch):
-        import core.url_guard as g
-
-        monkeypatch.setattr(g, "MAX_DOWNLOAD_BYTES", 10)
+        override_settings(max_download_bytes=10)
         respx.get("https://example.com/m").mock(return_value=httpx.Response(200, content=b"x" * 50))
         assert len(safe_get("https://example.com/m", max_bytes=100).content) == 50
 
