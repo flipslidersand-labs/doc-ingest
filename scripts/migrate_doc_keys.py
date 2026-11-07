@@ -26,7 +26,9 @@ from qdrant_client.models import (
     PayloadField,
 )
 
-COLLECTIONS = ("design", "notes")
+from core.schema import Collection
+
+COLLECTIONS = (Collection.DESIGN.value, Collection.NOTES.value)
 
 
 def _unmigrated() -> Filter:

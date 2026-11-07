@@ -9,8 +9,9 @@ from pathlib import Path
 
 from core.distiller import distill_text
 from core.ingest_pipeline import changed_matching, ingest_changed_or_file
+from core.schema import Collection
 
-COLLECTION = "notes"
+COLLECTION = Collection.NOTES.value
 
 # Curated top-level dirs to ingest. Scratch dirs are intentionally excluded.
 NOTE_DIRS = ("10-projects", "20-areas", "30-resources")

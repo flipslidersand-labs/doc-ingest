@@ -18,11 +18,12 @@ from core.ids import make_id
 from core.qdrant import replace_points
 from core.redact import redact_urls
 from core.retry import with_retry
+from core.schema import Collection
 from core.url_guard import UnsafeURLError, assert_safe_url, safe_get
 
 _log = logging.getLogger(__name__)
 
-COLLECTION = "external-docs"
+COLLECTION = Collection.EXTERNAL_DOCS.value
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
 MAX_RETRIES = 3
 # 生チャンクをそのまま埋め込むので、e5 の 512 token 上限 (超過は黙って切り詰め) に収める。

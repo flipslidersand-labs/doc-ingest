@@ -6,6 +6,7 @@ import click
 
 # 環境変数を import 時に読むモジュールがあるため、.env の読み込み(副作用 import)を最初に行う
 import core.env  # noqa: F401
+from core.schema import Collection, collection_names, payload_origin
 from core.url_guard import UnsafeURLError, assert_safe_url
 from ingest.arxiv import ingest_arxiv
 from ingest.design_docs import ingest_design_docs
@@ -76,8 +77,8 @@ def sync(force: bool, dry_run: bool):
 @click.argument("query")
 @click.option(
     "--collection",
-    default="external-docs",
-    type=click.Choice(["external-docs", "research", "design", "notes"]),
+    default=Collection.EXTERNAL_DOCS.value,
+    type=click.Choice(collection_names()),
     help="Qdrant collection to search",
 )
 @click.option(
@@ -111,7 +112,7 @@ def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int)
 
     for i, r in enumerate(results, 1):
         score = r.pop("score", None)
-        src = r.get("source_url") or r.get("file_path") or r.get("arxiv_id", "")
+        src = payload_origin(r)
         section = r.get("section", "")
         score_str = f"score={score:.4f}  " if score is not None else ""
         click.echo(f"\n[{i}] {score_str}{src}")

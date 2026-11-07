@@ -68,6 +68,23 @@ class TestSearchCommand:
         CliRunner().invoke(main, ["search", "q", "--collection", "research"])
         assert mock_search.call_args[0][0] == "research"
 
+    def test_search_default_collection_is_external_docs(self, mocker):
+        mock_search = mocker.patch("core.qdrant.search", return_value=[])
+        CliRunner().invoke(main, ["search", "q"])
+        assert mock_search.call_args[0][0] == "external-docs"
+
+    def test_search_shows_origin_for_file_path_and_arxiv_id(self, mocker):
+        mocker.patch(
+            "core.qdrant.search",
+            return_value=[
+                {"file_path": "repo/CLAUDE.md", "text": "a", "score": 0.5},
+                {"arxiv_id": "2401.00001", "text": "b", "score": 0.4},
+            ],
+        )
+        result = CliRunner().invoke(main, ["search", "q"])
+        assert "repo/CLAUDE.md" in result.output
+        assert "2401.00001" in result.output
+
     def test_search_with_results_prints_source(self, mocker):
         mocker.patch(
             "core.qdrant.search",
