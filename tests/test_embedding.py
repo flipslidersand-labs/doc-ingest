@@ -7,12 +7,14 @@ import pytest
 import respx
 
 import core.embedding as emb
+from core.config import get_settings
+from tests.conftest import override_settings
 
 
 @respx.mock
 def test_embed_subbatches(monkeypatch):
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 4)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=4)
     seen = []
 
     def responder(request):
@@ -22,7 +24,7 @@ def test_embed_subbatches(monkeypatch):
         seen.append(n)
         return httpx.Response(200, json={"vectors": [[0.0] * 768] * n})
 
-    respx.post(emb.EMBED_URL).mock(side_effect=responder)
+    respx.post(get_settings().embed_url).mock(side_effect=responder)
     vectors = emb.embed(["t"] * 10)
     assert len(vectors) == 10
     assert seen == [4, 4, 2]  # 10 texts → 4+4+2 across three POSTs
@@ -30,23 +32,23 @@ def test_embed_subbatches(monkeypatch):
 
 def test_embed_api_key_none_when_unset(monkeypatch):
     """EMBED_API_KEY resolves to None when env var is absent or empty."""
-    monkeypatch.setattr(emb, "EMBED_API_KEY", None)
-    assert emb.EMBED_API_KEY is None
+    override_settings(embed_api_key=None)
+    assert get_settings().embed_api_key is None
 
 
 @respx.mock
 def test_embed_omits_auth_header_when_key_unset(monkeypatch):
     """No X-API-Key header is sent when EMBED_API_KEY is None."""
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_API_KEY", None)
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+    override_settings(embed_backend="http")
+    override_settings(embed_api_key=None)
+    override_settings(embed_batch=16)
     received_headers = {}
 
     def responder(request):
         received_headers.update(dict(request.headers))
         return httpx.Response(200, json={"vectors": [[0.0] * 768]})
 
-    respx.post(emb.EMBED_URL).mock(side_effect=responder)
+    respx.post(get_settings().embed_url).mock(side_effect=responder)
     emb.embed(["t"])
     assert "x-api-key" not in received_headers
 
@@ -54,24 +56,24 @@ def test_embed_omits_auth_header_when_key_unset(monkeypatch):
 @respx.mock
 def test_embed_sends_auth_header_when_key_set(monkeypatch):
     """X-API-Key header is sent when EMBED_API_KEY is set."""
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_API_KEY", "secret-key")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+    override_settings(embed_backend="http")
+    override_settings(embed_api_key="secret-key")
+    override_settings(embed_batch=16)
     received_headers = {}
 
     def responder(request):
         received_headers.update(dict(request.headers))
         return httpx.Response(200, json={"vectors": [[0.0] * 768]})
 
-    respx.post(emb.EMBED_URL).mock(side_effect=responder)
+    respx.post(get_settings().embed_url).mock(side_effect=responder)
     emb.embed(["t"])
     assert received_headers.get("x-api-key") == "secret-key"
 
 
 @respx.mock
 def test_embed_retries_on_timeout(monkeypatch):
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=16)
     calls = {"n": 0}
 
     def responder(request):
@@ -80,7 +82,7 @@ def test_embed_retries_on_timeout(monkeypatch):
             raise httpx.ReadTimeout("timed out", request=request)
         return httpx.Response(200, json={"vectors": [[0.0] * 768]})
 
-    respx.post(emb.EMBED_URL).mock(side_effect=responder)
+    respx.post(get_settings().embed_url).mock(side_effect=responder)
     mock_sleep = MagicMock()
     with patch("time.sleep", mock_sleep):
         vectors = emb.embed(["t"])
@@ -98,10 +100,10 @@ FALLBACK_URL = "http://fallback:9092/embed/batch"
 @respx.mock
 def test_fallback_on_connect_error(monkeypatch):
     """When primary is unreachable, fallback URL is used."""
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
-    monkeypatch.setattr(emb, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", FALLBACK_URL)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=16)
+    override_settings(embed_url=PRIMARY_URL)
+    override_settings(embed_fallback_url=FALLBACK_URL)
     monkeypatch.setattr(emb, "EMBED_RETRIES", 1)
 
     respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
@@ -115,10 +117,10 @@ def test_fallback_on_connect_error(monkeypatch):
 @respx.mock
 def test_fallback_on_501(monkeypatch):
     """When primary returns 501 (collection not served), fallback is tried immediately."""
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
-    monkeypatch.setattr(emb, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", FALLBACK_URL)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=16)
+    override_settings(embed_url=PRIMARY_URL)
+    override_settings(embed_fallback_url=FALLBACK_URL)
     monkeypatch.setattr(emb, "EMBED_RETRIES", 3)
 
     primary_calls = {"n": 0}
@@ -139,10 +141,10 @@ def test_fallback_on_501(monkeypatch):
 @respx.mock
 def test_no_fallback_when_unset(monkeypatch):
     """When EMBED_FALLBACK_URL is empty, error propagates as before."""
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
-    monkeypatch.setattr(emb, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", "")
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=16)
+    override_settings(embed_url=PRIMARY_URL)
+    override_settings(embed_fallback_url="")
     monkeypatch.setattr(emb, "EMBED_RETRIES", 1)
 
     respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
@@ -156,10 +158,10 @@ def test_no_fallback_when_unset(monkeypatch):
 @respx.mock
 def test_primary_used_when_available(monkeypatch):
     """When primary is healthy, fallback URL is never called."""
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
-    monkeypatch.setattr(emb, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", FALLBACK_URL)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=16)
+    override_settings(embed_url=PRIMARY_URL)
+    override_settings(embed_fallback_url=FALLBACK_URL)
 
     fallback_calls = {"n": 0}
 
@@ -175,48 +177,11 @@ def test_primary_used_when_available(monkeypatch):
     assert fallback_calls["n"] == 0
 
 
-class TestEmbedBatchValidation:
-    """core.embedding is a shared module object (sys.modules-cached) across every
-    test file, and importlib.reload() executes top-to-bottom in-place —  a
-    raised exception mid-reload still leaves EMBED_BATCH set to the bad
-    value. Always reload back to a clean default afterward so other tests
-    (in this file and others) don't inherit a broken module."""
-
-    @pytest.fixture(autouse=True)
-    def _restore_qdrant_module(self, monkeypatch):
-        import importlib
-
-        yield
-        monkeypatch.delenv("EMBED_BATCH", raising=False)
-        importlib.reload(emb)
-
-    def test_zero_raises_at_import(self, monkeypatch):
-        import importlib
-
-        monkeypatch.setenv("EMBED_BATCH", "0")
-        with pytest.raises(ValueError, match="EMBED_BATCH must be >= 1"):
-            importlib.reload(emb)
-
-    def test_negative_raises_at_import(self, monkeypatch):
-        import importlib
-
-        monkeypatch.setenv("EMBED_BATCH", "-1")
-        with pytest.raises(ValueError, match="EMBED_BATCH must be >= 1"):
-            importlib.reload(emb)
-
-    def test_valid_value_does_not_raise(self, monkeypatch):
-        import importlib
-
-        monkeypatch.setenv("EMBED_BATCH", "32")
-        importlib.reload(emb)
-        assert emb.EMBED_BATCH == 32
-
-
 @respx.mock
 def test_embed_retries_on_http_500_then_succeeds(monkeypatch):
     """501 以外の HTTP エラーはリトライ対象(501 だけが即フォールバック)。"""
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=16)
     monkeypatch.setattr(emb, "EMBED_RETRIES", 3)
     calls = {"n": 0}
 
@@ -226,7 +191,7 @@ def test_embed_retries_on_http_500_then_succeeds(monkeypatch):
             return httpx.Response(500)
         return httpx.Response(200, json={"vectors": [[0.0] * 768]})
 
-    respx.post(emb.EMBED_URL).mock(side_effect=responder)
+    respx.post(get_settings().embed_url).mock(side_effect=responder)
     with patch("time.sleep") as sleep:
         assert len(emb.embed(["t"])) == 1
     assert calls["n"] == 2
@@ -235,11 +200,11 @@ def test_embed_retries_on_http_500_then_succeeds(monkeypatch):
 
 @respx.mock
 def test_embed_http_500_exhausted_raises_status_error(monkeypatch):
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=16)
     monkeypatch.setattr(emb, "EMBED_RETRIES", 3)
-    monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", "")
-    route = respx.post(emb.EMBED_URL).mock(return_value=httpx.Response(500))
+    override_settings(embed_fallback_url="")
+    route = respx.post(get_settings().embed_url).mock(return_value=httpx.Response(500))
     with patch("time.sleep"), pytest.raises(httpx.HTTPStatusError):
         emb.embed(["t"])
     assert route.call_count == 3
@@ -249,10 +214,10 @@ def test_embed_http_500_exhausted_raises_status_error(monkeypatch):
 def test_embed_fallback_use_is_logged(monkeypatch, caplog):
     import logging
 
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
-    monkeypatch.setattr(emb, "EMBED_URL", PRIMARY_URL)
-    monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", FALLBACK_URL)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=16)
+    override_settings(embed_url=PRIMARY_URL)
+    override_settings(embed_fallback_url=FALLBACK_URL)
     monkeypatch.setattr(emb, "EMBED_RETRIES", 1)
     respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
     respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.1] * 768]}))
@@ -265,10 +230,12 @@ def test_embed_fallback_use_is_logged(monkeypatch, caplog):
 @respx.mock
 def test_embed_non_http_error_is_not_retried(monkeypatch):
     """想定外の例外(壊れたレスポンス等)は握りつぶさず即座に伝播する。"""
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=16)
     monkeypatch.setattr(emb, "EMBED_RETRIES", 3)
-    route = respx.post(emb.EMBED_URL).mock(return_value=httpx.Response(200, json={"nope": 1}))
+    route = respx.post(get_settings().embed_url).mock(
+        return_value=httpx.Response(200, json={"nope": 1})
+    )
     with patch("time.sleep") as sleep, pytest.raises(KeyError):
         emb.embed(["t"])
     assert route.call_count == 1
@@ -280,15 +247,15 @@ def test_http_mode_is_sent_as_given_and_defaults_to_index(monkeypatch):
     """#222: 検索クエリは mode="search" で送る (サービスが query: を付ける)。既定は "index"。"""
     import json
 
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=16)
     modes = []
 
     def responder(request):
         modes.append(json.loads(request.content)["mode"])
         return httpx.Response(200, json={"vectors": [[0.0] * 768]})
 
-    respx.post(emb.EMBED_URL).mock(side_effect=responder)
+    respx.post(get_settings().embed_url).mock(side_effect=responder)
     emb.embed(["doc"])
     emb.embed(["doc"], mode="index")
     emb.embed(["a query"], mode="search")
@@ -300,10 +267,10 @@ def test_search_mode_survives_the_fallback_url(monkeypatch):
     import json
 
     primary, fallback = "http://primary:9093/embed/batch", "http://fallback:9092/embed/batch"
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 16)
-    monkeypatch.setattr(emb, "EMBED_URL", primary)
-    monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", fallback)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=16)
+    override_settings(embed_url=primary)
+    override_settings(embed_fallback_url=fallback)
     monkeypatch.setattr(emb, "EMBED_RETRIES", 1)
     respx.post(primary).mock(side_effect=httpx.ConnectError("refused"))
     seen = []
@@ -326,8 +293,8 @@ def test_an_unknown_mode_is_rejected_before_any_request(monkeypatch):
 
 def test_embed_passes_the_mode_to_every_sub_batch(monkeypatch):
     seen = []
-    monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-    monkeypatch.setattr(emb, "EMBED_BATCH", 2)
+    override_settings(embed_backend="http")
+    override_settings(embed_batch=2)
     monkeypatch.setattr(emb, "_embed_batch", lambda b, m: seen.append(m) or [[0.0]] * len(b))
     emb.embed(["a", "b", "c", "d", "e"], mode="search")
     assert seen == ["search", "search", "search"]
@@ -340,10 +307,10 @@ class TestTransportErrorsAreRetriedAndFallBack:
 
     @pytest.fixture(autouse=True)
     def _setup(self, monkeypatch):
-        monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-        monkeypatch.setattr(emb, "EMBED_BATCH", 16)
-        monkeypatch.setattr(emb, "EMBED_URL", self.PRIMARY)
-        monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", self.FALLBACK)
+        override_settings(embed_backend="http")
+        override_settings(embed_batch=16)
+        override_settings(embed_url=self.PRIMARY)
+        override_settings(embed_fallback_url=self.FALLBACK)
         monkeypatch.setattr(emb, "EMBED_RETRIES", 2)
 
     @respx.mock
@@ -368,7 +335,7 @@ class TestTransportErrorsAreRetriedAndFallBack:
 
     @respx.mock
     def test_without_a_fallback_the_original_error_is_raised(self, monkeypatch):
-        monkeypatch.setattr(emb, "EMBED_FALLBACK_URL", "")
+        override_settings(embed_fallback_url="")
         respx.post(self.PRIMARY).mock(side_effect=httpx.ReadError("reset"))
         with patch("time.sleep"), pytest.raises(httpx.ReadError):
             emb.embed(["t"])
@@ -388,29 +355,31 @@ class TestVectorCountIsChecked:
 
     @respx.mock
     def test_http_short_response_raises(self, monkeypatch):
-        monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-        monkeypatch.setattr(emb, "EMBED_BATCH", 16)
-        respx.post(emb.EMBED_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.0]]}))
+        override_settings(embed_backend="http")
+        override_settings(embed_batch=16)
+        respx.post(get_settings().embed_url).mock(
+            return_value=httpx.Response(200, json={"vectors": [[0.0]]})
+        )
         with pytest.raises(emb.EmbeddingError, match="1 vectors for 3 texts"):
             emb.embed(["a", "b", "c"])
 
     def test_onnx_short_response_raises(self, monkeypatch):
-        monkeypatch.setattr(emb, "EMBED_BACKEND", "onnx_gpu")
-        monkeypatch.setattr(emb, "EMBED_BATCH", 16)
+        override_settings(embed_backend="onnx_gpu")
+        override_settings(embed_batch=16)
         monkeypatch.setattr(emb, "_embed_batch_onnx", lambda b, m: [[0.0]])
         with pytest.raises(emb.EmbeddingError):
             emb.embed(["a", "b"])
 
     def test_each_sub_batch_is_checked(self, monkeypatch):
-        monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-        monkeypatch.setattr(emb, "EMBED_BATCH", 2)
+        override_settings(embed_backend="http")
+        override_settings(embed_batch=2)
         monkeypatch.setattr(emb, "_embed_batch", lambda b, m: [[0.0]] * (len(b) - (len(b) == 1)))
         with pytest.raises(emb.EmbeddingError, match="0 vectors for 1 texts"):
             emb.embed(["a", "b", "c"])  # 2 + 1: 2 つ目のバッチだけ不足
 
     def test_an_exact_count_passes(self, monkeypatch):
-        monkeypatch.setattr(emb, "EMBED_BACKEND", "http")
-        monkeypatch.setattr(emb, "EMBED_BATCH", 2)
+        override_settings(embed_backend="http")
+        override_settings(embed_batch=2)
         monkeypatch.setattr(emb, "_embed_batch", lambda b, m: [[0.0]] * len(b))
         assert len(emb.embed(["a", "b", "c", "d", "e"])) == 5
 
