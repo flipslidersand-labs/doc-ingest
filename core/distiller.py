@@ -59,6 +59,7 @@ def _anthropic(prompt: str) -> str:
 
 def _generate(prompt: str, *, local_only: bool = False) -> str:
     """local_only=True は非公開ソース用: Anthropic へ送らず、ローカル LLM が失敗したら DistillError。"""
+    get_settings()  # 設定不備 (ValueError) は DistillError に包まず、そのまま上げる
     try:
         return _local(prompt)
     except MemoryError:  # MemoryError だけが Exception のサブクラス

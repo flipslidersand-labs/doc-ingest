@@ -7,7 +7,7 @@ Modules call get_settings() when they need a value; tests swap the cached object
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
@@ -18,7 +18,7 @@ class Settings:
     embed_url: str = "http://localhost:9092/embed/batch"
     # Secondary endpoint used when embed_url is unreachable or returns 501. Empty = none.
     embed_fallback_url: str = ""
-    embed_api_key: str | None = None  # None -> no X-API-Key header sent
+    embed_api_key: str | None = field(default=None, repr=False)  # None -> no X-API-Key header sent
     embed_collection: str = "sessions"  # embedding-svc のモデルルーティング用
     embed_timeout: float = 180.0  # CPU e5 のコールドロードを許容
     embed_batch: int = 16  # 1 POST あたりの最大テキスト数
@@ -26,13 +26,15 @@ class Settings:
     onnx_model_path: str = ""
     # vector DB (core/qdrant.py)
     qdrant_url: str = "http://localhost:6333"
-    qdrant_api_key: str | None = None  # None -> unauthenticated (dev/localhost)
+    qdrant_api_key: str | None = field(
+        default=None, repr=False
+    )  # None -> unauthenticated (dev/localhost)
     # distiller (core/distiller.py)
     local_llm_url: str = "http://localhost:8080"
     local_llm_model: str = ""  # llama-server は未指定で可
     local_llm_timeout: float = 120.0
     local_llm_max_tokens: int = 1500
-    anthropic_api_key: str = ""
+    anthropic_api_key: str = field(default="", repr=False)
     anthropic_model: str = "claude-haiku-4-5-20251001"
 
     def __post_init__(self) -> None:

@@ -15,9 +15,11 @@ def _reset_settings():
     """Drop any cached/overridden Settings so tests never leak config into each other."""
     from core import config
 
-    config._settings = None
+    # Defaults only: never go through load_dotenv(), which would pull the developer's
+    # real .env into os.environ for the whole process.
+    config._settings = config.Settings()
     yield
-    config._settings = None
+    config._settings = config.Settings()
 
 
 def override_settings(**changes):

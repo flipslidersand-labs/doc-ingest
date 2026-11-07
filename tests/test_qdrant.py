@@ -12,6 +12,11 @@ from core.config import get_settings
 from tests.conftest import override_settings
 
 
+@pytest.fixture(autouse=True)
+def _pin_qdrant_settings():
+    override_settings(qdrant_url="http://localhost:6333", qdrant_api_key=None)
+
+
 def test_qdrant_api_key_none_when_unset(monkeypatch):
     """QDRANT_API_KEY resolves to None when env var is absent or empty."""
     override_settings(qdrant_api_key=None)
