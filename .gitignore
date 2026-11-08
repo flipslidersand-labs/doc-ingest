@@ -11,3 +11,4 @@ logs/
 .claude/
 uv.lock
 sources/external.state.yaml
+sources/*.tmp

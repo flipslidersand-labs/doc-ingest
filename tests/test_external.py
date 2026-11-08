@@ -682,3 +682,62 @@ class TestApplyResult:
         _apply_result(FetchResult.ready("u", s, "e", [{"id": "a"}]), "T", True, sm)
         rp.assert_not_called()
         assert s == {"url": "u"} and not sm.changed and sm.synced == 0
+
+
+class TestExternalState:
+    """実行状態の分離 (#291) の境界ケース。"""
+
+    @staticmethod
+    def _paths(tmp_path, monkeypatch, cfg_text):
+        import ingest.external as ext
+
+        cfg = tmp_path / "external.yaml"
+        cfg.write_text(cfg_text)
+        monkeypatch.setattr(ext, "SOURCES_FILE", cfg)
+        monkeypatch.setattr(ext, "STATE_FILE", tmp_path / "external.state.yaml")
+        return ext, cfg
+
+    @pytest.mark.parametrize("bad", ["- a\n- b\n", "https://a.example: oops\n", "{unclosed: [\n"])
+    def test_corrupt_state_is_ignored(self, tmp_path, monkeypatch, bad):
+        ext, _ = self._paths(
+            tmp_path, monkeypatch, "- url: https://a.example\n  last_synced: seed\n"
+        )
+        ext.STATE_FILE.write_text(bad)
+        assert ext._load_sources()[0]["last_synced"] == "seed"
+
+    def test_duplicate_url_raises(self, tmp_path, monkeypatch):
+        ext, _ = self._paths(
+            tmp_path, monkeypatch, "- url: https://a.example\n- url: https://a.example\n"
+        )
+        with pytest.raises(ValueError, match="duplicate url"):
+            ext._load_sources()
+
+    def test_save_failure_leaves_no_tmp(self, tmp_path, monkeypatch):
+        ext, _ = self._paths(tmp_path, monkeypatch, "- url: https://a.example\n")
+
+        def boom(*a, **k):
+            raise RuntimeError("dump failed")
+
+        monkeypatch.setattr(ext._yaml, "dump", boom)
+        with pytest.raises(RuntimeError):
+            ext._save_sources([{"url": "https://a.example", "last_synced": "t"}])
+        assert list(tmp_path.glob("*.tmp")) == []
+        assert not ext.STATE_FILE.exists()
+
+    def test_sync_leaves_config_untouched_and_writes_state(self, tmp_path, monkeypatch, mocker):
+        cfg_text = "# keep me\n- url: https://a.example\n  type: external-api\n"
+        ext, cfg = self._paths(tmp_path, monkeypatch, cfg_text)
+
+        def fake_fetch(source, force, now):
+            return FetchResult.ready(source["url"], source, "etag-1", [{"id": 1}])
+
+        mocker.patch("ingest.external._fetch_source", side_effect=fake_fetch)
+        mocker.patch("ingest.external.replace_points")
+        mocker.patch("ingest.external._notify_discord")
+        ext.sync_external()
+
+        assert cfg.read_text() == cfg_text
+        from ruamel.yaml import YAML
+
+        st = YAML().load(ext.STATE_FILE.read_text())["https://a.example"]
+        assert st["last_etag"] == "etag-1" and st["last_synced"]
