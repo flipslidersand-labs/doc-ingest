@@ -39,9 +39,18 @@ _yaml.preserve_quotes = True
 
 
 def _load_state() -> dict:
+    """state を読む。壊れていても sync は止めず、空扱いにして設定の値を種に使う (最悪でも全件取り直し)。"""
     if not STATE_FILE.exists():
         return {}
-    return _yaml.load(STATE_FILE.read_text()) or {}
+    try:
+        state = _yaml.load(STATE_FILE.read_text()) or {}
+    except Exception as e:  # noqa: BLE001 - 構文エラー等どんな破損でも sync を止めない
+        _log.warning("state file unreadable (%s): %s — ignoring", STATE_FILE.name, type(e).__name__)
+        return {}
+    if not isinstance(state, dict):
+        _log.warning("state file malformed (not a mapping) — ignoring")
+        return {}
+    return {u: st for u, st in state.items() if isinstance(st, dict)}
 
 
 def _load_sources():
@@ -51,6 +60,10 @@ def _load_sources():
     state に無い URL は設定側の値を種として使う (移行用)。
     """
     sources = _yaml.load(SOURCES_FILE.read_text()) or []
+    urls = [src["url"] for src in sources]
+    dups = sorted({u for u in urls if urls.count(u) > 1})
+    if dups:  # state は URL がキーなので、重複すると状態が黙って共有される
+        raise ValueError(f"duplicate url in {SOURCES_FILE.name}: {dups}")
     state = _load_state()
     for src in sources:
         st = state.get(src["url"])
@@ -66,8 +79,13 @@ def _save_sources(sources) -> None:
     """実行状態だけを STATE_FILE に書く。設定ファイルは書き換えない。"""
     state = {s["url"]: {k: s[k] for k in STATE_KEYS if k in s} for s in sources}
     with tempfile.NamedTemporaryFile("w", dir=STATE_FILE.parent, delete=False, suffix=".tmp") as f:
-        _yaml.dump(state, f)
         tmp = Path(f.name)
+        try:
+            _yaml.dump(state, f)
+        except BaseException:
+            f.close()
+            tmp.unlink(missing_ok=True)  # 失敗時に .tmp を残さない
+            raise
     tmp.replace(STATE_FILE)  # POSIX atomic rename
 
 
