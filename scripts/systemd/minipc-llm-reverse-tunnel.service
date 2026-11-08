@@ -1,0 +1,14 @@
+# MINIPC(127.0.0.1:18080) -> dev-nodee -> yuki llama-server(18080) の逆トンネル。
+# 配備: scripts/systemd/install-tunnel.sh (user unit + enable。linger は loginctl enable-linger で別途)
+[Unit]
+Description=Reverse SSH tunnel: MINIPC:18080 -> local llama-server (doc-ingest distill)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ControlMaster=no -o ControlPath=none -R 127.0.0.1:18080:127.0.0.1:18080 minipc
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
