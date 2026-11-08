@@ -25,6 +25,9 @@ _log = logging.getLogger(__name__)
 
 COLLECTION = Collection.EXTERNAL_DOCS.value
 SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
+# 実行状態 (ETag・最終 sync・失敗時刻) は設定と分け、追跡対象外のファイルに置く (#291)。
+STATE_FILE = Path(__file__).parent.parent / "sources" / "external.state.yaml"
+STATE_KEYS = ("last_etag", "last_synced", "failed_at")
 MAX_RETRIES = 3
 # 生チャンクをそのまま埋め込むので、e5 の 512 token 上限 (超過は黙って切り詰め) に収める。
 # チャンカーの既定 400 は tiktoken 基準で、e5 のトークナイザではコードの多い文章が最大 1.41 倍になり
@@ -35,17 +38,55 @@ _yaml = YAML()
 _yaml.preserve_quotes = True
 
 
+def _load_state() -> dict:
+    """state を読む。壊れていても sync は止めず、空扱いにして設定の値を種に使う (最悪でも全件取り直し)。"""
+    if not STATE_FILE.exists():
+        return {}
+    try:
+        state = _yaml.load(STATE_FILE.read_text()) or {}
+    except Exception as e:  # noqa: BLE001 - 構文エラー等どんな破損でも sync を止めない
+        _log.warning("state file unreadable (%s): %s — ignoring", STATE_FILE.name, type(e).__name__)
+        return {}
+    if not isinstance(state, dict):
+        _log.warning("state file malformed (not a mapping) — ignoring")
+        return {}
+    return {u: st for u, st in state.items() if isinstance(st, dict)}
+
+
 def _load_sources():
-    return _yaml.load(SOURCES_FILE.read_text()) or []
+    """設定 (external.yaml) に実行状態 (STATE_FILE) を重ねて返す。
+
+    state に載っている URL は設定側の旧い状態キーを捨てて state を使う (消えた failed_at を復活させない)。
+    state に無い URL は設定側の値を種として使う (移行用)。
+    """
+    sources = _yaml.load(SOURCES_FILE.read_text()) or []
+    urls = [src["url"] for src in sources]
+    dups = sorted({u for u in urls if urls.count(u) > 1})
+    if dups:  # state は URL がキーなので、重複すると状態が黙って共有される
+        raise ValueError(f"duplicate url in {SOURCES_FILE.name}: {dups}")
+    state = _load_state()
+    for src in sources:
+        st = state.get(src["url"])
+        if st is None:
+            continue
+        for k in STATE_KEYS:
+            src.pop(k, None)
+        src.update(st)
+    return sources
 
 
 def _save_sources(sources) -> None:
-    with tempfile.NamedTemporaryFile(
-        "w", dir=SOURCES_FILE.parent, delete=False, suffix=".tmp"
-    ) as f:
-        _yaml.dump(sources, f)
+    """実行状態だけを STATE_FILE に書く。設定ファイルは書き換えない。"""
+    state = {s["url"]: {k: s[k] for k in STATE_KEYS if k in s} for s in sources}
+    with tempfile.NamedTemporaryFile("w", dir=STATE_FILE.parent, delete=False, suffix=".tmp") as f:
         tmp = Path(f.name)
-    tmp.replace(SOURCES_FILE)  # POSIX atomic rename
+        try:
+            _yaml.dump(state, f)
+        except BaseException:
+            f.close()
+            tmp.unlink(missing_ok=True)  # 失敗時に .tmp を残さない
+            raise
+    tmp.replace(STATE_FILE)  # POSIX atomic rename
 
 
 class _ServerError(Exception):

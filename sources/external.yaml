@@ -1,6 +1,7 @@
 # External API doc sources for weekly sync
-# ETag is updated automatically after each sync
-# Fields: url, type, check_interval, tags, last_etag, last_synced
+# 実行状態 (last_etag / last_synced / failed_at) は sources/external.state.yaml (追跡対象外) に書かれる。
+# このファイルの last_etag / last_synced は初回の種で、state に載った URL では使われない。
+# Fields: url, type, check_interval, tags
 
 # --- Claude / Anthropic ---
 - url: https://docs.anthropic.com/en/api/getting-started
