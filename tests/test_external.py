@@ -166,32 +166,62 @@ class TestSyncExternal:
         sync_external(dry_run=True)
         notify.assert_not_called()
 
-    def test_save_sources_atomic_write(self, tmp_path):
-        """_save_sources writes via temp file + atomic rename, leaving no partial file."""
-        from ingest.external import _save_sources
-
-        yaml_file = tmp_path / "external.yaml"
+    def test_save_sources_writes_state_only_atomically(self, tmp_path, monkeypatch):
+        """_save_sources は実行状態だけを state ファイルへ原子的に書き、設定ファイルは触らない (#291)。"""
+        from ruamel.yaml import YAML
 
         import ingest.external as ext
 
-        original = ext.SOURCES_FILE
-        ext.SOURCES_FILE = yaml_file
+        cfg = tmp_path / "external.yaml"
+        cfg.write_text("- url: https://example.com\n  type: external-api\n")
+        state = tmp_path / "external.state.yaml"
+        monkeypatch.setattr(ext, "SOURCES_FILE", cfg)
+        monkeypatch.setattr(ext, "STATE_FILE", state)
 
-        try:
-            sources = [{"url": "https://example.com", "type": "external-api"}]
-            _save_sources(sources)
-            assert yaml_file.exists()
-            # no leftover .tmp files
-            tmp_files = list(tmp_path.glob("*.tmp"))
-            assert tmp_files == [], f"leftover tmp files: {tmp_files}"
-            # content is valid YAML
-            from ruamel.yaml import YAML
+        ext._save_sources(
+            [
+                {
+                    "url": "https://example.com",
+                    "type": "external-api",
+                    "last_etag": "e1",
+                    "last_synced": "t1",
+                }
+            ]
+        )
 
-            y = YAML()
-            loaded = y.load(yaml_file.read_text())
-            assert loaded[0]["url"] == "https://example.com"
-        finally:
-            ext.SOURCES_FILE = original
+        assert cfg.read_text() == "- url: https://example.com\n  type: external-api\n"
+        assert list(tmp_path.glob("*.tmp")) == []
+        assert YAML().load(state.read_text()) == {
+            "https://example.com": {"last_etag": "e1", "last_synced": "t1"}
+        }
+
+    def test_load_sources_overlays_state_and_drops_stale_failed_at(self, tmp_path, monkeypatch):
+        """state があれば設定ファイル内の旧い状態キーより優先し、消えた failed_at を復活させない。"""
+        import ingest.external as ext
+
+        cfg = tmp_path / "external.yaml"
+        cfg.write_text(
+            "- url: https://a.example\n  last_etag: old\n  last_synced: old\n  failed_at: old\n"
+            "- url: https://b.example\n  last_synced: seed\n"
+        )
+        state = tmp_path / "external.state.yaml"
+        state.write_text("https://a.example:\n  last_etag: new\n  last_synced: new\n")
+        monkeypatch.setattr(ext, "SOURCES_FILE", cfg)
+        monkeypatch.setattr(ext, "STATE_FILE", state)
+
+        a, b = ext._load_sources()
+        assert (a["last_etag"], a["last_synced"]) == ("new", "new")
+        assert "failed_at" not in a
+        assert b["last_synced"] == "seed"  # state に無い URL は設定ファイルの値を種として使う
+
+    def test_load_sources_without_state_file_uses_config_values(self, tmp_path, monkeypatch):
+        import ingest.external as ext
+
+        cfg = tmp_path / "external.yaml"
+        cfg.write_text("- url: https://a.example\n  last_synced: seed\n")
+        monkeypatch.setattr(ext, "SOURCES_FILE", cfg)
+        monkeypatch.setattr(ext, "STATE_FILE", tmp_path / "missing.yaml")
+        assert ext._load_sources()[0]["last_synced"] == "seed"
 
     @respx.mock
     def test_render_true_empty_body_skips(self, mocker, caplog):

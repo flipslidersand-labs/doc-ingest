@@ -23,6 +23,7 @@ rsync -av --delete \
   --exclude='*.egg-info' \
   --exclude='.env' \
   --exclude='.ruff_cache' \
+  --exclude='sources/external.state.yaml' \
   --exclude='.pytest_cache' \
   ${DEPLOY_DRY_RUN:+--dry-run} \
   "${STAGE}/" "${REMOTE}:${REMOTE_DIR}/"
