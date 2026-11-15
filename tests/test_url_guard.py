@@ -91,7 +91,9 @@ class TestBlockedAddressRanges:
     @staticmethod
     def _resolve_to(mocker, addr):
         family = socket.AF_INET6 if ":" in addr else socket.AF_INET
-        mocker.patch("socket.getaddrinfo", return_value=[(family, None, None, None, (addr, 0))])
+        mocker.patch(
+            "socket.getaddrinfo", return_value=[(family, None, None, None, (addr, 0))]
+        )
 
     @pytest.mark.parametrize(
         "addr",
@@ -202,7 +204,9 @@ class TestSafeGet:
 
     @respx.mock
     def test_no_redirect_passes_through(self):
-        respx.get("https://example.com/api").mock(return_value=httpx.Response(200, text="ok"))
+        respx.get("https://example.com/api").mock(
+            return_value=httpx.Response(200, text="ok")
+        )
         resp = safe_get("https://example.com/api")
         assert resp.status_code == 200
         assert resp.text == "ok"
@@ -210,9 +214,13 @@ class TestSafeGet:
     @respx.mock
     def test_redirect_to_safe_host_is_followed(self):
         respx.get("https://example.com/old").mock(
-            return_value=httpx.Response(302, headers={"location": "https://example.com/new"})
+            return_value=httpx.Response(
+                302, headers={"location": "https://example.com/new"}
+            )
         )
-        respx.get("https://example.com/new").mock(return_value=httpx.Response(200, text="moved"))
+        respx.get("https://example.com/new").mock(
+            return_value=httpx.Response(200, text="moved")
+        )
         resp = safe_get("https://example.com/old")
         assert resp.status_code == 200
         assert resp.text == "moved"
@@ -220,7 +228,9 @@ class TestSafeGet:
     @respx.mock
     def test_redirect_to_private_ip_is_blocked(self):
         respx.get("https://example.com/redir").mock(
-            return_value=httpx.Response(302, headers={"location": "https://192.168.1.1/internal"})
+            return_value=httpx.Response(
+                302, headers={"location": "https://192.168.1.1/internal"}
+            )
         )
         with pytest.raises(UnsafeURLError, match="blocked"):
             safe_get("https://example.com/redir")
@@ -228,7 +238,9 @@ class TestSafeGet:
     @respx.mock
     def test_redirect_downgrading_to_http_is_blocked(self):
         respx.get("https://example.com/redir").mock(
-            return_value=httpx.Response(302, headers={"location": "http://example.com/plain"})
+            return_value=httpx.Response(
+                302, headers={"location": "http://example.com/plain"}
+            )
         )
         with pytest.raises(UnsafeURLError, match="https scheme"):
             safe_get("https://example.com/redir")
@@ -244,19 +256,27 @@ class TestSafeGet:
         respx.get("https://example.com/a/old").mock(
             return_value=httpx.Response(302, headers={"location": "/a/new"})
         )
-        respx.get("https://example.com/a/new").mock(return_value=httpx.Response(200, text="ok"))
+        respx.get("https://example.com/a/new").mock(
+            return_value=httpx.Response(200, text="ok")
+        )
         resp = safe_get("https://example.com/a/old")
         assert resp.status_code == 200
 
     @respx.mock
     def test_redirect_chain_within_limit_succeeds(self):
         respx.get("https://example.com/hop0").mock(
-            return_value=httpx.Response(302, headers={"location": "https://example.com/hop1"})
+            return_value=httpx.Response(
+                302, headers={"location": "https://example.com/hop1"}
+            )
         )
         respx.get("https://example.com/hop1").mock(
-            return_value=httpx.Response(302, headers={"location": "https://example.com/hop2"})
+            return_value=httpx.Response(
+                302, headers={"location": "https://example.com/hop2"}
+            )
         )
-        respx.get("https://example.com/hop2").mock(return_value=httpx.Response(200, text="done"))
+        respx.get("https://example.com/hop2").mock(
+            return_value=httpx.Response(200, text="done")
+        )
         resp = safe_get("https://example.com/hop0", max_redirects=3)
         assert resp.text == "done"
 
@@ -347,7 +367,9 @@ class TestSafeDownload:
 
     def test_redirect_to_a_private_address_is_blocked_and_not_requested(self):
         respx.get("https://example.com/r").mock(
-            return_value=httpx.Response(302, headers={"location": "https://192.168.1.1/internal"})
+            return_value=httpx.Response(
+                302, headers={"location": "https://192.168.1.1/internal"}
+            )
         )
         internal = respx.get("https://192.168.1.1/internal").mock(
             return_value=httpx.Response(200, content=b"secret")
@@ -367,7 +389,9 @@ class TestSafeDownload:
 
     def test_too_many_redirects(self):
         respx.get(url__regex=r"https://example\.com/.*").mock(
-            return_value=httpx.Response(302, headers={"location": "https://example.com/loop"})
+            return_value=httpx.Response(
+                302, headers={"location": "https://example.com/loop"}
+            )
         )
         with pytest.raises(UnsafeURLError, match="too many redirects"):
             self._dl("https://example.com/start")
@@ -424,13 +448,18 @@ class TestSafeDownload:
         respx.get("https://example.com/b101").mock(
             return_value=httpx.Response(200, content=body(101))
         )
-        assert safe_download("https://example.com/b100", io.BytesIO(), max_bytes=100) == 100
+        assert (
+            safe_download("https://example.com/b100", io.BytesIO(), max_bytes=100)
+            == 100
+        )
         with pytest.raises(UnsafeURLError, match="exceeds"):
             safe_download("https://example.com/b101", io.BytesIO(), max_bytes=100)
 
     def test_redirect_limit_bounds_the_number_of_requests(self):
         route = respx.get(url__regex=r"https://example\.com/.*").mock(
-            return_value=httpx.Response(302, headers={"location": "https://example.com/loop"})
+            return_value=httpx.Response(
+                302, headers={"location": "https://example.com/loop"}
+            )
         )
         with pytest.raises(UnsafeURLError, match="too many redirects"):
             self._dl("https://example.com/start")
@@ -532,7 +561,9 @@ class TestSafeGetBodyLimit:
         packed = gzip.compress(b"A" * 100_000)
         assert len(packed) < 1000  # 圧縮後は小さい
         respx.get("https://example.com/bomb").mock(
-            return_value=httpx.Response(200, headers={"content-encoding": "gzip"}, content=packed)
+            return_value=httpx.Response(
+                200, headers={"content-encoding": "gzip"}, content=packed
+            )
         )
         with pytest.raises(UnsafeURLError, match="exceeds"):
             safe_get("https://example.com/bomb", max_bytes=10_000)
@@ -544,7 +575,10 @@ class TestSafeGetBodyLimit:
         respx.get("https://example.com/gz").mock(
             return_value=httpx.Response(
                 200,
-                headers={"content-encoding": "gzip", "content-type": "text/plain; charset=utf-8"},
+                headers={
+                    "content-encoding": "gzip",
+                    "content-type": "text/plain; charset=utf-8",
+                },
                 content=gzip.compress("日本語の本文".encode()),
             )
         )
@@ -568,13 +602,17 @@ class TestSafeGetBodyLimit:
 
     def test_an_explicit_max_bytes_overrides_the_default(self, monkeypatch):
         override_settings(max_download_bytes=10)
-        respx.get("https://example.com/m").mock(return_value=httpx.Response(200, content=b"x" * 50))
+        respx.get("https://example.com/m").mock(
+            return_value=httpx.Response(200, content=b"x" * 50)
+        )
         assert len(safe_get("https://example.com/m", max_bytes=100).content) == 50
 
     def test_the_response_keeps_what_callers_use(self):
         respx.get("https://example.com/r").mock(
             return_value=httpx.Response(
-                404, headers={"etag": '"abc"', "content-type": "text/html"}, content=b"nope"
+                404,
+                headers={"etag": '"abc"', "content-type": "text/html"},
+                content=b"nope",
             )
         )
         resp = safe_get("https://example.com/r")
@@ -593,16 +631,22 @@ class TestSafeGetBodyLimit:
         )
         assert safe_get("https://example.com/old").content == b"moved"
         respx.get("https://example.com/evil").mock(
-            return_value=httpx.Response(302, headers={"location": "https://192.168.1.1/x"})
+            return_value=httpx.Response(
+                302, headers={"location": "https://192.168.1.1/x"}
+            )
         )
         with pytest.raises(UnsafeURLError, match="blocked"):
             safe_get("https://example.com/evil")
 
     def test_the_limit_applies_to_the_final_hop_not_the_redirect_body(self, public_dns):
         respx.get("https://example.com/a").mock(
-            return_value=httpx.Response(302, headers={"location": "/b"}, content=b"r" * 500)
+            return_value=httpx.Response(
+                302, headers={"location": "/b"}, content=b"r" * 500
+            )
         )
-        respx.get("https://example.com/b").mock(return_value=httpx.Response(200, content=b"x" * 50))
+        respx.get("https://example.com/b").mock(
+            return_value=httpx.Response(200, content=b"x" * 50)
+        )
         assert len(safe_get("https://example.com/a", max_bytes=100).content) == 50
 
 
@@ -628,7 +672,10 @@ class TestDnsRebinding:
     def test_a_name_with_one_private_record_is_refused(self, mocker):
         from core.url_guard import _PinnedBackend
 
-        mocker.patch("socket.getaddrinfo", return_value=[_addr("93.184.216.34"), _addr("10.0.0.5")])
+        mocker.patch(
+            "socket.getaddrinfo",
+            return_value=[_addr("93.184.216.34"), _addr("10.0.0.5")],
+        )
         base = mocker.patch("httpcore.SyncBackend.connect_tcp")
 
         with pytest.raises(UnsafeURLError, match="blocked"):
@@ -652,19 +699,26 @@ class TestDnsRebinding:
         from core.url_guard import _PinnedBackend
 
         mocker.patch(
-            "socket.getaddrinfo", return_value=[_addr("93.184.216.34"), _addr("93.184.216.35")]
+            "socket.getaddrinfo",
+            return_value=[_addr("93.184.216.34"), _addr("93.184.216.35")],
         )
         base = mocker.patch(
-            "httpcore.SyncBackend.connect_tcp", side_effect=[httpcore.ConnectError("down"), "ok"]
+            "httpcore.SyncBackend.connect_tcp",
+            side_effect=[httpcore.ConnectError("down"), "ok"],
         )
 
         assert _PinnedBackend().connect_tcp("example.com", 443) == "ok"
 
-        assert [c.args[0] for c in base.call_args_list] == ["93.184.216.34", "93.184.216.35"]
+        assert [c.args[0] for c in base.call_args_list] == [
+            "93.184.216.34",
+            "93.184.216.35",
+        ]
 
     def test_download_is_refused_when_dns_changes_after_the_check(self, mocker):
         """assert_safe_url は公開 IP を見て通し、接続時の再解決は内部 IP を返す。"""
-        answers = iter([[_addr("93.184.216.34")], [_addr("127.0.0.1")], [_addr("127.0.0.1")]])
+        answers = iter(
+            [[_addr("93.184.216.34")], [_addr("127.0.0.1")], [_addr("127.0.0.1")]]
+        )
         mocker.patch("socket.getaddrinfo", side_effect=lambda *a, **k: next(answers))
         base = mocker.patch("httpcore.SyncBackend.connect_tcp")
 
@@ -689,7 +743,8 @@ class TestDnsRebinding:
 
         mocker.patch("socket.getaddrinfo", return_value=[_addr("93.184.216.34")] * 3)
         base = mocker.patch(
-            "httpcore.SyncBackend.connect_tcp", side_effect=httpcore.ConnectError("down")
+            "httpcore.SyncBackend.connect_tcp",
+            side_effect=httpcore.ConnectError("down"),
         )
 
         with pytest.raises(httpcore.ConnectError):

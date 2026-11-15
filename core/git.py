@@ -21,7 +21,16 @@ def changed_files(repo_path: str | Path = ".") -> list[Path]:
       path is listed, so the old path's points could never be removed (#217).
     """
     r = subprocess.run(
-        ["git", "-C", str(repo_path), "diff", "--name-only", "-z", "--no-renames", "HEAD~1"],
+        [
+            "git",
+            "-C",
+            str(repo_path),
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "HEAD~1",
+        ],
         capture_output=True,
         text=True,
         check=False,

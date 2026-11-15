@@ -32,7 +32,10 @@ def _retry_boom(e):
 def test_success_first_try_no_sleep_no_callback(mocker):
     sleep = mocker.patch("time.sleep")
     on_retry = mocker.Mock()
-    assert with_retry(lambda: 1, retries=3, is_retryable=_retry_boom, on_retry=on_retry) == 1
+    assert (
+        with_retry(lambda: 1, retries=3, is_retryable=_retry_boom, on_retry=on_retry)
+        == 1
+    )
     sleep.assert_not_called()
     on_retry.assert_not_called()
 
@@ -50,7 +53,12 @@ def test_exhausted_reraises_last_exception_without_trailing_sleep(mocker):
     seen = []
     fn, calls = _flaky(99)
     with pytest.raises(Boom, match="fail 3"):
-        with_retry(fn, retries=3, is_retryable=_retry_boom, on_retry=lambda a, e: seen.append(a))
+        with_retry(
+            fn,
+            retries=3,
+            is_retryable=_retry_boom,
+            on_retry=lambda a, e: seen.append(a),
+        )
     assert calls["n"] == 3
     assert sleep.call_count == 2  # 最終試行の後は待たない
     assert seen == [0, 1]  # on_retry は最終試行では呼ばれない・0 始まり

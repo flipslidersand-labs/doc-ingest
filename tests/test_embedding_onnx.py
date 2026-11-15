@@ -57,7 +57,9 @@ class FakeSess:
         h = np.zeros((b, t, HIDDEN), dtype=np.float32)
         for i in range(b):
             for j in range(t):
-                h[i, j] = (i + 1) * (j + 1) * np.arange(1, HIDDEN + 1) if mask[i, j] else 1e6
+                h[i, j] = (
+                    (i + 1) * (j + 1) * np.arange(1, HIDDEN + 1) if mask[i, j] else 1e6
+                )
         return [h]
 
 
@@ -107,7 +109,11 @@ def test_feed_only_contains_model_inputs_as_int64(onnx):
 
 def test_returns_plain_python_lists(onnx):
     out = emb._embed_batch_onnx(["alpha"])
-    assert isinstance(out, list) and isinstance(out[0], list) and isinstance(out[0][0], float)
+    assert (
+        isinstance(out, list)
+        and isinstance(out[0], list)
+        and isinstance(out[0][0], float)
+    )
 
 
 def test_embed_dispatches_to_onnx_in_batches(monkeypatch):
@@ -120,7 +126,9 @@ def test_embed_dispatches_to_onnx_in_batches(monkeypatch):
     override_settings(embed_backend="onnx_gpu")
     override_settings(embed_batch=2)
     monkeypatch.setattr(emb, "_embed_batch_onnx", fake_onnx)
-    monkeypatch.setattr(emb, "_embed_batch", lambda b, m: pytest.fail("HTTP path must not be used"))
+    monkeypatch.setattr(
+        emb, "_embed_batch", lambda b, m: pytest.fail("HTTP path must not be used")
+    )
     assert len(emb.embed(["a", "b", "c", "d", "e"])) == 5
     assert sizes == [2, 2, 1]
 
@@ -155,9 +163,13 @@ def test_init_requires_model_path(monkeypatch):
         emb._onnx_init()
 
 
-def test_init_requests_cuda_then_cpu_and_stays_quiet_when_cuda_is_active(monkeypatch, caplog):
+def test_init_requests_cuda_then_cpu_and_stays_quiet_when_cuda_is_active(
+    monkeypatch, caplog
+):
     override_settings(onnx_model_path="/m/model.onnx")
-    created = _install_fake_runtime(monkeypatch, ["CUDAExecutionProvider", "CPUExecutionProvider"])
+    created = _install_fake_runtime(
+        monkeypatch, ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    )
     with caplog.at_level(logging.INFO, logger="core.embedding"):
         emb._onnx_init()
     assert created["path"] == "/m/model.onnx"

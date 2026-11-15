@@ -44,7 +44,9 @@ def _onnx_init() -> None:
 
     onnx_model_path = get_settings().onnx_model_path
     if not onnx_model_path:
-        raise RuntimeError("ONNX_MODEL_PATH is not set. Cannot use EMBED_BACKEND=onnx_gpu.")
+        raise RuntimeError(
+            "ONNX_MODEL_PATH is not set. Cannot use EMBED_BACKEND=onnx_gpu."
+        )
     model_dir = os.path.dirname(os.path.abspath(onnx_model_path))
     _log.info("Loading ONNX model from %s …", onnx_model_path)
     _onnx_sess = ort.InferenceSession(
@@ -152,8 +154,12 @@ def _embed_batch(texts: list[str], mode: Mode = "index") -> list[list[float]]:
             if e.response.status_code == 501:
                 _log.info("embed: primary returned 501, switching to fallback")
             last_exc = e
-        except httpx.TransportError as e:  # timeout / connect / read / protocol / proxy ...
-            _log.warning("embed: %s unreachable (%s), trying fallback", url, type(e).__name__)
+        except (
+            httpx.TransportError
+        ) as e:  # timeout / connect / read / protocol / proxy ...
+            _log.warning(
+                "embed: %s unreachable (%s), trying fallback", url, type(e).__name__
+            )
             last_exc = e
         else:
             if url != cfg.embed_url:
@@ -177,6 +183,8 @@ def embed(texts: list[str], mode: Mode = "index") -> list[list[float]]:
         got = batch_fn(batch, mode)
         if len(got) != len(batch):
             # 少なく返ると、呼び出し側の zip が後ろの文書を黙って落とす (ペイロードの欠損)
-            raise EmbeddingError(f"embedding returned {len(got)} vectors for {len(batch)} texts")
+            raise EmbeddingError(
+                f"embedding returned {len(got)} vectors for {len(batch)} texts"
+            )
         vectors.extend(got)
     return vectors

@@ -122,7 +122,9 @@ class TestChangedFilesInARealRepo:
         note.write_text("# メモ\n追記")
         self._commit(repo, "two", "10-projects/日本語のノート.md")
         paths = changed_files(repo)
-        assert paths == [Path("10-projects/日本語のノート.md")]  # 以前は "\\346\\227…" の引用符つき
+        assert paths == [
+            Path("10-projects/日本語のノート.md")
+        ]  # 以前は "\\346\\227…" の引用符つき
         assert (repo / paths[0]).exists()
 
     def test_paths_with_spaces_and_newlines_survive(self, tmp_path):

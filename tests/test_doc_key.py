@@ -10,7 +10,16 @@ from core.ids import make_id
 
 def _git(cwd, *args):
     subprocess.run(
-        ["git", "-C", str(cwd), "-c", "user.email=t@example.com", "-c", "user.name=t", *args],
+        [
+            "git",
+            "-C",
+            str(cwd),
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=t",
+            *args,
+        ],
         check=True,
         capture_output=True,
     )
@@ -43,7 +52,9 @@ def test_same_filename_in_two_repos_gets_different_keys_and_ids(tmp_path):
     assert make_id(f"{ka.key}:0") != make_id(f"{kb.key}:0")  # #216: 以前は同一 ID
 
 
-def test_hook_relative_path_and_manual_absolute_path_are_the_same_key(tmp_path, monkeypatch):
+def test_hook_relative_path_and_manual_absolute_path_are_the_same_key(
+    tmp_path, monkeypatch
+):
     repo = _repo(tmp_path, "forge", files=("docs/design.md",))
     monkeypatch.chdir(repo)  # post-commit フックは各リポのルートで走る
     from pathlib import Path
@@ -132,7 +143,9 @@ class TestEscapesRepo:
 
         repo = _repo(tmp_path, "forge", files=("docs/real.md",))
         (repo / "docs" / "alias.md").symlink_to(repo / "docs" / "real.md")
-        assert escapes_repo(repo / "docs" / "alias.md") is False  # 拒否は is_symlink の側が担う
+        assert (
+            escapes_repo(repo / "docs" / "alias.md") is False
+        )  # 拒否は is_symlink の側が担う
 
     def test_a_path_outside_any_repo_is_not_flagged(self, tmp_path):
         from core.doc_key import escapes_repo
@@ -179,7 +192,9 @@ class TestEscapesRepo:
         (home / "forge").symlink_to(real)
         assert escapes_repo(home / "forge" / "docs" / "a.md") is False
 
-    def test_a_leak_symlink_inside_a_repo_reached_through_a_symlink_is_still_caught(self, tmp_path):
+    def test_a_leak_symlink_inside_a_repo_reached_through_a_symlink_is_still_caught(
+        self, tmp_path
+    ):
         from core.doc_key import escapes_repo
 
         real = _repo(tmp_path, "data_forge")

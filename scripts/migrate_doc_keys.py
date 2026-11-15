@@ -41,7 +41,10 @@ def migrate(client, collections, apply: bool, out=print) -> int:
         flt = _unmigrated()
         n = client.count(collection_name=name, count_filter=flt, exact=True).count
         points, _ = client.scroll(
-            collection_name=name, scroll_filter=flt, limit=10, with_payload=["file_path"]
+            collection_name=name,
+            scroll_filter=flt,
+            limit=10,
+            with_payload=["file_path"],
         )
         out(f"[{name}] 未移行 {n} 件")
         for p in points:
@@ -49,7 +52,9 @@ def migrate(client, collections, apply: bool, out=print) -> int:
         if n > len(points):
             out(f"    … ほか {n - len(points)} 件")
         if apply and n:
-            client.delete(collection_name=name, points_selector=FilterSelector(filter=flt))
+            client.delete(
+                collection_name=name, points_selector=FilterSelector(filter=flt)
+            )
             out(f"[{name}] {n} 件を削除しました")
         total += n
     if not apply:

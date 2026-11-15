@@ -19,7 +19,10 @@ def _client(count=3):
     c = MagicMock()
     c.count.return_value = SimpleNamespace(count=count)
     c.scroll.return_value = (
-        [SimpleNamespace(payload={"file_path": "CLAUDE.md"}) for _ in range(min(count, 2))],
+        [
+            SimpleNamespace(payload={"file_path": "CLAUDE.md"})
+            for _ in range(min(count, 2))
+        ],
         None,
     )
     return c
@@ -35,7 +38,10 @@ def test_dry_run_is_the_default_and_deletes_nothing():
 def test_apply_deletes_by_the_unmigrated_filter_in_both_collections():
     c = _client()
     mig.main(["--apply"], client=c)
-    assert [k.kwargs["collection_name"] for k in c.delete.call_args_list] == ["design", "notes"]
+    assert [k.kwargs["collection_name"] for k in c.delete.call_args_list] == [
+        "design",
+        "notes",
+    ]
     sel = c.delete.call_args.kwargs["points_selector"]
     assert isinstance(sel, FilterSelector)
     cond = sel.filter.must[0]

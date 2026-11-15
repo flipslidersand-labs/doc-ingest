@@ -104,16 +104,26 @@ class TestSearchCommand:
         mocker.patch(
             "core.qdrant.search",
             return_value=[
-                {"score": 0.5, "source_url": "https://example.com", "text": "full chunk"}
+                {
+                    "score": 0.5,
+                    "source_url": "https://example.com",
+                    "text": "full chunk",
+                }
             ],
         )
         mock_nuggets = mocker.patch(
             "core.nugget.apply_nuggets",
             return_value=[
-                {"score": 0.5, "source_url": "https://example.com", "text": "nugget only"}
+                {
+                    "score": 0.5,
+                    "source_url": "https://example.com",
+                    "text": "nugget only",
+                }
             ],
         )
-        result = CliRunner().invoke(main, ["search", "q", "--nugget", "--nugget-k", "2"])
+        result = CliRunner().invoke(
+            main, ["search", "q", "--nugget", "--nugget-k", "2"]
+        )
 
         mock_nuggets.assert_called_once()
         args, kwargs = mock_nuggets.call_args
@@ -125,7 +135,11 @@ class TestSearchCommand:
         mocker.patch(
             "core.qdrant.search",
             return_value=[
-                {"score": 0.5, "source_url": "https://example.com", "text": "full chunk"}
+                {
+                    "score": 0.5,
+                    "source_url": "https://example.com",
+                    "text": "full chunk",
+                }
             ],
         )
         mock_nuggets = mocker.patch("core.nugget.apply_nuggets")
@@ -171,7 +185,9 @@ class TestArxivCommand:
 
     def test_arxiv_value_error_is_a_clear_message_not_a_traceback(self, mocker):
         mocker.patch("cli.assert_safe_url")
-        mocker.patch("cli.ingest_arxiv", side_effect=ValueError("本文を抽出できませんでした: x"))
+        mocker.patch(
+            "cli.ingest_arxiv", side_effect=ValueError("本文を抽出できませんでした: x")
+        )
         result = CliRunner().invoke(main, ["arxiv", "https://example.com/blog"])
         assert result.exit_code != 0
         assert "本文を抽出できませんでした" in result.output
@@ -180,8 +196,12 @@ class TestArxivCommand:
     def test_arxiv_tags_parsed(self, mocker):
         mocker.patch("cli.assert_safe_url")
         mock_ingest = mocker.patch("cli.ingest_arxiv")
-        CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762", "--tags", "ml,nlp"])
-        mock_ingest.assert_called_once_with("https://arxiv.org/abs/1706.03762", tags=["ml", "nlp"])
+        CliRunner().invoke(
+            main, ["arxiv", "https://arxiv.org/abs/1706.03762", "--tags", "ml,nlp"]
+        )
+        mock_ingest.assert_called_once_with(
+            "https://arxiv.org/abs/1706.03762", tags=["ml", "nlp"]
+        )
 
 
 class TestArxivValidation:
@@ -240,17 +260,23 @@ class TestSearchLimitValidation:
 class TestSearchNuggetKValidation:
     def test_nugget_k_zero_rejected(self, mocker):
         mocker.patch("core.qdrant.search", return_value=[])
-        result = CliRunner().invoke(main, ["search", "q", "--nugget", "--nugget-k", "0"])
+        result = CliRunner().invoke(
+            main, ["search", "q", "--nugget", "--nugget-k", "0"]
+        )
         assert result.exit_code != 0
 
     def test_nugget_k_negative_rejected(self, mocker):
         mocker.patch("core.qdrant.search", return_value=[])
-        result = CliRunner().invoke(main, ["search", "q", "--nugget", "--nugget-k", "-1"])
+        result = CliRunner().invoke(
+            main, ["search", "q", "--nugget", "--nugget-k", "-1"]
+        )
         assert result.exit_code != 0
 
     def test_nugget_k_1_accepted(self, mocker):
         mocker.patch("core.qdrant.search", return_value=[])
-        result = CliRunner().invoke(main, ["search", "q", "--nugget", "--nugget-k", "1"])
+        result = CliRunner().invoke(
+            main, ["search", "q", "--nugget", "--nugget-k", "1"]
+        )
         assert result.exit_code == 0
 
     def test_search_limit_100_accepted(self, mocker):
@@ -269,17 +295,22 @@ class TestPdfValidation:
     def test_pdf_calls_ingest_pdf(self, mocker):
         mock_ingest = mocker.patch("ingest.pdf.ingest_pdf")
         CliRunner().invoke(main, ["pdf", "/some/file.pdf"])
-        mock_ingest.assert_called_once_with("/some/file.pdf", tags=[], allow_cloud=False)
+        mock_ingest.assert_called_once_with(
+            "/some/file.pdf", tags=[], allow_cloud=False
+        )
 
     def test_pdf_unsafe_url_shows_a_clear_error_not_a_traceback(self, mocker):
         from core.url_guard import UnsafeURLError
 
         mocker.patch(
-            "ingest.pdf.ingest_pdf", side_effect=UnsafeURLError("blocked address 10.0.0.1")
+            "ingest.pdf.ingest_pdf",
+            side_effect=UnsafeURLError("blocked address 10.0.0.1"),
         )
         result = CliRunner().invoke(main, ["pdf", "https://10.0.0.1/a.pdf"])
         assert result.exit_code != 0
-        assert "取り込めない URL" in result.output and "blocked address" in result.output
+        assert (
+            "取り込めない URL" in result.output and "blocked address" in result.output
+        )
         assert "Traceback" not in result.output
 
     def test_pdf_allow_cloud_flag_is_opt_in(self, mocker):
@@ -333,7 +364,9 @@ class TestSearchTrust:
     def _search(mocker, **payload):
         mocker.patch(
             "core.qdrant.search",
-            return_value=[{"score": 0.9, "source_url": "https://e.com", "text": "t", **payload}],
+            return_value=[
+                {"score": 0.9, "source_url": "https://e.com", "text": "t", **payload}
+            ],
         )
         return CliRunner().invoke(main, ["search", "q"]).output
 

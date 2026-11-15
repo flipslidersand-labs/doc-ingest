@@ -64,7 +64,9 @@ def ensure_collection(name: str) -> None:
             name,
             vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
         )
-        c.create_payload_index(name, "ingested_at", field_schema=PayloadSchemaType.DATETIME)
+        c.create_payload_index(
+            name, "ingested_at", field_schema=PayloadSchemaType.DATETIME
+        )
     except UnexpectedResponse as e:
         # 409 = another process (a concurrent hook/cron run against the same
         # Qdrant) created *name* between our existence check and this call —
@@ -89,7 +91,9 @@ def upsert(collection: str, points: list[dict[str, Any]]) -> None:
             vector=vec,
             payload={k: v for k, v in p.items() if k != "id"},
         )
-        for p, vec in zip(points, vectors, strict=True)  # 件数不一致で後ろを黙って落とさない
+        for p, vec in zip(
+            points, vectors, strict=True
+        )  # 件数不一致で後ろを黙って落とさない
     ]
     client().upsert(collection_name=collection, points=structs)
 
@@ -97,7 +101,11 @@ def upsert(collection: str, points: list[dict[str, Any]]) -> None:
 def search(collection: str, query: str, limit: int = 5) -> list[dict]:
     ensure_collection(collection)
     vector = embed([query], mode="search")[0]
-    hits = client().query_points(collection_name=collection, query=vector, limit=limit).points
+    hits = (
+        client()
+        .query_points(collection_name=collection, query=vector, limit=limit)
+        .points
+    )
     return [
         {
             "score": round(hit.score, 4),
@@ -115,7 +123,9 @@ def delete_by_payload(collection: str, key: str, value: str) -> None:
         return
     client().delete(
         collection_name=collection,
-        points_selector=Filter(must=[FieldCondition(key=key, match=MatchValue(value=value))]),
+        points_selector=Filter(
+            must=[FieldCondition(key=key, match=MatchValue(value=value))]
+        ),
     )
 
 
@@ -193,14 +203,24 @@ def list_collections() -> list[dict]:
                 with_payload=["ingested_at"],
             )
             last = (
-                records[0].payload.get("ingested_at", "") if records and records[0].payload else ""
+                records[0].payload.get("ingested_at", "")
+                if records and records[0].payload
+                else ""
             )
             last_ingested = last[:19].replace("T", " ") if last else "—"
-        except Exception as e:  # noqa: BLE001 — 共有 Qdrant の他ツールのコレクションには ingested_at の index が無い
+        except (
+            Exception
+        ) as e:  # noqa: BLE001 — 共有 Qdrant の他ツールのコレクションには ingested_at の index が無い
             # order_by は index の無い payload では失敗しうる。1 件の失敗で一覧全体を落とさない
-            _log.warning("list: cannot read last ingested of %s (%s)", col.name, type(e).__name__)
+            _log.warning(
+                "list: cannot read last ingested of %s (%s)", col.name, type(e).__name__
+            )
             last_ingested = "?"
         result.append(
-            {"name": col.name, "points": info.points_count, "last_ingested": last_ingested}
+            {
+                "name": col.name,
+                "points": info.points_count,
+                "last_ingested": last_ingested,
+            }
         )
     return result

@@ -52,7 +52,9 @@ def main(verbose: bool):
 
 @main.command()
 @click.argument("url")
-@click.option("--tags", default="", help="Comma-separated project tags (e.g. forge,fluxion)")
+@click.option(
+    "--tags", default="", help="Comma-separated project tags (e.g. forge,fluxion)"
+)
 def arxiv(url: str, tags: str):
     """Ingest an arxiv paper or tech blog post."""
     try:
@@ -82,7 +84,9 @@ def notes(file: str | None):
 
 @main.command()
 @click.option("--force", is_flag=True, help="Skip ETag check and re-ingest all sources")
-@click.option("--dry-run", is_flag=True, help="Show what would be ingested without writing")
+@click.option(
+    "--dry-run", is_flag=True, help="Show what would be ingested without writing"
+)
 def sync(force: bool, dry_run: bool):
     """Sync external API docs (ETag-based freshness check)."""
     sync_external(force=force, dry_run=dry_run)
@@ -103,7 +107,11 @@ def sync(force: bool, dry_run: bool):
     help="Number of results (1-100)",
     type=click.IntRange(min=1, max=100),
 )
-@click.option("--nugget", is_flag=True, help="Extract BM25 nugget sentences instead of full chunks")
+@click.option(
+    "--nugget",
+    is_flag=True,
+    help="Extract BM25 nugget sentences instead of full chunks",
+)
 @click.option(
     "--nugget-k",
     default=3,
@@ -136,7 +144,11 @@ def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int)
             click.echo(f"    section: {section}")
         text = r.get("text", "")
         orig_len = r.get("nugget_source_len")
-        suffix = f" (nugget from {orig_len}c)" if orig_len else ("…" if len(text) > 200 else "")
+        suffix = (
+            f" (nugget from {orig_len}c)"
+            if orig_len
+            else ("…" if len(text) > 200 else "")
+        )
         preview = text[:200].replace(chr(10), " ")
         click.echo(f"    {preview}{suffix}")
 

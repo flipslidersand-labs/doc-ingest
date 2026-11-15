@@ -95,7 +95,8 @@ class TestFetchArxiv:
         """Empty feed (no entry elements) should raise ValueError immediately."""
         respx.get("https://export.arxiv.org/api/query?id_list=0000.00000").mock(
             return_value=httpx.Response(
-                200, text='<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>'
+                200,
+                text='<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>',
             )
         )
         from ingest.arxiv import _fetch_arxiv
@@ -136,14 +137,18 @@ class TestFetchArxiv:
 class TestFetchPdfText:
     @respx.mock
     def test_fetch_failure_returns_empty(self):
-        respx.get("https://arxiv.org/pdf/1706.03762").mock(return_value=httpx.Response(404))
+        respx.get("https://arxiv.org/pdf/1706.03762").mock(
+            return_value=httpx.Response(404)
+        )
         from ingest.arxiv import _fetch_pdf_text
 
         result = _fetch_pdf_text("1706.03762")
         assert result == ""
 
     def test_network_error_returns_empty(self, mocker):
-        mocker.patch("ingest.arxiv.safe_download", side_effect=httpx.RequestError("timeout"))
+        mocker.patch(
+            "ingest.arxiv.safe_download", side_effect=httpx.RequestError("timeout")
+        )
         from ingest.arxiv import _fetch_pdf_text
 
         result = _fetch_pdf_text("1706.03762")
@@ -175,7 +180,9 @@ class TestIngestArxiv:
     @respx.mock
     def test_blog_url_calls_upsert(self, mocker):
         respx.get("https://example.com/blog/post").mock(
-            return_value=httpx.Response(200, text="<html><body>great post</body></html>")
+            return_value=httpx.Response(
+                200, text="<html><body>great post</body></html>"
+            )
         )
         mocker.patch("ingest.arxiv.distill_webpage", return_value="distilled blog")
         mock_upsert = mocker.patch("ingest.arxiv.upsert")
@@ -196,7 +203,9 @@ class TestIngestArxiv:
             return_value=httpx.Response(200, text=ARXIV_API_RESPONSE)
         )
         mocker.patch("ingest.arxiv._fetch_pdf_text", return_value="")
-        mock_distill = mocker.patch("ingest.arxiv.distill_paper", return_value="abstract only")
+        mock_distill = mocker.patch(
+            "ingest.arxiv.distill_paper", return_value="abstract only"
+        )
         mock_upsert = mocker.patch("ingest.arxiv.upsert")
 
         from ingest.arxiv import ingest_arxiv
@@ -316,7 +325,9 @@ class TestIngestBlog:
             return [(family, None, None, None, (addr, 0))]
 
         mocker.patch("socket.getaddrinfo", side_effect=fake_getaddrinfo)
-        self.distill = mocker.patch("ingest.arxiv.distill_webpage", return_value="distilled")
+        self.distill = mocker.patch(
+            "ingest.arxiv.distill_webpage", return_value="distilled"
+        )
         self.upsert = mocker.patch("ingest.arxiv.upsert")
         with respx.mock:  # 未登録のリクエストは実ネットワークに出さず即失敗
             yield
@@ -329,18 +340,29 @@ class TestIngestBlog:
     def test_html_is_reduced_to_the_article_before_summarising(self):
         respx.get("https://example.com/blog/post").mock(
             return_value=httpx.Response(
-                200, text=ARTICLE_HTML, headers={"content-type": "text/html; charset=utf-8"}
+                200,
+                text=ARTICLE_HTML,
+                headers={"content-type": "text/html; charset=utf-8"},
             )
         )
         self._ingest()
         body = self.distill.call_args[0][0]
         assert "full jitter" in body and "thundering herd" in body
-        for noise in ("SCRIPT-NOISE", "NAV-NOISE", "FOOTER-NOISE", "<script", "<html", "<nav"):
+        for noise in (
+            "SCRIPT-NOISE",
+            "NAV-NOISE",
+            "FOOTER-NOISE",
+            "<script",
+            "<html",
+            "<nav",
+        ):
             assert noise not in body
 
     def test_a_redirect_to_the_canonical_url_is_followed(self):
         respx.get("https://example.com/blog/post").mock(
-            return_value=httpx.Response(301, headers={"location": "https://example.com/blog/post/"})
+            return_value=httpx.Response(
+                301, headers={"location": "https://example.com/blog/post/"}
+            )
         )
         respx.get("https://example.com/blog/post/").mock(
             return_value=httpx.Response(
@@ -349,15 +371,22 @@ class TestIngestBlog:
         )
         self._ingest()
         self.upsert.assert_called_once()
-        assert self.upsert.call_args[0][1][0]["source_url"] == "https://example.com/blog/post"
+        assert (
+            self.upsert.call_args[0][1][0]["source_url"]
+            == "https://example.com/blog/post"
+        )
 
     def test_a_redirect_to_an_internal_host_is_blocked_and_not_requested(self):
         from core.url_guard import UnsafeURLError
 
         respx.get("https://example.com/blog/post").mock(
-            return_value=httpx.Response(302, headers={"location": "https://192.168.1.1/admin"})
+            return_value=httpx.Response(
+                302, headers={"location": "https://192.168.1.1/admin"}
+            )
         )
-        internal = respx.get("https://192.168.1.1/admin").mock(return_value=httpx.Response(200))
+        internal = respx.get("https://192.168.1.1/admin").mock(
+            return_value=httpx.Response(200)
+        )
         with pytest.raises(UnsafeURLError):
             self._ingest()
         assert not internal.called
@@ -366,7 +395,9 @@ class TestIngestBlog:
     def test_markdown_and_plain_text_are_passed_through_unchanged(self):
         md = "# Title\n\nSome *markdown* body that is not HTML.\n"
         respx.get("https://example.com/blog/post").mock(
-            return_value=httpx.Response(200, text=md, headers={"content-type": "text/markdown"})
+            return_value=httpx.Response(
+                200, text=md, headers={"content-type": "text/markdown"}
+            )
         )
         self._ingest()
         assert self.distill.call_args[0][0] == md
@@ -385,7 +416,9 @@ class TestIngestBlog:
         self.upsert.assert_not_called()
 
     def test_http_error_status_propagates(self):
-        respx.get("https://example.com/blog/post").mock(return_value=httpx.Response(404))
+        respx.get("https://example.com/blog/post").mock(
+            return_value=httpx.Response(404)
+        )
         with pytest.raises(httpx.HTTPStatusError):
             self._ingest()
         self.upsert.assert_not_called()
@@ -432,7 +465,9 @@ class TestFetchPdfTextIsBounded:
 
         from core.url_guard import UnsafeURLError
 
-        mocker.patch("ingest.arxiv.safe_download", side_effect=UnsafeURLError("response exceeds"))
+        mocker.patch(
+            "ingest.arxiv.safe_download", side_effect=UnsafeURLError("response exceeds")
+        )
         from ingest.arxiv import _fetch_pdf_text
 
         with caplog.at_level(logging.WARNING, logger="ingest.arxiv"):
@@ -449,7 +484,10 @@ class TestFetchPdfTextIsBounded:
         from ingest.arxiv import _fetch_arxiv
 
         assert _fetch_arxiv("1706.03762")["title"]
-        assert sg.call_args.args[0] == "https://export.arxiv.org/api/query?id_list=1706.03762"
+        assert (
+            sg.call_args.args[0]
+            == "https://export.arxiv.org/api/query?id_list=1706.03762"
+        )
 
 
 class TestBlogBodyLimit:
@@ -463,7 +501,8 @@ class TestBlogBodyLimit:
             return_value=[(socket.AF_INET, None, None, None, ("93.184.216.34", 0))],
         )
         mocker.patch(
-            "ingest.arxiv.safe_get", side_effect=UnsafeURLError("response exceeds 52428800 bytes")
+            "ingest.arxiv.safe_get",
+            side_effect=UnsafeURLError("response exceeds 52428800 bytes"),
         )
         distill = mocker.patch("ingest.arxiv.distill_webpage")
         up = mocker.patch("ingest.arxiv.upsert")

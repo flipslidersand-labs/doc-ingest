@@ -76,10 +76,17 @@ class TestSplitSentences:
         assert _split_sentences(f"前の文{mark}次の文") == [f"前の文{mark}", "次の文"]
 
     def test_english_still_splits_on_terminator_plus_space(self):
-        assert _split_sentences("One. Two! Three? Four") == ["One.", "Two!", "Three?", "Four"]
+        assert _split_sentences("One. Two! Three? Four") == [
+            "One.",
+            "Two!",
+            "Three?",
+            "Four",
+        ]
 
     def test_decimals_and_versions_are_not_split(self):
-        assert _split_sentences("Pi is 3.14 and v1.2 works.") == ["Pi is 3.14 and v1.2 works."]
+        assert _split_sentences("Pi is 3.14 and v1.2 works.") == [
+            "Pi is 3.14 and v1.2 works."
+        ]
 
     def test_newlines_split(self):
         assert _split_sentences("- 一つ目\n- 二つ目\n\n三つ目") == [
@@ -89,7 +96,14 @@ class TestSplitSentences:
         ]
 
     def test_mixed_japanese_and_english(self):
-        assert len(_split_sentences("Redis を採用した。Memcached is rejected. 理由は永続化。")) == 3
+        assert (
+            len(
+                _split_sentences(
+                    "Redis を採用した。Memcached is rejected. 理由は永続化。"
+                )
+            )
+            == 3
+        )
 
     def test_empty_and_whitespace(self):
         assert _split_sentences("") == [] and _split_sentences("  \n ") == []
@@ -124,7 +138,12 @@ class TestScoring:
         assert scores[0] > max(scores[1:])
 
     def test_repeating_a_rare_term_inside_one_sentence_does_not_lower_its_weight(self):
-        sentences = ["rare rare rare alpha", "common beta", "common gamma", "common delta"]
+        sentences = [
+            "rare rare rare alpha",
+            "common beta",
+            "common gamma",
+            "common delta",
+        ]
         scores = _bm25_scores("rare", sentences)
         assert scores[0] > 0 and scores[1] == scores[2] == scores[3] == 0
 
@@ -133,7 +152,9 @@ class TestScoring:
         (スコア経由だと tf の飽和で区別できないので、df を直接確かめる。)"""
         from core.nugget import _doc_freq
 
-        df = _doc_freq([["rare", "rare", "rare", "x"], ["common", "y"], ["common", "z"]])
+        df = _doc_freq(
+            [["rare", "rare", "rare", "x"], ["common", "y"], ["common", "z"]]
+        )
         assert df["rare"] == 1  # 3 回出るが 1 文だけ
         assert df["common"] == 2
         assert df["missing"] == 0

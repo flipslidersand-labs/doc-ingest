@@ -214,7 +214,9 @@ def test_list_collections_uses_order_by_limit_1(monkeypatch):
     mock_client.get_collections.return_value = SimpleNamespace(collections=[col])
     mock_client.get_collection.return_value = SimpleNamespace(points_count=3)
 
-    latest_record = SimpleNamespace(payload={"ingested_at": "2024-06-01T12:00:00Z", "text": "hi"})
+    latest_record = SimpleNamespace(
+        payload={"ingested_at": "2024-06-01T12:00:00Z", "text": "hi"}
+    )
     mock_client.scroll.return_value = ([latest_record], None)
 
     monkeypatch.setattr(q, "_client", mock_client)
@@ -222,7 +224,9 @@ def test_list_collections_uses_order_by_limit_1(monkeypatch):
     result = q.list_collections()
 
     scroll_kwargs = mock_client.scroll.call_args.kwargs
-    assert scroll_kwargs["limit"] == 1, f"expected limit=1, got {scroll_kwargs['limit']}"
+    assert (
+        scroll_kwargs["limit"] == 1
+    ), f"expected limit=1, got {scroll_kwargs['limit']}"
     assert isinstance(scroll_kwargs["order_by"], OrderBy)
     assert scroll_kwargs["order_by"].key == "ingested_at"
     assert scroll_kwargs["order_by"].direction == "desc"
@@ -239,11 +243,15 @@ def test_list_collections_uses_order_by_limit_1(monkeypatch):
 
 
 class TestUpsert:
-    def test_upsert_empty_points_does_not_touch_qdrant_or_the_embedder(self, monkeypatch):
+    def test_upsert_empty_points_does_not_touch_qdrant_or_the_embedder(
+        self, monkeypatch
+    ):
         """#229: 空リスト (全チャンクの要約失敗など) は何もしない。Qdrant が空リストを受け付けるかは
         実機未確認なので送らない。embed も呼ばない。"""
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts, **kw: pytest.fail("embed must not be called"))
+        monkeypatch.setattr(
+            q, "embed", lambda texts, **kw: pytest.fail("embed must not be called")
+        )
         mock_client = MagicMock()
         monkeypatch.setattr(q, "_client", mock_client)
 
@@ -257,14 +265,20 @@ class TestUpsert:
     ):
         """#229: ベクトルが入力より少ないとき、zip が後ろの point を黙って落としていた。"""
         monkeypatch.setattr(q, "_known_collections", {"col"})
-        monkeypatch.setattr(q, "embed", lambda texts, **kw: [[0.1] * 768])  # 3 件に 1 件だけ
+        monkeypatch.setattr(
+            q, "embed", lambda texts, **kw: [[0.1] * 768]
+        )  # 3 件に 1 件だけ
         mock_client = MagicMock()
         monkeypatch.setattr(q, "_client", mock_client)
 
         with pytest.raises(ValueError):
             q.upsert(
                 "col",
-                [{"id": "a", "text": "x"}, {"id": "b", "text": "y"}, {"id": "c", "text": "z"}],
+                [
+                    {"id": "a", "text": "x"},
+                    {"id": "b", "text": "y"},
+                    {"id": "c", "text": "z"},
+                ],
             )
 
         mock_client.upsert.assert_not_called()  # 部分的な保存もしない
@@ -313,7 +327,9 @@ class TestSearch:
         monkeypatch.setattr(q, "_known_collections", {"col"})
         monkeypatch.setattr(q, "embed", lambda texts, **kw: [[0.1] * 768])
         mock_client = MagicMock()
-        hit = SimpleNamespace(score=0.5, id="pt2", payload={"text": "hi", "source": "x"})
+        hit = SimpleNamespace(
+            score=0.5, id="pt2", payload={"text": "hi", "source": "x"}
+        )
         mock_client.query_points.return_value = SimpleNamespace(points=[hit])
         monkeypatch.setattr(q, "_client", mock_client)
 
@@ -328,7 +344,9 @@ class TestSearch:
         calls = []
         monkeypatch.setattr(q, "_known_collections", {"col"})
         monkeypatch.setattr(
-            q, "embed", lambda texts, **kw: calls.append((texts, kw.get("mode"))) or [[0.25] * 768]
+            q,
+            "embed",
+            lambda texts, **kw: calls.append((texts, kw.get("mode"))) or [[0.25] * 768],
         )
         mock_client = MagicMock()
         mock_client.query_points.return_value = SimpleNamespace(points=[])
@@ -347,7 +365,9 @@ class TestUpsertEmbedsAsDocuments:
         calls = []
         monkeypatch.setattr(q, "_known_collections", {"col"})
         monkeypatch.setattr(
-            q, "embed", lambda texts, **kw: calls.append(kw.get("mode", "index")) or [[0.1] * 768]
+            q,
+            "embed",
+            lambda texts, **kw: calls.append(kw.get("mode", "index")) or [[0.1] * 768],
         )
         monkeypatch.setattr(q, "_client", MagicMock())
         q.upsert("col", [{"id": "a", "text": "hello"}])
@@ -476,12 +496,19 @@ class TestListCollectionsIsolatesAFailingCollection:
         c.get_collections.return_value = SimpleNamespace(
             collections=[SimpleNamespace(name=n) for n in ("alpha", "sessions", "zeta")]
         )
-        c.get_collection.side_effect = lambda name: SimpleNamespace(points_count=len(name))
+        c.get_collection.side_effect = lambda name: SimpleNamespace(
+            points_count=len(name)
+        )
 
         def scroll(collection_name, **kw):
             if collection_name in fail_for:
-                raise RuntimeError("Bad request: Index required but not found for ingested_at")
-            return ([SimpleNamespace(payload={"ingested_at": "2026-11-01T09:30:00+00:00"})], None)
+                raise RuntimeError(
+                    "Bad request: Index required but not found for ingested_at"
+                )
+            return (
+                [SimpleNamespace(payload={"ingested_at": "2026-11-01T09:30:00+00:00"})],
+                None,
+            )
 
         c.scroll.side_effect = scroll
         return c
@@ -524,7 +551,9 @@ class TestReplacePoints:
         calls = mocker.Mock()
         mocker.patch("core.qdrant.ids_by_payload", side_effect=lambda *a: old_ids)
         mocker.patch("core.qdrant.upsert", side_effect=lambda *a: calls.upsert(*a))
-        mocker.patch("core.qdrant.delete_by_ids", side_effect=lambda *a: calls.delete(*a))
+        mocker.patch(
+            "core.qdrant.delete_by_ids", side_effect=lambda *a: calls.delete(*a)
+        )
         return calls
 
     def test_upserts_first_then_deletes_only_stale_ids(self, mocker):

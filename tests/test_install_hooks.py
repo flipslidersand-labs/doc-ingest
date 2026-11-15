@@ -1,5 +1,6 @@
 """install-hooks.sh: the distributed SNIPPET must parse .env in a safe, non-evaluating way
-(#80/#129) — never `source`/`set -a` it — for both the design hook and the --notes hook (#221)."""
+(#80/#129) — never `source`/`set -a` it — for both the design hook and the --notes hook (#221).
+"""
 
 import re
 import subprocess
@@ -24,11 +25,15 @@ class TestInstallHooksSnippet:
             "that re-introduces #80's arbitrary command execution"
         )
 
-    def test_snippet_does_not_execute_a_command_substitution_in_env_value(self, tmp_path):
+    def test_snippet_does_not_execute_a_command_substitution_in_env_value(
+        self, tmp_path
+    ):
         snippet = _extract_snippet()
         env_file = tmp_path / ".env"
         marker = tmp_path / "pwned"
-        env_file.write_text(f"SAFE_VAR=hello\nEVIL=$(touch {marker})\n", encoding="utf-8")
+        env_file.write_text(
+            f"SAFE_VAR=hello\nEVIL=$(touch {marker})\n", encoding="utf-8"
+        )
 
         script = snippet.replace(
             '"$_DOC_INGEST_DIR/.venv/bin/doc-ingest" design 2>/dev/null || true',
@@ -40,7 +45,9 @@ class TestInstallHooksSnippet:
             env={"DOC_INGEST_DIR": str(tmp_path), "PATH": "/usr/bin:/bin"},
         )
 
-        assert not marker.exists(), "a $(...) command substitution in .env must never execute"
+        assert (
+            not marker.exists()
+        ), "a $(...) command substitution in .env must never execute"
 
     def test_snippet_exports_a_plain_key_value_line(self, tmp_path):
         snippet = _extract_snippet()
@@ -102,7 +109,9 @@ class TestNotesHook:
         vault = _git_init(tmp_path, "vault")
         _run_install("--notes", str(vault))
         env_file, marker = tmp_path / ".env", tmp_path / "pwned"
-        env_file.write_text(f"SAFE_VAR=hello\nEVIL=$(touch {marker})\n", encoding="utf-8")
+        env_file.write_text(
+            f"SAFE_VAR=hello\nEVIL=$(touch {marker})\n", encoding="utf-8"
+        )
         script = (
             _hook(vault)
             .read_text()
@@ -134,11 +143,17 @@ class TestNotesHook:
         _run_install("--notes", str(repo))
         _run_install(str(repo))  # design
         text = _hook(repo).read_text()
-        assert text.count('/doc-ingest" design') == 1 and text.count('/doc-ingest" notes') == 1
+        assert (
+            text.count('/doc-ingest" design') == 1
+            and text.count('/doc-ingest" notes') == 1
+        )
 
         _run_install("--notes", "--uninstall", str(repo))
         text = _hook(repo).read_text()
-        assert text.count('/doc-ingest" design') == 1 and text.count('/doc-ingest" notes') == 0
+        assert (
+            text.count('/doc-ingest" design') == 1
+            and text.count('/doc-ingest" notes') == 0
+        )
 
         _run_install("--uninstall", str(repo))
         assert '/doc-ingest" design' not in _hook(repo).read_text()
@@ -153,7 +168,9 @@ class TestNotesHook:
         _hook(vault).write_text(legacy)
         r = _run_install("--notes", str(vault))
         assert "legacy" in r.stderr and "remove" in r.stderr
-        assert _hook(vault).read_text() == legacy  # 追記も書き換えもしない (二重実行を避ける)
+        assert (
+            _hook(vault).read_text() == legacy
+        )  # 追記も書き換えもしない (二重実行を避ける)
 
     def test_dry_run_writes_nothing(self, tmp_path):
         vault = _git_init(tmp_path, "vault")

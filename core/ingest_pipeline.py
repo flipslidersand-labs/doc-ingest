@@ -66,7 +66,9 @@ def ingest_markdown_files(
             continue
         chunks = cap_chunks(chunk_markdown(path.read_text()), key)
         with ThreadPoolExecutor(max_workers=get_settings().distill_workers) as ex:
-            distilled_list = list(ex.map(lambda c: _distill_or_none(distill_fn, c["text"]), chunks))
+            distilled_list = list(
+                ex.map(lambda c: _distill_or_none(distill_fn, c["text"]), chunks)
+            )
         # 要約に失敗したチャンクは埋め込まず、既存の point も消さない(一時障害でデータを失わない)
         failed_ids = {
             make_id(f"{key}:{c['chunk_index']}")
@@ -92,7 +94,9 @@ def ingest_markdown_files(
         replace_points(collection, "file_path", key, points, keep_extra_ids=failed_ids)
         _log.info("ingested %s (%d chunks) → %s", key, len(points), collection)
         if failed_ids:
-            _log.warning("%s: distill failed for %d chunk(s), skipped", key, len(failed_ids))
+            _log.warning(
+                "%s: distill failed for %d chunk(s), skipped", key, len(failed_ids)
+            )
     return failed
 
 

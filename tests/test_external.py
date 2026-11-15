@@ -87,7 +87,9 @@ class TestSyncExternal:
         with caplog.at_level(logging.DEBUG, logger="ingest.external"):
             sync_external()
         attempts = respx.calls.call_count
-        assert attempts == MAX_RETRIES, f"expected {MAX_RETRIES} HTTP attempts, got {attempts}"
+        assert (
+            attempts == MAX_RETRIES
+        ), f"expected {MAX_RETRIES} HTTP attempts, got {attempts}"
         assert "retry" in caplog.text
 
     @respx.mock
@@ -195,7 +197,9 @@ class TestSyncExternal:
             "https://example.com": {"last_etag": "e1", "last_synced": "t1"}
         }
 
-    def test_load_sources_overlays_state_and_drops_stale_failed_at(self, tmp_path, monkeypatch):
+    def test_load_sources_overlays_state_and_drops_stale_failed_at(
+        self, tmp_path, monkeypatch
+    ):
         """state があれば設定ファイル内の旧い状態キーより優先し、消えた failed_at を復活させない。"""
         import ingest.external as ext
 
@@ -212,9 +216,13 @@ class TestSyncExternal:
         a, b = ext._load_sources()
         assert (a["last_etag"], a["last_synced"]) == ("new", "new")
         assert "failed_at" not in a
-        assert b["last_synced"] == "seed"  # state に無い URL は設定ファイルの値を種として使う
+        assert (
+            b["last_synced"] == "seed"
+        )  # state に無い URL は設定ファイルの値を種として使う
 
-    def test_load_sources_without_state_file_uses_config_values(self, tmp_path, monkeypatch):
+    def test_load_sources_without_state_file_uses_config_values(
+        self, tmp_path, monkeypatch
+    ):
         import ingest.external as ext
 
         cfg = tmp_path / "external.yaml"
@@ -279,12 +287,16 @@ class TestSyncExternalExceptionIsolation:
         },
     ]
 
-    def test_phase1_fetch_exception_marks_source_failed_and_continues(self, mocker, caplog):
+    def test_phase1_fetch_exception_marks_source_failed_and_continues(
+        self, mocker, caplog
+    ):
         """future.result() raising in the Phase 1 as_completed loop must be caught,
         the source marked failed, and the remaining sources still processed."""
         import logging
 
-        mocker.patch("ingest.external._load_sources", return_value=list(self.TWO_SOURCES))
+        mocker.patch(
+            "ingest.external._load_sources", return_value=list(self.TWO_SOURCES)
+        )
         mocker.patch("ingest.external._save_sources")
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mocker.patch("core.qdrant.delete_by_ids")
@@ -293,7 +305,9 @@ class TestSyncExternalExceptionIsolation:
         def fake_fetch_source(source, force, now):
             if source["url"] == "https://example.com/broken":
                 raise RuntimeError("boom")
-            return FetchResult.ready(source["url"], source, "", [{"id": "x", "text": "ok"}])
+            return FetchResult.ready(
+                source["url"], source, "", [{"id": "x", "text": "ok"}]
+            )
 
         mocker.patch("ingest.external._fetch_source", side_effect=fake_fetch_source)
 
@@ -306,14 +320,20 @@ class TestSyncExternalExceptionIsolation:
         mock_upsert.assert_called_once()
         assert "boom" in caplog.text or "RuntimeError" in caplog.text
 
-    def test_phase2_upsert_exception_marks_source_failed_and_continues(self, mocker, caplog):
+    def test_phase2_upsert_exception_marks_source_failed_and_continues(
+        self, mocker, caplog
+    ):
         """upsert() raising in the Phase 2 loop must be caught for that source,
         while the remaining sources are still written."""
         import logging
 
-        mocker.patch("ingest.external._load_sources", return_value=list(self.TWO_SOURCES))
+        mocker.patch(
+            "ingest.external._load_sources", return_value=list(self.TWO_SOURCES)
+        )
         saved = []
-        mocker.patch("ingest.external._save_sources", side_effect=lambda s: saved.extend(s))
+        mocker.patch(
+            "ingest.external._save_sources", side_effect=lambda s: saved.extend(s)
+        )
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mocker.patch("core.qdrant.delete_by_ids")
 
@@ -328,7 +348,13 @@ class TestSyncExternalExceptionIsolation:
                 source["url"],
                 source,
                 "",
-                [{"id": f"{source['url']}:0", "text": "content", "source_url": source["url"]}],
+                [
+                    {
+                        "id": f"{source['url']}:0",
+                        "text": "content",
+                        "source_url": source["url"],
+                    }
+                ],
             )
 
         mocker.patch("ingest.external._fetch_source", side_effect=fake_fetch_source)
@@ -392,7 +418,9 @@ class TestFetchWithRetry:
         from core.url_guard import UnsafeURLError
 
         sleep = mocker.patch("time.sleep")
-        m = mocker.patch("ingest.external.safe_get", side_effect=UnsafeURLError("private ip"))
+        m = mocker.patch(
+            "ingest.external.safe_get", side_effect=UnsafeURLError("private ip")
+        )
         from ingest.external import _fetch_with_retry
 
         assert _fetch_with_retry("https://example.com", {}) is None
@@ -421,9 +449,13 @@ class TestExternalChunkLimit:
         from ingest.external import EXTERNAL_MAX_SECTION_TOKENS
 
         sources, _ = self._source_with_html("")
-        big = "## Section\n" + "\n\n".join(f"paragraph {i} " + "word " * 80 for i in range(12))
+        big = "## Section\n" + "\n\n".join(
+            f"paragraph {i} " + "word " * 80 for i in range(12)
+        )
         respx.get("https://example.com/big").mock(
-            return_value=httpx.Response(200, text=big, headers={"content-type": "text/markdown"})
+            return_value=httpx.Response(
+                200, text=big, headers={"content-type": "text/markdown"}
+            )
         )
         mocker.patch("ingest.external._load_sources", return_value=sources)
         mocker.patch("ingest.external._save_sources")
@@ -437,7 +469,9 @@ class TestExternalChunkLimit:
 
         points = up.call_args[0][1]
         assert len(points) > 1
-        assert max(_count_tokens(p["text"]) for p in points) <= EXTERNAL_MAX_SECTION_TOKENS
+        assert (
+            max(_count_tokens(p["text"]) for p in points) <= EXTERNAL_MAX_SECTION_TOKENS
+        )
 
     @respx.mock
     def test_chunks_over_the_cap_are_truncated(self, mocker):
@@ -445,7 +479,9 @@ class TestExternalChunkLimit:
         sources, _ = self._source_with_html("")
         big = "".join(f"## S{i}\n" + "word " * 30 + "\n" for i in range(8))
         respx.get("https://example.com/big").mock(
-            return_value=httpx.Response(200, text=big, headers={"content-type": "text/markdown"})
+            return_value=httpx.Response(
+                200, text=big, headers={"content-type": "text/markdown"}
+            )
         )
         override_settings(max_chunks_per_doc=3)
         mocker.patch("ingest.external._load_sources", return_value=sources)
@@ -468,7 +504,9 @@ class TestExternalChunkLimit:
 
 
 class TestWorkerErrorLogsAreRedacted:
-    def test_an_exception_message_with_a_url_does_not_reach_the_log(self, mocker, caplog):
+    def test_an_exception_message_with_a_url_does_not_reach_the_log(
+        self, mocker, caplog
+    ):
         """sync の Phase 1 で予期しない例外が出たとき、メッセージ中の URL (トークン付き) を伏せる。"""
         import logging
 
@@ -497,19 +535,25 @@ class TestWorkerErrorLogsAreRedacted:
         source = {"url": "https://docs.example.com/x"}
         mocker.patch.object(ext, "_load_sources", return_value=[source])
         mocker.patch.object(ext, "_save_sources")
-        ready = FetchResult.ready(source["url"], source, "e", [{"id": "p1", "text": "t"}])
+        ready = FetchResult.ready(
+            source["url"], source, "e", [{"id": "p1", "text": "t"}]
+        )
         mocker.patch.object(ext, "_fetch_source", return_value=ready)
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mocker.patch(
             "core.qdrant.upsert",
-            side_effect=RuntimeError("write failed at https://qdrant.internal/x?api-key=SECRET"),
+            side_effect=RuntimeError(
+                "write failed at https://qdrant.internal/x?api-key=SECRET"
+            ),
         )
         with caplog.at_level(logging.WARNING, logger="ingest.external"):
             ext.sync_external(force=True)
         assert "SECRET" not in caplog.text and "write failed at <url>" in caplog.text
         assert "failed_at" in source  # 失敗として記録される
 
-    def test_a_retry_debug_log_does_not_carry_a_url_from_the_error(self, mocker, caplog):
+    def test_a_retry_debug_log_does_not_carry_a_url_from_the_error(
+        self, mocker, caplog
+    ):
         """retry のデバッグログ (-v で出る)。httpx.RequestError のメッセージに URL が入っていても伏せる。"""
         import logging
 
@@ -553,11 +597,15 @@ class TestFailedResult:
         from core.url_guard import UnsafeURLError
         from ingest.external import _fetch_source
 
-        mocker.patch("ingest.external.assert_safe_url", side_effect=UnsafeURLError("blocked"))
+        mocker.patch(
+            "ingest.external.assert_safe_url", side_effect=UnsafeURLError("blocked")
+        )
         result = _fetch_source({"url": "https://10.0.0.1/x"}, force=False, now="n")
         assert result.status == "failed" and result.points == []
 
-    def test_an_exception_in_a_worker_is_reported_failed_and_the_rest_continue(self, mocker):
+    def test_an_exception_in_a_worker_is_reported_failed_and_the_rest_continue(
+        self, mocker
+    ):
         """スレッド内の予期しない例外 (Phase 1 の隔離) も _failed で返る。"""
         import ingest.external as ext
 
@@ -577,7 +625,9 @@ class TestFailedResult:
 
 
 class TestOversizedPage:
-    def test_a_page_over_the_limit_is_reported_failed_and_nothing_is_stored(self, mocker, caplog):
+    def test_a_page_over_the_limit_is_reported_failed_and_nothing_is_stored(
+        self, mocker, caplog
+    ):
         """#224: 巨大な応答を全量メモリに読まない。上限超過は取得失敗として扱う。"""
         import logging
 
@@ -595,7 +645,9 @@ class TestOversizedPage:
         )
         up = mocker.patch("core.qdrant.upsert")
         with caplog.at_level(logging.WARNING, logger="ingest.external"):
-            result = ext._fetch_source({"url": "https://docs.example.com/x"}, force=True, now="n")
+            result = ext._fetch_source(
+                {"url": "https://docs.example.com/x"}, force=True, now="n"
+            )
         assert result.status == "failed" and result.points == []
         up.assert_not_called()
         assert "blocked" in caplog.text and "exceeds" in caplog.text
@@ -643,7 +695,12 @@ class TestApplyResult:
         s = {"url": "u"}
         sm = _Summary()
         _apply_result(FetchResult.failed("u", s), "T", False, sm)
-        assert s["failed_at"] == "T" and sm.failed == ["u"] and sm.changed and sm.synced == 0
+        assert (
+            s["failed_at"] == "T"
+            and sm.failed == ["u"]
+            and sm.changed
+            and sm.synced == 0
+        )
 
     def test_skipped_touches_nothing(self):
         s = {"url": "u"}
@@ -656,7 +713,9 @@ class TestApplyResult:
         rp = mocker.patch("ingest.external.replace_points")
         s = {"url": "u", "failed_at": "old"}
         sm = _Summary()
-        _apply_result(FetchResult.ready("u", s, "e1", [{"id": "a"}, {"id": "b"}]), "T", False, sm)
+        _apply_result(
+            FetchResult.ready("u", s, "e1", [{"id": "a"}, {"id": "b"}]), "T", False, sm
+        )
         rp.assert_called_once()
         assert s == {"url": "u", "last_etag": "e1", "last_synced": "T"}
         assert (sm.synced, sm.total_chunks, sm.changed) == (1, 2, True)
@@ -664,7 +723,9 @@ class TestApplyResult:
     def test_ready_without_etag_keeps_the_stored_one(self, mocker):
         mocker.patch("ingest.external.replace_points")
         s = {"url": "u", "last_etag": "old"}
-        _apply_result(FetchResult.ready("u", s, "", [{"id": "a"}]), "T", False, _Summary())
+        _apply_result(
+            FetchResult.ready("u", s, "", [{"id": "a"}]), "T", False, _Summary()
+        )
         assert s["last_etag"] == "old"
 
     def test_write_error_marks_failed_without_syncing(self, mocker):
@@ -697,7 +758,9 @@ class TestExternalState:
         monkeypatch.setattr(ext, "STATE_FILE", tmp_path / "external.state.yaml")
         return ext, cfg
 
-    @pytest.mark.parametrize("bad", ["- a\n- b\n", "https://a.example: oops\n", "{unclosed: [\n"])
+    @pytest.mark.parametrize(
+        "bad", ["- a\n- b\n", "https://a.example: oops\n", "{unclosed: [\n"]
+    )
     def test_corrupt_state_is_ignored(self, tmp_path, monkeypatch, bad):
         ext, _ = self._paths(
             tmp_path, monkeypatch, "- url: https://a.example\n  last_synced: seed\n"
@@ -707,7 +770,9 @@ class TestExternalState:
 
     def test_duplicate_url_raises(self, tmp_path, monkeypatch):
         ext, _ = self._paths(
-            tmp_path, monkeypatch, "- url: https://a.example\n- url: https://a.example\n"
+            tmp_path,
+            monkeypatch,
+            "- url: https://a.example\n- url: https://a.example\n",
         )
         with pytest.raises(ValueError, match="duplicate url"):
             ext._load_sources()
@@ -724,7 +789,9 @@ class TestExternalState:
         assert list(tmp_path.glob("*.tmp")) == []
         assert not ext.STATE_FILE.exists()
 
-    def test_sync_leaves_config_untouched_and_writes_state(self, tmp_path, monkeypatch, mocker):
+    def test_sync_leaves_config_untouched_and_writes_state(
+        self, tmp_path, monkeypatch, mocker
+    ):
         cfg_text = "# keep me\n- url: https://a.example\n  type: external-api\n"
         ext, cfg = self._paths(tmp_path, monkeypatch, cfg_text)
 

@@ -42,7 +42,9 @@ def _validate_arxiv_id(arxiv_id: str) -> str:
 
 def _fetch_arxiv(arxiv_id: str) -> dict:
     _validate_arxiv_id(arxiv_id)
-    resp = safe_get(f"https://export.arxiv.org/api/query?id_list={arxiv_id}", timeout=30)
+    resp = safe_get(
+        f"https://export.arxiv.org/api/query?id_list={arxiv_id}", timeout=30
+    )
     resp.raise_for_status()
     root = ET.fromstring(resp.text)
     entries = root.findall(f"{{{_ATOM_NS}}}entry")
@@ -79,7 +81,9 @@ def _fetch_pdf_text(arxiv_id: str) -> str:
             for page in doc:
                 text.append(page.get_text())
                 n += len(text[-1]) + 2
-                if n >= _PDF_TEXT_LIMIT:  # 要約に使うのは先頭だけ。巨大な PDF の全ページは読まない
+                if (
+                    n >= _PDF_TEXT_LIMIT
+                ):  # 要約に使うのは先頭だけ。巨大な PDF の全ページは読まない
                     break
         return "\n\n".join(text)[:_PDF_TEXT_LIMIT]
     except Exception as e:  # noqa: BLE001

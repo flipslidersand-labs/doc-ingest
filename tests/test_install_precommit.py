@@ -52,7 +52,9 @@ def env(tmp_path):
 
 
 def run(cmd, cwd, env, check=True):
-    return subprocess.run(cmd, cwd=cwd, env=env, text=True, capture_output=True, check=check)
+    return subprocess.run(
+        cmd, cwd=cwd, env=env, text=True, capture_output=True, check=check
+    )
 
 
 @pytest.fixture
@@ -72,7 +74,11 @@ def install(repo, env):
 
 def events(env):
     log = Path(env["PRECOMMIT_METRICS_LOG"])
-    return [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    return (
+        [json.loads(line) for line in log.read_text().splitlines()]
+        if log.exists()
+        else []
+    )
 
 
 def commit(repo, env, msg="c"):
@@ -95,7 +101,10 @@ class TestInstall:
 
         assert (repo / ".git" / "managed-hooks" / "pre-commit").read_text() == first
         assert (
-            run(["git", "config", "--get-all", "core.hooksPath"], repo, env).stdout.count("\n") == 1
+            run(
+                ["git", "config", "--get-all", "core.hooksPath"], repo, env
+            ).stdout.count("\n")
+            == 1
         )
 
     def test_commit_is_recorded(self, repo, env):
@@ -128,7 +137,9 @@ class TestInstall:
 
         assert [e["result"] for e in events(env)] == ["pass"]
 
-    def test_a_branch_without_the_scripts_still_gets_the_hook(self, repo, env, tmp_path):
+    def test_a_branch_without_the_scripts_still_gets_the_hook(
+        self, repo, env, tmp_path
+    ):
         """hooksPath は作業ツリーでなく .git を指すので、スクリプトの無い旧ブランチでもフックが消えない。"""
         commit(repo, env, "base")
         install(repo, env)
@@ -143,7 +154,9 @@ class TestInstall:
         no_pc = dict(
             env,
             PATH=os.pathsep.join(
-                p for p in env["PATH"].split(os.pathsep) if not (Path(p) / "pre-commit").exists()
+                p
+                for p in env["PATH"].split(os.pathsep)
+                if not (Path(p) / "pre-commit").exists()
             ),
         )
 
@@ -153,7 +166,9 @@ class TestInstall:
 
 
 def _git_version() -> tuple[int, ...]:
-    out = subprocess.run(["git", "--version"], capture_output=True, text=True, check=False).stdout
+    out = subprocess.run(
+        ["git", "--version"], capture_output=True, text=True, check=False
+    ).stdout
     return tuple(int(n) for n in re.findall(r"\d+", out)[:2])
 
 
@@ -166,7 +181,9 @@ class TestForwarding:
         h.write_text("#!/bin/sh\n" + body)
         h.chmod(0o755)
 
-    def test_hook_in_dot_git_hooks_still_runs_with_its_arguments(self, repo, env, tmp_path):
+    def test_hook_in_dot_git_hooks_still_runs_with_its_arguments(
+        self, repo, env, tmp_path
+    ):
         self._hook(repo, "pre-push", f'echo "$@" > {tmp_path}/pushed\n')
         install(repo, env)
 
@@ -179,14 +196,24 @@ class TestForwarding:
         self._hook(repo, "pre-push", "exit 1\n")
         install(repo, env)
 
-        r = run(["git", "hook", "run", "pre-push", "--", "origin", "url"], repo, env, check=False)
+        r = run(
+            ["git", "hook", "run", "pre-push", "--", "origin", "url"],
+            repo,
+            env,
+            check=False,
+        )
 
         assert r.returncode == 1
 
     def test_missing_hook_is_a_no_op(self, repo, env):
         install(repo, env)
 
-        r = run(["git", "hook", "run", "--ignore-missing", "pre-push"], repo, env, check=False)
+        r = run(
+            ["git", "hook", "run", "--ignore-missing", "pre-push"],
+            repo,
+            env,
+            check=False,
+        )
 
         assert r.returncode == 0
 

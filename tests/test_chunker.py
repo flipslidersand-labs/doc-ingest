@@ -59,7 +59,9 @@ class TestChunkMarkdown:
 
     def test_subsplit_chunk_indices_unique(self):
         body = "## Big\n" + "\n\n".join(["word " * 60] * 10)
-        indices = [c["chunk_index"] for c in chunk_markdown(body, max_section_tokens=100)]
+        indices = [
+            c["chunk_index"] for c in chunk_markdown(body, max_section_tokens=100)
+        ]
         assert indices == list(range(len(indices)))
 
     def test_single_giant_paragraph_hard_split(self):
@@ -112,7 +114,9 @@ class TestChunkText:
     def test_chunk_dict_has_exactly_the_documented_keys(self):
         text = "\n\n".join(["word " * 20] * 3)
         chunks = chunk_text(text)
-        assert chunks and all(set(c) == {"text", "section", "chunk_index"} for c in chunks)
+        assert chunks and all(
+            set(c) == {"text", "section", "chunk_index"} for c in chunks
+        )
 
 
 class TestHardSplitKeepsWholeCharacters:
@@ -200,7 +204,9 @@ class TestCapChunks:
         assert load_settings({}).max_chunks_per_doc == 1000
         assert load_settings({"MAX_CHUNKS_PER_DOC": "7"}).max_chunks_per_doc == 7
 
-    def test_exactly_at_the_cap_is_returned_unchanged_without_a_warning(self, mocker, caplog):
+    def test_exactly_at_the_cap_is_returned_unchanged_without_a_warning(
+        self, mocker, caplog
+    ):
         from core.chunker import cap_chunks
 
         override_settings(max_chunks_per_doc=3)

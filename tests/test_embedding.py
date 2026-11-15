@@ -107,7 +107,9 @@ def test_fallback_on_connect_error(monkeypatch):
     monkeypatch.setattr(emb, "EMBED_RETRIES", 1)
 
     respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
-    respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.1] * 768]}))
+    respx.post(FALLBACK_URL).mock(
+        return_value=httpx.Response(200, json={"vectors": [[0.1] * 768]})
+    )
 
     with patch("time.sleep"):
         vecs = emb.embed(["test"])
@@ -130,7 +132,9 @@ def test_fallback_on_501(monkeypatch):
         return httpx.Response(501, json={"detail": "not served"})
 
     respx.post(PRIMARY_URL).mock(side_effect=primary_responder)
-    respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.2] * 768]}))
+    respx.post(FALLBACK_URL).mock(
+        return_value=httpx.Response(200, json={"vectors": [[0.2] * 768]})
+    )
 
     with patch("time.sleep"):
         vecs = emb.embed(["snippet code"])
@@ -169,7 +173,9 @@ def test_primary_used_when_available(monkeypatch):
         fallback_calls["n"] += 1
         return httpx.Response(200, json={"vectors": [[0.3] * 768]})
 
-    respx.post(PRIMARY_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.4] * 768]}))
+    respx.post(PRIMARY_URL).mock(
+        return_value=httpx.Response(200, json={"vectors": [[0.4] * 768]})
+    )
     respx.post(FALLBACK_URL).mock(side_effect=fallback_responder)
 
     vecs = emb.embed(["test"])
@@ -220,7 +226,9 @@ def test_embed_fallback_use_is_logged(monkeypatch, caplog):
     override_settings(embed_fallback_url=FALLBACK_URL)
     monkeypatch.setattr(emb, "EMBED_RETRIES", 1)
     respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
-    respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.1] * 768]}))
+    respx.post(FALLBACK_URL).mock(
+        return_value=httpx.Response(200, json={"vectors": [[0.1] * 768]})
+    )
     with patch("time.sleep"), caplog.at_level(logging.WARNING, logger="core.embedding"):
         emb.embed(["t"])
     assert "using fallback" in caplog.text
@@ -266,7 +274,10 @@ def test_http_mode_is_sent_as_given_and_defaults_to_index(monkeypatch):
 def test_search_mode_survives_the_fallback_url(monkeypatch):
     import json
 
-    primary, fallback = "http://primary:9093/embed/batch", "http://fallback:9092/embed/batch"
+    primary, fallback = (
+        "http://primary:9093/embed/batch",
+        "http://fallback:9092/embed/batch",
+    )
     override_settings(embed_backend="http")
     override_settings(embed_batch=16)
     override_settings(embed_url=primary)
@@ -286,7 +297,9 @@ def test_search_mode_survives_the_fallback_url(monkeypatch):
 
 
 def test_an_unknown_mode_is_rejected_before_any_request(monkeypatch):
-    monkeypatch.setattr(emb, "_embed_batch", lambda b, m: pytest.fail("must not be called"))
+    monkeypatch.setattr(
+        emb, "_embed_batch", lambda b, m: pytest.fail("must not be called")
+    )
     with pytest.raises(ValueError, match="mode"):
         emb.embed(["x"], mode="query")  # type: ignore[arg-type]  # "search" が正しい綴り
 
@@ -295,7 +308,9 @@ def test_embed_passes_the_mode_to_every_sub_batch(monkeypatch):
     seen = []
     override_settings(embed_backend="http")
     override_settings(embed_batch=2)
-    monkeypatch.setattr(emb, "_embed_batch", lambda b, m: seen.append(m) or [[0.0]] * len(b))
+    monkeypatch.setattr(
+        emb, "_embed_batch", lambda b, m: seen.append(m) or [[0.0]] * len(b)
+    )
     emb.embed(["a", "b", "c", "d", "e"], mode="search")
     assert seen == ["search", "search", "search"]
 
@@ -303,7 +318,10 @@ def test_embed_passes_the_mode_to_every_sub_batch(monkeypatch):
 class TestTransportErrorsAreRetriedAndFallBack:
     """#229: ReadError / RemoteProtocolError などはリトライもフォールバックも対象外だった。"""
 
-    PRIMARY, FALLBACK = "http://primary:9093/embed/batch", "http://fallback:9092/embed/batch"
+    PRIMARY, FALLBACK = (
+        "http://primary:9093/embed/batch",
+        "http://fallback:9092/embed/batch",
+    )
 
     @pytest.fixture(autouse=True)
     def _setup(self, monkeypatch):
@@ -343,7 +361,9 @@ class TestTransportErrorsAreRetriedAndFallBack:
     @respx.mock
     def test_a_decoding_error_is_not_retried(self):
         """通信系ではない (壊れた応答) ので、リトライしても同じ。即座に伝播する。"""
-        route = respx.post(self.PRIMARY).mock(side_effect=httpx.DecodingError("bad gzip"))
+        route = respx.post(self.PRIMARY).mock(
+            side_effect=httpx.DecodingError("bad gzip")
+        )
         with patch("time.sleep") as sleep, pytest.raises(httpx.DecodingError):
             emb.embed(["t"])
         assert route.call_count == 1
@@ -373,7 +393,9 @@ class TestVectorCountIsChecked:
     def test_each_sub_batch_is_checked(self, monkeypatch):
         override_settings(embed_backend="http")
         override_settings(embed_batch=2)
-        monkeypatch.setattr(emb, "_embed_batch", lambda b, m: [[0.0]] * (len(b) - (len(b) == 1)))
+        monkeypatch.setattr(
+            emb, "_embed_batch", lambda b, m: [[0.0]] * (len(b) - (len(b) == 1))
+        )
         with pytest.raises(emb.EmbeddingError, match="0 vectors for 1 texts"):
             emb.embed(["a", "b", "c"])  # 2 + 1: 2 つ目のバッチだけ不足
 

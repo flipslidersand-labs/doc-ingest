@@ -35,7 +35,9 @@ class TestGenerate:
     def test_local_failure_with_api_key_tries_anthropic(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
         override_settings(anthropic_api_key="sk-fake")
-        mock_anthropic = mocker.patch.object(distiller, "_anthropic", return_value="haiku result")
+        mock_anthropic = mocker.patch.object(
+            distiller, "_anthropic", return_value="haiku result"
+        )
         out = distiller._generate("prompt")
         mock_anthropic.assert_called_once_with("prompt")
         assert out == "haiku result"
@@ -48,13 +50,17 @@ class TestGenerate:
             distiller._generate("prompt")
 
     def test_local_only_success_uses_local(self):
-        with patch("urllib.request.urlopen", return_value=_mock_urlopen("local result")):
+        with patch(
+            "urllib.request.urlopen", return_value=_mock_urlopen("local result")
+        ):
             assert distiller._generate("prompt", local_only=True) == "local result"
 
     def test_local_only_never_calls_anthropic_even_with_api_key(self, mocker):
         mocker.patch("urllib.request.urlopen", side_effect=OSError("refused"))
         override_settings(anthropic_api_key="sk-fake")
-        mock_anthropic = mocker.patch.object(distiller, "_anthropic", return_value="LEAKED")
+        mock_anthropic = mocker.patch.object(
+            distiller, "_anthropic", return_value="LEAKED"
+        )
         with pytest.raises(distiller.DistillError):
             distiller._generate("private prompt", local_only=True)
         mock_anthropic.assert_not_called()
@@ -93,7 +99,9 @@ class TestGenerate:
 
 class TestLocalRequest:
     def _capture(self, mocker, text="ok", finish="stop"):
-        return mocker.patch("urllib.request.urlopen", return_value=_mock_urlopen(text, finish))
+        return mocker.patch(
+            "urllib.request.urlopen", return_value=_mock_urlopen(text, finish)
+        )
 
     def test_posts_openai_chat_completions(self, mocker):
         override_settings(local_llm_url="http://h:18080/")

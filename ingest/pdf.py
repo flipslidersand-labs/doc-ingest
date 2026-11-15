@@ -29,7 +29,9 @@ def _extract_text_from_path(path: Path) -> str:
     return "\n\n".join(pages)
 
 
-def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = False) -> None:
+def ingest_pdf(
+    source: str, tags: list[str] | None = None, allow_cloud: bool = False
+) -> None:
     """Ingest a local PDF path or remote PDF URL.
 
     A local file may be private, so by default it is summarised by the local LLM only and is
@@ -61,7 +63,9 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
         {
             "id": make_id(f"{source_url}:{c['chunk_index']}"),
             "text": distill_text(
-                c["text"], "この資料の要点・実装に使える知見を200字以内で。", local_only=local_only
+                c["text"],
+                "この資料の要点・実装に使える知見を200字以内で。",
+                local_only=local_only,
             ),
             "source": "pdf",
             "trust": "external",

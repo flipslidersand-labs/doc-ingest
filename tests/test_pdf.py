@@ -35,7 +35,9 @@ class TestExtractTextFromPath:
     def test_multipage_joined_with_double_newline(self, mocker, tmp_path):
         pdf = tmp_path / "a.pdf"
         pdf.write_bytes(b"%PDF-fake")
-        mocker.patch("pymupdf.open", return_value=self._doc(mocker, ["page one", "page two"]))
+        mocker.patch(
+            "pymupdf.open", return_value=self._doc(mocker, ["page one", "page two"])
+        )
 
         from ingest.pdf import _extract_text_from_path
 
@@ -89,7 +91,9 @@ class TestIngestPdf:
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        mocker.patch(
+            "ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text
+        )
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mocker.patch("core.qdrant.delete_by_ids")
         mock_upsert = mocker.patch("core.qdrant.upsert")
@@ -140,7 +144,9 @@ class TestIngestPdf:
             return_value=httpx.Response(200, content=b"%PDF-fake")
         )
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        mocker.patch(
+            "ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text
+        )
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mocker.patch("core.qdrant.delete_by_ids")
         mock_upsert = mocker.patch("core.qdrant.upsert")
@@ -155,7 +161,9 @@ class TestIngestPdf:
 
     @respx.mock
     def test_remote_404_raises(self, mocker, public_dns):
-        respx.get("https://example.com/missing.pdf").mock(return_value=httpx.Response(404))
+        respx.get("https://example.com/missing.pdf").mock(
+            return_value=httpx.Response(404)
+        )
         from ingest.pdf import ingest_pdf
 
         with pytest.raises(httpx.HTTPStatusError):
@@ -165,7 +173,9 @@ class TestIngestPdf:
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-fake")
         mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
-        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        mocker.patch(
+            "ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text
+        )
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mocker.patch("core.qdrant.delete_by_ids")
         mock_upsert = mocker.patch("core.qdrant.upsert")
@@ -198,7 +208,9 @@ class TestIngestPdfSafety:
         pdf = tmp_path / "paper.pdf"
         pdf.write_bytes(b"%PDF-fake")
         order = self._patches(mocker, old_ids=["old-1", "old-2"])
-        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        mocker.patch(
+            "ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text
+        )
         order.upsert.side_effect = RuntimeError("embedding service down")
 
         from ingest.pdf import ingest_pdf
@@ -208,7 +220,9 @@ class TestIngestPdfSafety:
 
         order.delete.assert_not_called()
 
-    def test_stale_chunks_are_deleted_only_after_a_successful_upsert(self, mocker, tmp_path):
+    def test_stale_chunks_are_deleted_only_after_a_successful_upsert(
+        self, mocker, tmp_path
+    ):
         from core.ids import make_id
 
         pdf = tmp_path / "paper.pdf"
@@ -216,7 +230,9 @@ class TestIngestPdfSafety:
         source_url = str(pdf.resolve())
         keep_id = make_id(f"{source_url}:0")
         order = self._patches(mocker, old_ids=[keep_id, "stale-id"])
-        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        mocker.patch(
+            "ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text
+        )
 
         from ingest.pdf import ingest_pdf
 
@@ -280,7 +296,9 @@ class TestIngestPdfUrlSafety:
         mocker.patch("core.qdrant.delete_by_ids")
         self.upsert = mocker.patch("core.qdrant.upsert")
         mocker.patch("ingest.pdf.distill_text", return_value="d")
-        self.extract = mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+        self.extract = mocker.patch(
+            "ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT
+        )
 
     @pytest.mark.parametrize(
         "url",
@@ -320,9 +338,13 @@ class TestIngestPdfUrlSafety:
             ],
         )
         respx.get("https://example.com/r.pdf").mock(
-            return_value=httpx.Response(302, headers={"location": "https://192.168.1.1/x.pdf"})
+            return_value=httpx.Response(
+                302, headers={"location": "https://192.168.1.1/x.pdf"}
+            )
         )
-        internal = respx.get("https://192.168.1.1/x.pdf").mock(return_value=httpx.Response(200))
+        internal = respx.get("https://192.168.1.1/x.pdf").mock(
+            return_value=httpx.Response(200)
+        )
         with pytest.raises(UnsafeURLError):
             ingest_pdf("https://example.com/r.pdf")
         assert not internal.called

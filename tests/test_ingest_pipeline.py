@@ -78,7 +78,12 @@ def test_failed_chunk_is_not_embedded_and_counted(mocker, tmp_path):
     mocker.patch("core.qdrant.delete_by_ids")
 
     failed = ingest_markdown_files(
-        [md], collection="c", source_label="l", distill_fn=_fail_on_second, git_sha="s", now="n"
+        [md],
+        collection="c",
+        source_label="l",
+        distill_fn=_fail_on_second,
+        git_sha="s",
+        now="n",
     )
 
     points = mock_upsert.call_args.args[1]
@@ -97,7 +102,12 @@ def test_failed_chunk_keeps_its_existing_point(mocker, tmp_path):
     mock_delete = mocker.patch("core.qdrant.delete_by_ids")
 
     ingest_markdown_files(
-        [md], collection="c", source_label="l", distill_fn=_fail_on_second, git_sha="s", now="n"
+        [md],
+        collection="c",
+        source_label="l",
+        distill_fn=_fail_on_second,
+        git_sha="s",
+        now="n",
     )
 
     assert mock_delete.call_args.args == ("c", [gone_id])
@@ -110,7 +120,12 @@ def test_all_success_returns_zero(mocker, tmp_path):
     mocker.patch("core.qdrant.delete_by_ids")
     assert (
         ingest_markdown_files(
-            [md], collection="c", source_label="l", distill_fn=lambda t: "ok", git_sha="s", now="n"
+            [md],
+            collection="c",
+            source_label="l",
+            distill_fn=lambda t: "ok",
+            git_sha="s",
+            now="n",
         )
         == 0
     )
@@ -129,12 +144,16 @@ def _git_repo(parent, name):
 
     root = parent / name
     root.mkdir()
-    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(root), "init", "-q"], check=True, capture_output=True
+    )
     (root / "CLAUDE.md").write_text("## Section\n" + "content " * 30)
     return root
 
 
-def test_same_filename_in_two_repos_does_not_collide_or_delete_each_other(mocker, tmp_path):
+def test_same_filename_in_two_repos_does_not_collide_or_delete_each_other(
+    mocker, tmp_path
+):
     """#216: 別リポの CLAUDE.md が同じ point を上書きし、stale 削除で互いに消し合っていた。"""
     from core.doc_key import _repo_info
 
@@ -162,7 +181,10 @@ def test_same_filename_in_two_repos_does_not_collide_or_delete_each_other(mocker
     assert ids[0] != ids[1]
     # ID は「どこに置いたか」ではなく識別子から作られる (フック=相対 / 手動=絶対でも同じになる前提)
     assert ids == [make_id("repoA/CLAUDE.md:0"), make_id("repoB/CLAUDE.md:0")]
-    assert lookups == [("file_path", "repoA/CLAUDE.md"), ("file_path", "repoB/CLAUDE.md")]
+    assert lookups == [
+        ("file_path", "repoA/CLAUDE.md"),
+        ("file_path", "repoB/CLAUDE.md"),
+    ]
     payloads = [call.args[1][0] for call in up.call_args_list]
     assert [(p["repo"], p["file_path"]) for p in payloads] == [
         ("repoA", "repoA/CLAUDE.md"),
@@ -179,7 +201,12 @@ def test_file_outside_git_gets_an_explicit_no_repo_marker(mocker, tmp_path):
     up = mocker.patch("core.qdrant.upsert")
     mocker.patch("core.qdrant.delete_by_ids")
     ingest_markdown_files(
-        [md], collection="c", source_label="l", distill_fn=lambda t: "ok", git_sha="s", now="n"
+        [md],
+        collection="c",
+        source_label="l",
+        distill_fn=lambda t: "ok",
+        git_sha="s",
+        now="n",
     )
     p = up.call_args.args[1][0]
     assert p["repo"] == "-" and p["file_path"] == str(md.resolve())
@@ -211,7 +238,9 @@ def test_failed_chunk_keeps_its_existing_point_inside_a_git_repo(mocker, tmp_pat
     _repo_info.cache_clear()
 
 
-def test_hook_flow_renaming_a_japanese_note_replaces_its_points(mocker, tmp_path, monkeypatch):
+def test_hook_flow_renaming_a_japanese_note_replaces_its_points(
+    mocker, tmp_path, monkeypatch
+):
     """#217: post-commit フックの流れ全体。日本語名のノートをリネームすると、
     旧パスの point が消え、新パスの point が作られる (以前は日本語パスが引用符つきで読めず、
     リネームは新パスしか返らず、削除されたファイルは無視されていた)。"""
@@ -228,7 +257,8 @@ def test_hook_flow_renaming_a_japanese_note_replaces_its_points(mocker, tmp_path
     subprocess.run([*g, "add", "10-projects/日本語のノート.md"], check=True)
     subprocess.run([*g, "commit", "-q", "-m", "one"], check=True)
     subprocess.run(
-        [*g, "mv", "10-projects/日本語のノート.md", "10-projects/改名したノート.md"], check=True
+        [*g, "mv", "10-projects/日本語のノート.md", "10-projects/改名したノート.md"],
+        check=True,
     )
     subprocess.run([*g, "commit", "-q", "-m", "rename"], check=True)
     monkeypatch.chdir(vault)  # フックは各リポのルートで走る
@@ -246,7 +276,9 @@ def test_hook_flow_renaming_a_japanese_note_replaces_its_points(mocker, tmp_path
 
     ingest_notes()
 
-    assert [p["file_path"] for p in up.call_args[0][1]] == ["vault/10-projects/改名したノート.md"]
+    assert [p["file_path"] for p in up.call_args[0][1]] == [
+        "vault/10-projects/改名したノート.md"
+    ]
     delete.assert_called_once_with("notes", ["old-point"])
     _repo_info.cache_clear()
 
@@ -269,7 +301,9 @@ class TestSymlinksAreNotIngested:
         (outside / "secret.md").write_text("## Key\n" + (self.SECRET + " ") * 60)
         repo = tmp_path / "repo"
         (repo / "docs").mkdir(parents=True)
-        subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True, capture_output=True)
+        subprocess.run(
+            ["git", "-C", str(repo), "init", "-q"], check=True, capture_output=True
+        )
         (repo / "docs" / "real.md").write_text("## Real\n" + "genuine content " * 40)
         self.up = mocker.patch("core.qdrant.upsert")
         self.delete = mocker.patch("core.qdrant.delete_by_ids")
@@ -314,7 +348,9 @@ class TestSymlinksAreNotIngested:
         self._run(Path("docs/alias.md"))
         self.up.assert_not_called()
 
-    def test_a_normal_file_next_to_the_symlinks_is_still_ingested(self, env, monkeypatch):
+    def test_a_normal_file_next_to_the_symlinks_is_still_ingested(
+        self, env, monkeypatch
+    ):
         repo, outside = env
         (repo / "docs" / "leak.md").symlink_to(outside / "secret.md")
         monkeypatch.chdir(repo)
@@ -354,7 +390,12 @@ class TestSymlinksAreNotIngested:
         link = tmp_path / "link.md"
         link.symlink_to(real)
         ingest_markdown_files(
-            [link], collection="c", source_label="l", distill_fn=lambda t: "s", git_sha="s", now="n"
+            [link],
+            collection="c",
+            source_label="l",
+            distill_fn=lambda t: "s",
+            git_sha="s",
+            now="n",
         )
         up.assert_not_called()
 
@@ -362,7 +403,9 @@ class TestSymlinksAreNotIngested:
 class TestSizeAndChunkLimits:
     """巨大なファイル・大量のチャンクで LLM 要約と埋め込みが際限なく走らない (#224)。"""
 
-    def test_a_file_over_the_byte_limit_is_skipped_without_deleting_points(self, mocker, tmp_path):
+    def test_a_file_over_the_byte_limit_is_skipped_without_deleting_points(
+        self, mocker, tmp_path
+    ):
         md = tmp_path / "huge.md"
         md.write_text("## S\n" + "content " * 50)
         override_settings(max_local_bytes=10)
@@ -372,7 +415,12 @@ class TestSizeAndChunkLimits:
         distill = mocker.Mock(return_value="d")
 
         ingest_markdown_files(
-            [md], collection="col", source_label="l", distill_fn=distill, git_sha="s", now="n"
+            [md],
+            collection="col",
+            source_label="l",
+            distill_fn=distill,
+            git_sha="s",
+            now="n",
         )
 
         distill.assert_not_called()
@@ -407,7 +455,12 @@ class TestSizeAndChunkLimits:
         distill = mocker.Mock(return_value="d")
 
         ingest_markdown_files(
-            [md], collection="col", source_label="l", distill_fn=distill, git_sha="s", now="n"
+            [md],
+            collection="col",
+            source_label="l",
+            distill_fn=distill,
+            git_sha="s",
+            now="n",
         )
 
         assert distill.call_count == 3
@@ -422,7 +475,9 @@ class TestIngestChangedOrFile:
         from pathlib import Path
 
         mocker.patch("core.ingest_pipeline.head_sha", return_value="abc1234")
-        safe = mocker.patch("core.ingest_pipeline.assert_safe_path", return_value=Path("safe.md"))
+        safe = mocker.patch(
+            "core.ingest_pipeline.assert_safe_path", return_value=Path("safe.md")
+        )
         ingest = mocker.patch("core.ingest_pipeline.ingest_markdown_files")
         from core.ingest_pipeline import ingest_changed_or_file
 
@@ -468,7 +523,9 @@ class TestIngestChangedOrFile:
 def test_changed_matching_keeps_only_target_files(mocker):
     from pathlib import Path
 
-    mocker.patch("core.ingest_pipeline.changed_files", return_value=[Path("a.md"), Path("b.txt")])
+    mocker.patch(
+        "core.ingest_pipeline.changed_files", return_value=[Path("a.md"), Path("b.txt")]
+    )
     from core.ingest_pipeline import changed_matching
 
     assert changed_matching(lambda p: p.suffix == ".md") == [Path("a.md")]

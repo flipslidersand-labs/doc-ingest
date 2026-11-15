@@ -41,4 +41,6 @@ class TestRedactUrls:
         assert "404 Not Found" in out and "SECRET" not in out
 
     def test_the_query_string_secret_goes_too(self):
-        assert "SECRET" not in redact_urls("GET https://api.example.com/v1/x?api_key=SECRET failed")
+        assert "SECRET" not in redact_urls(
+            "GET https://api.example.com/v1/x?api_key=SECRET failed"
+        )

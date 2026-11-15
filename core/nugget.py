@@ -38,7 +38,9 @@ def _doc_freq(tokenized: list[list[str]]) -> Counter:
     return Counter(term for doc in tokenized for term in set(doc))
 
 
-def _bm25_scores(query: str, sentences: list[str], k1: float = 1.5, b: float = 0.75) -> list[float]:
+def _bm25_scores(
+    query: str, sentences: list[str], k1: float = 1.5, b: float = 0.75
+) -> list[float]:
     if not sentences:
         return []
     tokenized = [_tokenize(s) for s in sentences]

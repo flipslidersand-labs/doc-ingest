@@ -45,7 +45,11 @@ def _load_state() -> dict:
     try:
         state = _yaml.load(STATE_FILE.read_text()) or {}
     except Exception as e:  # noqa: BLE001 - 構文エラー等どんな破損でも sync を止めない
-        _log.warning("state file unreadable (%s): %s — ignoring", STATE_FILE.name, type(e).__name__)
+        _log.warning(
+            "state file unreadable (%s): %s — ignoring",
+            STATE_FILE.name,
+            type(e).__name__,
+        )
         return {}
     if not isinstance(state, dict):
         _log.warning("state file malformed (not a mapping) — ignoring")
@@ -78,7 +82,9 @@ def _load_sources():
 def _save_sources(sources) -> None:
     """実行状態だけを STATE_FILE に書く。設定ファイルは書き換えない。"""
     state = {s["url"]: {k: s[k] for k in STATE_KEYS if k in s} for s in sources}
-    with tempfile.NamedTemporaryFile("w", dir=STATE_FILE.parent, delete=False, suffix=".tmp") as f:
+    with tempfile.NamedTemporaryFile(
+        "w", dir=STATE_FILE.parent, delete=False, suffix=".tmp"
+    ) as f:
         tmp = Path(f.name)
         try:
             _yaml.dump(state, f)
@@ -136,7 +142,9 @@ class FetchResult:
         return cls("failed", url, source)
 
     @classmethod
-    def ready(cls, url: str, source: dict, new_etag: str, points: list[dict]) -> "FetchResult":
+    def ready(
+        cls, url: str, source: dict, new_etag: str, points: list[dict]
+    ) -> "FetchResult":
         return cls("ready", url, source, new_etag, points)
 
 
@@ -181,10 +189,14 @@ def _fetch_source(source: dict, force: bool, now: str) -> FetchResult:
         if extracted:
             body = extracted
         else:
-            _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", url)
+            _log.warning(
+                "HTML extraction empty, skipping (raw HTML not ingested): %s", url
+            )
             return FetchResult.skipped(url, source)
 
-    chunks = cap_chunks(chunk_markdown(body, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS), url)
+    chunks = cap_chunks(
+        chunk_markdown(body, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS), url
+    )
     points = [
         {
             "id": make_id(f"{url}:{c['chunk_index']}"),
@@ -217,9 +229,17 @@ def _notify_discord(
         f"{status} doc-ingest sync 完了 ({ts})",
         f"synced: {synced} sources / {total_chunks} chunks",
         f"skipped: {len(skipped)}"
-        + (f" ({', '.join(skipped[:3])}{'…' if len(skipped) > 3 else ''})" if skipped else ""),
+        + (
+            f" ({', '.join(skipped[:3])}{'…' if len(skipped) > 3 else ''})"
+            if skipped
+            else ""
+        ),
         f"failed: {len(failed)}"
-        + (f" ({', '.join(failed[:3])}{'…' if len(failed) > 3 else ''})" if failed else ""),
+        + (
+            f" ({', '.join(failed[:3])}{'…' if len(failed) > 3 else ''})"
+            if failed
+            else ""
+        ),
     ]
     try:
         resp = httpx.post(webhook_url, json={"content": "\n".join(lines)}, timeout=10)
@@ -240,7 +260,9 @@ class _Summary:
     changed: bool = False
 
 
-def _apply_result(result: FetchResult, now: str, dry_run: bool, summary: _Summary) -> None:
+def _apply_result(
+    result: FetchResult, now: str, dry_run: bool, summary: _Summary
+) -> None:
     """ソース1件の結果を Qdrant とソースのメタデータ (source dict) に反映し、summary に積む。"""
     source = result.source
     url = result.url
@@ -264,7 +286,9 @@ def _apply_result(result: FetchResult, now: str, dry_run: bool, summary: _Summar
     try:
         replace_points(COLLECTION, "source_url", url, points)
     except Exception as e:  # noqa: BLE001 - isolate one source's failure from the rest
-        _log.warning("failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e))
+        _log.warning(
+            "failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e)
+        )
         source["failed_at"] = now
         summary.changed = True
         summary.failed.append(url)
@@ -285,7 +309,9 @@ def _finish_sync(sources: list, summary: _Summary) -> None:
     if summary.changed:
         _save_sources(sources)
     ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-    _notify_discord(summary.synced, summary.total_chunks, summary.skipped, summary.failed, ts)
+    _notify_discord(
+        summary.synced, summary.total_chunks, summary.skipped, summary.failed, ts
+    )
 
 
 def sync_external(force: bool = False, dry_run: bool = False) -> None:
@@ -296,7 +322,8 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
     fetch_results: list[FetchResult | None] = [None] * len(sources)
     with ThreadPoolExecutor(max_workers=get_settings().sync_workers) as pool:
         future_to_idx = {
-            pool.submit(_fetch_source, source, force, now): i for i, source in enumerate(sources)
+            pool.submit(_fetch_source, source, force, now): i
+            for i, source in enumerate(sources)
         }
         for fut in as_completed(future_to_idx):
             i = future_to_idx[fut]
@@ -305,7 +332,10 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             except Exception as e:  # noqa: BLE001
                 url = sources[i]["url"]
                 _log.warning(
-                    "failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e)
+                    "failed %s → %s: %s (continuing)",
+                    url,
+                    type(e).__name__,
+                    redact_urls(e),
                 )
                 fetch_results[i] = FetchResult.failed(url, sources[i])
 

@@ -63,7 +63,9 @@ def _safe_addresses(hostname: str, port: int | None = None) -> list[str]:
         ip = ipaddress.ip_address(sockaddr[0])
         reason = _blocked_reason(ip)
         if reason is not None:
-            raise UnsafeURLError(f"{hostname!r} resolves to blocked address {ip} ({reason})")
+            raise UnsafeURLError(
+                f"{hostname!r} resolves to blocked address {ip} ({reason})"
+            )
         if sockaddr[0] not in addresses:
             addresses.append(sockaddr[0])
     return addresses
@@ -92,11 +94,15 @@ class _PinnedBackend(httpcore.SyncBackend):
     TLS still verifies the certificate against the original hostname.
     """
 
-    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+    def connect_tcp(
+        self, host, port, timeout=None, local_address=None, socket_options=None
+    ):
         last: Exception | None = None
         for ip in _safe_addresses(host, port):
             try:
-                return super().connect_tcp(ip, port, timeout, local_address, socket_options)
+                return super().connect_tcp(
+                    ip, port, timeout, local_address, socket_options
+                )
             except httpcore.ConnectError as exc:
                 last = exc
         raise last or UnsafeURLError(f"{host!r} has no address")
@@ -109,7 +115,9 @@ def _client(timeout: float) -> httpx.Client:
     connection goes to the proxy and the proxy does the DNS lookup, which this guard cannot check.
     """
     transport = httpx.HTTPTransport()
-    transport._pool._network_backend = _PinnedBackend()  # httpx has no public hook for this
+    transport._pool._network_backend = (
+        _PinnedBackend()
+    )  # httpx has no public hook for this
     return httpx.Client(transport=transport, timeout=timeout)
 
 
@@ -122,7 +130,9 @@ def _capped_chunks(resp: httpx.Response, limit: int, url: str) -> Iterator[bytes
     """
     declared = resp.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > limit:
-        raise UnsafeURLError(f"response too large ({declared} bytes > {limit}): {url!r}")
+        raise UnsafeURLError(
+            f"response too large ({declared} bytes > {limit}): {url!r}"
+        )
     written = 0
     for chunk in resp.iter_bytes():
         written += len(chunk)
@@ -164,22 +174,32 @@ def safe_get(
     for _ in range(max_redirects):
         with (
             _client(timeout) as client,
-            client.stream("GET", current, headers=headers, follow_redirects=False) as resp,
+            client.stream(
+                "GET", current, headers=headers, follow_redirects=False
+            ) as resp,
         ):
             if resp.is_redirect:
                 location = resp.headers.get("location")
                 if not location:
-                    raise UnsafeURLError(f"redirect with no Location header: {current!r}")
+                    raise UnsafeURLError(
+                        f"redirect with no Location header: {current!r}"
+                    )
                 next_url = urljoin(current, location)
                 assert_safe_url(next_url)
                 current = next_url
                 continue
             body = b"".join(_capped_chunks(resp, limit, current))
-            kept = [(k, v) for k, v in resp.headers.multi_items() if k.lower() not in _BODY_HEADERS]
+            kept = [
+                (k, v)
+                for k, v in resp.headers.multi_items()
+                if k.lower() not in _BODY_HEADERS
+            ]
             return httpx.Response(
                 resp.status_code, headers=kept, content=body, request=resp.request
             )
-    raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {url!r}")
+    raise UnsafeURLError(
+        f"too many redirects (> {max_redirects}) starting from {url!r}"
+    )
 
 
 def safe_download(
@@ -206,12 +226,16 @@ def safe_download(
     for _ in range(max_redirects):
         with (
             _client(timeout) as client,
-            client.stream("GET", current, headers=headers, follow_redirects=False) as resp,
+            client.stream(
+                "GET", current, headers=headers, follow_redirects=False
+            ) as resp,
         ):
             if resp.is_redirect:
                 location = resp.headers.get("location")
                 if not location:
-                    raise UnsafeURLError(f"redirect with no Location header: {current!r}")
+                    raise UnsafeURLError(
+                        f"redirect with no Location header: {current!r}"
+                    )
                 next_url = urljoin(current, location)
                 assert_safe_url(next_url)
                 current = next_url
@@ -222,4 +246,6 @@ def safe_download(
                 written += len(chunk)
                 fileobj.write(chunk)
             return written
-    raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {url!r}")
+    raise UnsafeURLError(
+        f"too many redirects (> {max_redirects}) starting from {url!r}"
+    )

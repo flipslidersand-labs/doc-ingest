@@ -110,7 +110,11 @@ class TestErrorsSwallowed:
     @respx.mock
     @pytest.mark.parametrize(
         "exc",
-        [httpx.ConnectError("refused"), httpx.ReadTimeout("slow"), RuntimeError("boom")],
+        [
+            httpx.ConnectError("refused"),
+            httpx.ReadTimeout("slow"),
+            RuntimeError("boom"),
+        ],
     )
     def test_transport_exception_not_raised(self, webhook, exc):
         respx.post(WEBHOOK).mock(side_effect=exc)
@@ -139,7 +143,10 @@ class TestNotifyFailureNeverLogsTheWebhook:
         respx.post(self.SECRET_URL).mock(return_value=httpx.Response(status))
         with caplog.at_level(logging.WARNING, logger="ingest.external"):
             _notify_discord(1, 2, [], [], "ts")
-        assert "SECRET-TOKEN" not in caplog.text and "webhooks/123456789" not in caplog.text
+        assert (
+            "SECRET-TOKEN" not in caplog.text
+            and "webhooks/123456789" not in caplog.text
+        )
         assert "Discord notify failed" in caplog.text and str(status) in caplog.text
 
     @respx.mock
@@ -151,7 +158,9 @@ class TestNotifyFailureNeverLogsTheWebhook:
 
     @respx.mock
     def test_an_exception_that_embeds_the_url_is_redacted(self, caplog):
-        respx.post(self.SECRET_URL).mock(side_effect=httpx.ReadError(f"broken: {self.SECRET_URL}"))
+        respx.post(self.SECRET_URL).mock(
+            side_effect=httpx.ReadError(f"broken: {self.SECRET_URL}")
+        )
         with caplog.at_level(logging.WARNING, logger="ingest.external"):
             _notify_discord(1, 2, [], [], "ts")
         assert "SECRET-TOKEN" not in caplog.text and "<url>" in caplog.text

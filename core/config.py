@@ -19,7 +19,9 @@ class Settings:
     embed_url: str = "http://localhost:9092/embed/batch"
     # Secondary endpoint used when embed_url is unreachable or returns 501. Empty = none.
     embed_fallback_url: str = ""
-    embed_api_key: str | None = field(default=None, repr=False)  # None -> no X-API-Key header sent
+    embed_api_key: str | None = field(
+        default=None, repr=False
+    )  # None -> no X-API-Key header sent
     embed_collection: str = "sessions"  # embedding-svc のモデルルーティング用
     embed_timeout: float = 180.0  # CPU e5 のコールドロードを許容
     embed_batch: int = 16  # 1 POST あたりの最大テキスト数
@@ -61,7 +63,9 @@ class Settings:
             raise ValueError(f"EMBED_BATCH must be >= 1, got {self.embed_batch}")
         # ThreadPoolExecutor(max_workers<=0) raises ValueError; surface it at load time.
         if self.distill_workers < 1:
-            raise ValueError(f"DISTILL_WORKERS must be >= 1, got {self.distill_workers}")
+            raise ValueError(
+                f"DISTILL_WORKERS must be >= 1, got {self.distill_workers}"
+            )
         if self.sync_workers < 1:
             raise ValueError(f"SYNC_WORKERS must be >= 1, got {self.sync_workers}")
         # 0 以下だと全チャンク/全ファイル/全ダウンロードを拒否してしまう。

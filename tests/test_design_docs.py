@@ -123,7 +123,9 @@ class TestExplicitFile:
 
     def test_file_goes_through_assert_safe_path_and_skips_changed_files(self, mocker):
         resolved = Path("/resolved/CLAUDE.md")
-        safe = mocker.patch("core.ingest_pipeline.assert_safe_path", return_value=resolved)
+        safe = mocker.patch(
+            "core.ingest_pipeline.assert_safe_path", return_value=resolved
+        )
         mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
         changed = mocker.patch("ingest.design_docs._changed_files")
         git_changed = mocker.patch("core.ingest_pipeline.changed_files")
@@ -140,7 +142,9 @@ class TestExplicitFile:
         assert ingest.call_args.args[0] == [resolved]
         assert ingest.call_args.kwargs["collection"] == COLLECTION
 
-    def test_path_outside_base_raises_before_any_write(self, mocker, tmp_path, monkeypatch):
+    def test_path_outside_base_raises_before_any_write(
+        self, mocker, tmp_path, monkeypatch
+    ):
         base = tmp_path / "base"
         base.mkdir()
         outside = tmp_path / "outside.md"
@@ -162,7 +166,9 @@ class TestExplicitFile:
         delete.assert_not_called()
         distill.assert_not_called()
 
-    def test_md_outside_design_patterns_is_ingested_when_given_explicitly(self, mocker, tmp_path):
+    def test_md_outside_design_patterns_is_ingested_when_given_explicitly(
+        self, mocker, tmp_path
+    ):
         """現仕様: file 指定には DESIGN_PATTERNS の絞り込みがかからない (README.md も入る)。"""
         from ingest.design_docs import _is_design_doc, ingest_design_docs
 

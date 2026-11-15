@@ -120,7 +120,9 @@ def chunk_text(text: str, chunk_tokens: int = 200) -> list[dict]:
     return chunks
 
 
-def chunk_markdown(text: str, max_section_tokens: int = MAX_SECTION_TOKENS) -> list[dict]:
+def chunk_markdown(
+    text: str, max_section_tokens: int = MAX_SECTION_TOKENS
+) -> list[dict]:
     sections = re.split(r"(?m)^#{2,3} ", text)
     chunks = []
     idx = 0

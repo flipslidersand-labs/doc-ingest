@@ -93,7 +93,9 @@ def test_remaining_fields_read_from_environment():
 
 def test_repr_hides_api_keys():
     values = ("alpha-one", "beta-two", "gamma-three")
-    s = Settings(**dict(zip(("embed_api_key", "qdrant_api_key", "anthropic_api_key"), values)))
+    s = Settings(
+        **dict(zip(("embed_api_key", "qdrant_api_key", "anthropic_api_key"), values))
+    )
     r = repr(s)
     for v in values:
         assert v not in r
@@ -122,7 +124,9 @@ def test_workers_below_one_rejected(name, value):
 
 
 def test_repr_hides_webhook_url():
-    assert "dummy-hook" not in repr(Settings(discord_webhook_url="https://x.invalid/dummy-hook"))
+    assert "dummy-hook" not in repr(
+        Settings(discord_webhook_url="https://x.invalid/dummy-hook")
+    )
 
 
 def test_get_settings_loads_once_under_concurrency(monkeypatch):
@@ -157,7 +161,9 @@ def test_non_float_error_names_the_variable():
         load_settings({"EMBED_TIMEOUT": "abc"})
 
 
-@pytest.mark.parametrize("name", ["MAX_CHUNKS_PER_DOC", "MAX_LOCAL_BYTES", "MAX_DOWNLOAD_BYTES"])
+@pytest.mark.parametrize(
+    "name", ["MAX_CHUNKS_PER_DOC", "MAX_LOCAL_BYTES", "MAX_DOWNLOAD_BYTES"]
+)
 @pytest.mark.parametrize("value", ["0", "-5"])
 def test_size_limits_below_one_rejected(name, value):
     with pytest.raises(ValueError, match=name):

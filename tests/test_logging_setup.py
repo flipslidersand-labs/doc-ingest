@@ -30,7 +30,12 @@ logging.getLogger("httpx").warning("HTTPX-WARNING")
 
 def _stderr(verbose: bool) -> str:
     r = subprocess.run(
-        [sys.executable, "-I", "-c", _SCRIPT.format(root=str(REPO_ROOT), verbose=verbose)],
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            _SCRIPT.format(root=str(REPO_ROOT), verbose=verbose),
+        ],
         capture_output=True,
         text=True,
         check=False,
@@ -71,7 +76,9 @@ class TestVerboseFlag:
         assert "HTTPX-WARNING" in _stderr(verbose=False)
 
     def test_output_format_is_unchanged(self):
-        line = next(ln for ln in _stderr(verbose=True).splitlines() if "OWN-DEBUG" in ln)
+        line = next(
+            ln for ln in _stderr(verbose=True).splitlines() if "OWN-DEBUG" in ln
+        )
         # "2026-11-02 00:00:00,000 DEBUG ingest.external: OWN-DEBUG"
         assert " DEBUG ingest.external: OWN-DEBUG" in line
         assert line[:4].isdigit() and line[4] == "-"

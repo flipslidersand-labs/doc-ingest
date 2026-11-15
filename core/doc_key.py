@@ -23,7 +23,9 @@ class DocKey(NamedTuple):
 
 
 def _git(cwd: Path, *args: str) -> str | None:
-    r = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=False)
+    r = subprocess.run(
+        ["git", "-C", str(cwd), *args], capture_output=True, text=True, check=False
+    )
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
 
 
@@ -34,7 +36,9 @@ def _repo_info(directory: Path) -> tuple[Path, str] | None:
     if top is None:
         return None
     common = _git(directory, "rev-parse", "--path-format=absolute", "--git-common-dir")
-    main_dir = Path(common).parent if common and Path(common).name == ".git" else Path(top)
+    main_dir = (
+        Path(common).parent if common and Path(common).name == ".git" else Path(top)
+    )
     return Path(top).resolve(), main_dir.name
 
 
