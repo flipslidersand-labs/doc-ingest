@@ -5,7 +5,7 @@ from typing import ClassVar
 import pytest
 import tiktoken
 
-from core.chunker import chunk_markdown, chunk_text
+from core.chunker import _count_tokens, chunk_markdown, chunk_text
 from tests.conftest import override_settings
 
 _enc = tiktoken.get_encoding("cl100k_base")
@@ -222,3 +222,24 @@ class TestCapChunks:
 
         assert [c["chunk_index"] for c in capped] == [0, 1, 2]
         assert "big.md" in caplog.text and "MAX_CHUNKS_PER_DOC" in caplog.text
+
+
+class TestChunkTextBoundsChunkSize:
+    """#296: chunk_text は段落を結合するだけで上限が無く、長い段落(PDF の1ページ=1段落など)が
+    e5 の 512 token を超えて埋め込みの末尾が黙って切れた(実 PDF で 1993 token のチャンク)。"""
+
+    def test_a_very_long_paragraph_is_split_under_the_limit(self):
+        text = " ".join(f"word{i}" for i in range(3000))  # 区切りの空行が無い1段落
+        chunks = chunk_text(text)
+        assert len(chunks) > 1
+        assert max(_count_tokens(c["text"]) for c in chunks) <= 512
+
+    def test_accumulated_paragraphs_do_not_overshoot_the_limit(self):
+        para = " ".join(f"w{i}" for i in range(180))  # 約360 token の段落を並べる
+        chunks = chunk_text("\n\n".join([para] * 6))
+        assert max(_count_tokens(c["text"]) for c in chunks) <= 512
+
+    def test_no_text_is_lost_when_splitting(self):
+        text = " ".join(f"word{i}" for i in range(3000))
+        joined = " ".join(c["text"] for c in chunk_text(text))
+        assert "word0" in joined and "word2999" in joined
