@@ -190,3 +190,36 @@ def test_resources_initialize_once(monkeypatch):
     assert emb._onnx_resources() == ("S", "T", frozenset({"x"}))
     assert emb._onnx_resources() == ("S", "T", frozenset({"x"}))
     assert len(calls) == 1
+
+
+def test_init_publishes_session_last_so_a_racing_reader_never_sees_tok_none(monkeypatch):
+    """#296: _onnx_resources は _onnx_sess だけで初期化済みを判定する。tokenizer 読込中に sess が見えてはならない。"""
+    override_settings(onnx_model_path="/m/model.onnx")
+    _install_fake_runtime(monkeypatch, ["CUDAExecutionProvider"])
+    seen = {}
+
+    def from_pretrained(_dir):
+        seen["sess_visible"] = emb._onnx_sess is not None
+        return FakeTok()
+
+    sys.modules["transformers"].AutoTokenizer = types.SimpleNamespace(
+        from_pretrained=from_pretrained
+    )
+    emb._onnx_init()
+    assert seen["sess_visible"] is False
+    assert emb._onnx_sess is not None and emb._onnx_tok is not None
+
+
+def test_init_failure_in_tokenizer_leaves_nothing_published(monkeypatch):
+    """#296: tokenizer 失敗後に sess だけ残ると、以後 tok=None が返り続ける。"""
+    override_settings(onnx_model_path="/m/model.onnx")
+    _install_fake_runtime(monkeypatch, ["CUDAExecutionProvider"])
+
+    def boom(_dir):
+        raise OSError("tokenizer missing")
+
+    sys.modules["transformers"].AutoTokenizer = types.SimpleNamespace(from_pretrained=boom)
+    with pytest.raises(OSError):
+        emb._onnx_init()
+    assert emb._onnx_sess is None
+    assert emb._onnx_tok is None
