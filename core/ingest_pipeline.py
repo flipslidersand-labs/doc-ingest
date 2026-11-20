@@ -13,7 +13,7 @@ from pathlib import Path
 from core.chunker import cap_chunks, chunk_markdown
 from core.config import get_settings
 from core.distiller import DistillError
-from core.doc_key import doc_key, escapes_repo
+from core.doc_key import doc_key, escapes_repo, lexical_doc_key
 from core.git import changed_files, head_sha
 from core.ids import make_id
 from core.path_guard import assert_safe_path
@@ -54,6 +54,8 @@ def ingest_markdown_files(
             # Qdrant に入れない。親ディレクトリが symlink でリポ外へ出る場合も同様 (#224)。
             # key は解決後 (= リポ外の実パス) になりうるので、原因の symlink があるリポ内のパスを出す
             _log.warning("skipping %s: symlink or resolves outside the repo", path)
+            # 消すのは symlink 自身の point だけ。解決後の key だとリンク先の別文書の point を消す (#296)
+            key = lexical_doc_key(path).key
         if unsafe or not path.exists():
             # 削除・リネームされた、または文書として無効になったファイル: その識別子の point を消す (#217)
             replace_points(collection, "file_path", key, [])

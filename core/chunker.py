@@ -102,7 +102,17 @@ def _split_by_tokens(text: str, max_tokens: int) -> list[str]:
 
 def chunk_text(text: str, chunk_tokens: int = 200) -> list[dict]:
     """Split plain text into chunks bounded by token count."""
-    paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
+    paragraphs = []
+    for p in re.split(r"\n{2,}", text):
+        p = p.strip()
+        if not p:
+            continue
+        # 区切りの無い長い段落 (PDF の 1 ページ = 1 段落など) は上限で分割する。
+        # しないと e5 の 512 token を超え、埋め込みで末尾が黙って切れる (#296)
+        if _count_tokens(p) > MAX_SECTION_TOKENS:
+            paragraphs.extend(_split_by_tokens(p, MAX_SECTION_TOKENS))
+        else:
+            paragraphs.append(p)
     chunks, current, size, idx = [], [], 0, 0
     for para in paragraphs:
         t = _count_tokens(para)
