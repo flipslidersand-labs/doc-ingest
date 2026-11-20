@@ -23,6 +23,10 @@ doc-ingest = "cli:main"
 where = ["."]
 include = ["core*", "ingest*"]
 
+[tool.setuptools]
+# console script (doc-ingest = "cli:main") の cli.py はルート直下の単体モジュール (#296)
+py-modules = ["cli"]
+
 [tool.setuptools.package-dir]
 "" = "."
 
