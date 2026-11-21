@@ -452,7 +452,7 @@ class TestIngestChangedOrFile:
         safe.assert_called_once_with("a.md")
         changed.assert_not_called()
         kwargs = ingest.call_args.kwargs
-        assert ingest.call_args.args[0] == [safe.return_value]
+        assert ingest.call_args.args[0] == [Path("a.md")]
         assert (kwargs["collection"], kwargs["source_label"], kwargs["git_sha"]) == (
             "c",
             "s",
@@ -482,3 +482,44 @@ def test_changed_matching_keeps_only_target_files(mocker):
     from core.ingest_pipeline import changed_matching
 
     assert changed_matching(lambda p: p.suffix == ".md") == [Path("a.md")]
+
+
+class TestExplicitFileSymlink:
+    """#315: --file に渡した symlink が assert_safe_path の解決をすり抜け、指す先が取り込まれた。"""
+
+    def test_symlink_passed_as_file_is_skipped_with_a_log(
+        self, mocker, tmp_path, monkeypatch, caplog
+    ):
+        import logging
+
+        from core.doc_key import _repo_info
+        from core.ingest_pipeline import ingest_changed_or_file
+
+        _repo_info.cache_clear()
+        repo = tmp_path / "repo"
+        (repo / "docs").mkdir(parents=True)
+        (repo / ".git").mkdir()
+        (repo / "docs" / "real.md").write_text("## Real\n" + "genuine content " * 40)
+        (repo / "docs" / "link.md").symlink_to(repo / "docs" / "real.md")
+        monkeypatch.chdir(repo)
+        mocker.patch("core.path_guard._allowed_base", return_value=repo.resolve())
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
+        up = mocker.patch("core.qdrant.upsert")
+        mocker.patch("core.qdrant.delete_by_ids")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        seen = []
+        try:
+            with caplog.at_level(logging.WARNING, logger="core.ingest_pipeline"):
+                ingest_changed_or_file(
+                    "docs/link.md",
+                    changed=list,
+                    collection="design",
+                    source_label="d",
+                    distill_fn=lambda t: seen.append(t) or "summary",
+                    nothing_msg="none",
+                )
+        finally:
+            _repo_info.cache_clear()
+        assert seen == []
+        up.assert_not_called()
+        assert "skipping" in caplog.text
