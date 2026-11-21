@@ -4,7 +4,6 @@ import logging
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
 
 import pymupdf
 
@@ -14,17 +13,11 @@ from core.distiller import distill_text
 from core.ids import make_id
 from core.qdrant import replace_points
 from core.schema import Collection
-from core.url_guard import safe_download
+from core.url_guard import safe_download, strip_url
 
 _log = logging.getLogger(__name__)
 
 COLLECTION = Collection.RESEARCH.value
-
-
-def _strip_url(url: str) -> str:
-    """Drop query and fragment (signed-URL tokens) before logging or storing a URL."""
-    u = urlsplit(url)
-    return urlunsplit((u.scheme, u.netloc, u.path, "", ""))
 
 
 def _extract_text_from_path(path: Path) -> str:
@@ -52,7 +45,7 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
 
     if is_url:
         # 署名付き URL のトークンをログ・payload・point id に残さない (query/fragment を落とす)
-        source_url = _strip_url(source)
+        source_url = strip_url(source)
         # URL は利用者入力。https 以外・内部アドレス・内部へのリダイレクトを拒否し、サイズに上限を設ける (#214)
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
             safe_download(source, tmp)

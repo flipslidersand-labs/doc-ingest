@@ -6,7 +6,7 @@ import re
 import socket
 from collections.abc import Iterator
 from typing import BinaryIO
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 
 import httpcore
 import httpx
@@ -17,6 +17,12 @@ MAX_REDIRECTS = 5
 
 # NAT64 (RFC 6052 / 8215): 内部の IPv4 を埋め込んで到達できる。is_global が True を返すので別に拒否する。
 _NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1::/48"))
+
+
+def strip_url(url: str) -> str:
+    """Drop query and fragment (signed-URL tokens) before logging or storing a URL."""
+    u = urlsplit(url)
+    return urlunsplit((u.scheme, u.netloc, u.path, "", ""))
 
 
 def _blocked_reason(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str | None:
