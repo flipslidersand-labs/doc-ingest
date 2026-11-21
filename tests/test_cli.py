@@ -459,3 +459,26 @@ class TestHelpWithInvalidConfig:
     def test_non_help_invocation_still_fails(self, monkeypatch):
         self._bad(monkeypatch)
         assert CliRunner().invoke(main, ["list"]).exit_code != 0
+
+
+class TestSearchSanitizesControlChars:
+    def test_control_characters_from_payload_are_stripped(self, mocker):
+        mocker.patch(
+            "core.qdrant.search",
+            return_value=[
+                {
+                    "score": 0.9,
+                    "source_url": "https://e.com/\x1b]0;pwn\x07x",
+                    "section": "sec\x1b[31mRED\x9b",
+                    "trust": "t\x1brust",
+                    "text": "a\x1b[2Jb\x00c\td",
+                }
+            ],
+        )
+        result = CliRunner().invoke(main, ["search", "q"])
+        assert result.exit_code == 0
+        for ch in ("\x1b", "\x07", "\x9b", "\x00"):
+            assert ch not in result.output
+        assert "https://e.com/" in result.output
+        assert "RED" in result.output
+        assert "c\td" in result.output
