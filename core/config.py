@@ -23,8 +23,6 @@ class Settings:
     embed_collection: str = "sessions"  # embedding-svc のモデルルーティング用
     embed_timeout: float = 180.0  # CPU e5 のコールドロードを許容
     embed_batch: int = 16  # 1 POST あたりの最大テキスト数
-    embed_backend: str = "http"  # "http" | "onnx_gpu"
-    onnx_model_path: str = ""
     # vector DB (core/qdrant.py)
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = field(
@@ -107,8 +105,6 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         embed_collection=s("EMBED_COLLECTION", d.embed_collection),
         embed_timeout=_float(env, "EMBED_TIMEOUT", "180"),
         embed_batch=_int(env, "EMBED_BATCH", "16"),
-        embed_backend=s("EMBED_BACKEND", d.embed_backend),
-        onnx_model_path=s("ONNX_MODEL_PATH", d.onnx_model_path),
         qdrant_url=s("QDRANT_URL", d.qdrant_url),
         qdrant_api_key=env.get("QDRANT_API_KEY") or None,
         local_llm_url=s("LOCAL_LLM_URL", d.local_llm_url),

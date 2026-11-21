@@ -17,7 +17,6 @@ def test_defaults_when_env_empty():
     assert s.embed_url == "http://localhost:9092/embed/batch"
     assert s.embed_batch == 16
     assert s.embed_timeout == 180.0
-    assert s.embed_backend == "http"
     assert s.qdrant_url == "http://localhost:6333"
     assert s.local_llm_url == "http://localhost:8080"
     assert s.local_llm_max_tokens == 1500
@@ -30,15 +29,12 @@ def test_reads_environment_values():
             "EMBED_URL": "http://e:1/x",
             "EMBED_TIMEOUT": "7.5",
             "EMBED_BATCH": "32",
-            "EMBED_BACKEND": "onnx_gpu",
-            "ONNX_MODEL_PATH": "/m/model.onnx",
             "QDRANT_URL": "http://q:6333",
             "LOCAL_LLM_MAX_TOKENS": "99",
             "ANTHROPIC_API_KEY": "k",
         }
     )
     assert (s.embed_url, s.embed_timeout, s.embed_batch) == ("http://e:1/x", 7.5, 32)
-    assert (s.embed_backend, s.onnx_model_path) == ("onnx_gpu", "/m/model.onnx")
     assert s.qdrant_url == "http://q:6333"
     assert s.local_llm_max_tokens == 99
     assert s.anthropic_api_key == "k"
