@@ -8,9 +8,9 @@ _log = logging.getLogger(__name__)
 
 
 def changed_files(repo_path: str | Path = ".") -> list[Path]:
-    """Return files changed in the last commit — including deleted ones and renamed-away paths.
+    """Return files changed in the last commit (HEAD~1 vs HEAD, ignoring the working tree) — including deleted ones and renamed-away paths.
 
-    Returns an empty list when ``git diff HEAD~1`` fails (e.g. initial commit,
+    Returns an empty list when ``git diff HEAD~1 HEAD`` fails (e.g. initial commit,
     shallow clone).  Callers must not treat the return value as "all tracked
     files" in the error case, so we no longer fall back to ``git ls-files``.
 
@@ -21,14 +21,24 @@ def changed_files(repo_path: str | Path = ".") -> list[Path]:
       path is listed, so the old path's points could never be removed (#217).
     """
     r = subprocess.run(
-        ["git", "-C", str(repo_path), "diff", "--name-only", "-z", "--no-renames", "HEAD~1"],
+        [
+            "git",
+            "-C",
+            str(repo_path),
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "HEAD~1",
+            "HEAD",
+        ],
         capture_output=True,
         text=True,
         check=False,
     )
     if r.returncode != 0:
         _log.warning(
-            "git diff HEAD~1 failed (returncode=%d, stderr=%r); "
+            "git diff HEAD~1 HEAD failed (returncode=%d, stderr=%r); "
             "returning empty list to avoid full-repo ingest",
             r.returncode,
             r.stderr.strip(),

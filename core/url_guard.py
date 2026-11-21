@@ -1,6 +1,8 @@
 """URL safety guard: reject non-HTTPS and private/reserved addresses."""
 
+import codecs
 import ipaddress
+import re
 import socket
 from collections.abc import Iterator
 from typing import BinaryIO
@@ -136,6 +138,61 @@ def _capped_chunks(resp: httpx.Response, limit: int, url: str) -> Iterator[bytes
 _BODY_HEADERS = {"content-encoding", "content-length", "transfer-encoding"}
 
 
+_BOMS = (
+    (codecs.BOM_UTF8, "utf-8-sig"),
+    (codecs.BOM_UTF16_LE, "utf-16"),
+    (codecs.BOM_UTF16_BE, "utf-16"),
+)
+_META_CHARSET = re.compile(
+    rb"<meta\b[^>]*?charset\s*=\s*[\"']?\s*([A-Za-z0-9_.:\-]+)", re.IGNORECASE
+)
+_META_SCAN_BYTES = 4096
+
+# meta から採ってよい charset(HTML 仕様のラベル)。codecs.lookup に通る名前を何でも採ると、
+# 悪意あるサーバーが rot13/base64/utf-7 等を指定して .text を例外や文字化けにできる。
+_CHARSET_ALLOWLIST: dict[str, str] = {
+    "utf-8": "utf-8",
+    "utf8": "utf-8",
+    "shift_jis": "cp932",
+    "shift-jis": "cp932",
+    "sjis": "cp932",
+    "x-sjis": "cp932",
+    "windows-31j": "cp932",
+    "ms_kanji": "cp932",
+    "euc-jp": "euc_jp",
+    "x-euc-jp": "euc_jp",
+    "iso-2022-jp": "iso2022_jp",
+    "gbk": "gbk",
+    "gb2312": "gbk",
+    "gb18030": "gb18030",
+    "big5": "big5",
+    "euc-kr": "euc_kr",
+    "koi8-r": "koi8_r",
+    "koi8-u": "koi8_u",
+    **{f"iso-8859-{n}": f"iso8859_{n}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15)},
+    **{f"windows-{n}": f"cp{n}" for n in range(1250, 1259)},
+}
+
+
+def _sniff_html_encoding(content_type: str, body: bytes) -> str | None:
+    """Encoding for an HTML body whose Content-Type has no charset, else ``None`` (#319).
+
+    Looks at a BOM, then ``<meta charset=...>`` / ``<meta http-equiv=Content-Type content="...;
+    charset=...">`` in the first bytes. An unknown charset name falls back to UTF-8.
+    """
+    ctype = content_type.lower()
+    if "charset=" in ctype or not ("html" in ctype):
+        return None
+    for bom, name in _BOMS:
+        if body.startswith(bom):
+            return name
+    m = _META_CHARSET.search(body[:_META_SCAN_BYTES])
+    if not m:
+        return None
+    label = m.group(1).decode("ascii", "ignore").strip().strip("\"'").lower()
+    return _CHARSET_ALLOWLIST.get(label, "utf-8")
+
+
 def safe_get(
     url: str,
     *,
@@ -176,9 +233,15 @@ def safe_get(
                 continue
             body = b"".join(_capped_chunks(resp, limit, current))
             kept = [(k, v) for k, v in resp.headers.multi_items() if k.lower() not in _BODY_HEADERS]
-            return httpx.Response(
-                resp.status_code, headers=kept, content=body, request=resp.request
-            )
+            out = httpx.Response(resp.status_code, headers=kept, content=body, request=resp.request)
+            enc = _sniff_html_encoding(resp.headers.get("content-type", ""), body)
+            if enc:
+                out.encoding = enc
+                try:
+                    out.text  # noqa: B018 - 呼び出し側の .text が例外にならないことの確認
+                except (ValueError, LookupError, TypeError, AssertionError):
+                    out.encoding = "utf-8"
+            return out
     raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {url!r}")
 
 
