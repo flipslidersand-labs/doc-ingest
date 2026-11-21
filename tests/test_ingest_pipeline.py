@@ -433,7 +433,7 @@ class TestIngestChangedOrFile:
 
         mocker.patch("core.ingest_pipeline.head_sha", return_value="abc1234")
         safe = mocker.patch("core.ingest_pipeline.assert_safe_path", return_value=Path("safe.md"))
-        ingest = mocker.patch("core.ingest_pipeline.ingest_markdown_files")
+        ingest = mocker.patch("core.ingest_pipeline.ingest_markdown_files", return_value=0)
         from core.ingest_pipeline import ingest_changed_or_file
 
         ingest_changed_or_file(
@@ -482,6 +482,47 @@ def test_changed_matching_keeps_only_target_files(mocker):
     from core.ingest_pipeline import changed_matching
 
     assert changed_matching(lambda p: p.suffix == ".md") == [Path("a.md")]
+
+
+class TestPerFileIsolation:
+    def test_exception_in_first_file_does_not_stop_the_second(self, mocker, tmp_path, caplog):
+        bad = tmp_path / "bad.md"
+        bad.write_bytes(b"\xff\xfe\x00invalid utf-8 \x80\x81")
+        good = tmp_path / "good.md"
+        good.write_text("## S\n" + "content " * 20)
+        replace = mocker.patch("core.ingest_pipeline.replace_points")
+
+        with caplog.at_level("WARNING"):
+            failed = ingest_markdown_files(
+                [bad, good],
+                collection="col",
+                source_label="label",
+                distill_fn=lambda t: "D",
+                git_sha="sha",
+                now="2026-11-01T00:00:00+00:00",
+            )
+
+        assert failed == 1
+        assert replace.call_count == 1
+        assert replace.call_args.args[2].endswith("good.md")
+        assert "bad.md" in caplog.text
+        assert "UnicodeDecodeError" in caplog.text
+
+    def test_changed_or_file_warns_with_failure_count(self, mocker, caplog):
+        from core.ingest_pipeline import ingest_changed_or_file
+
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
+        mocker.patch("core.ingest_pipeline.ingest_markdown_files", return_value=2)
+        with caplog.at_level("WARNING"):
+            ingest_changed_or_file(
+                None,
+                changed=lambda: [Path("x.md")],
+                collection="c",
+                source_label="s",
+                distill_fn=str,
+                nothing_msg="n",
+            )
+        assert "2 failure(s)" in caplog.text
 
 
 class TestExplicitFileSymlink:
