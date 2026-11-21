@@ -18,8 +18,8 @@ def _changed_files() -> list[Path]:
     return changed_matching(_is_design_doc)
 
 
-def ingest_design_docs(file: str | None = None) -> None:
-    ingest_changed_or_file(
+def ingest_design_docs(file: str | None = None) -> int:
+    return ingest_changed_or_file(
         file,
         changed=_changed_files,
         collection=COLLECTION,
