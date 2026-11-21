@@ -376,3 +376,79 @@ def test_pdf_chunks_over_the_cap_are_not_distilled(mocker, tmp_path):
 
     assert distill.call_count == 2
     assert len(mock_upsert.call_args[0][1]) == 2
+
+
+class TestHardening317:
+    def test_zero_chunks_keeps_existing_points(self, mocker, tmp_path, caplog):
+        pdf = tmp_path / "scan.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        mocker.patch("ingest.pdf._extract_text_from_path", return_value="text")
+        mocker.patch("ingest.pdf.cap_chunks", return_value=[])
+        replace = mocker.patch("ingest.pdf.replace_points")
+
+        import logging
+
+        from ingest.pdf import ingest_pdf
+
+        with caplog.at_level(logging.WARNING, logger="ingest.pdf"):
+            ingest_pdf(str(pdf))
+
+        replace.assert_not_called()
+        assert "keeping existing points" in caplog.text
+
+    def test_local_pdf_over_size_limit_is_skipped_unread(self, mocker, tmp_path):
+        pdf = tmp_path / "big.pdf"
+        pdf.write_bytes(b"%PDF-" + b"x" * 100)
+        override_settings(max_local_bytes=10)
+        extract = mocker.patch("ingest.pdf._extract_text_from_path")
+        replace = mocker.patch("ingest.pdf.replace_points")
+
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf(str(pdf))
+
+        extract.assert_not_called()
+        replace.assert_not_called()
+
+    def test_url_query_and_fragment_are_not_stored_or_logged(self, mocker, caplog):
+        mocker.patch("ingest.pdf.safe_download")
+        mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        replace = mocker.patch("ingest.pdf.replace_points")
+
+        import logging
+
+        from ingest.pdf import ingest_pdf
+
+        with caplog.at_level(logging.INFO, logger="ingest.pdf"):
+            ingest_pdf("https://example.com/p.pdf?token=SECRET#frag")
+
+        args = replace.call_args[0]
+        assert all(p["source_url"] == "https://example.com/p.pdf" for p in args[3])
+        assert "SECRET" not in caplog.text
+
+    def test_urls_differing_only_by_query_do_not_overwrite_each_other(self, mocker):
+        mocker.patch("ingest.pdf.safe_download")
+        mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        store: dict[str, dict] = {}
+
+        def fake_replace(collection, key, value, points, keep_extra_ids=()):
+            new = {p["id"] for p in points}
+            for i in [i for i, p in store.items() if p.get(key) == value and i not in new]:
+                del store[i]
+            store.update({p["id"]: p for p in points})
+
+        mocker.patch("ingest.pdf.replace_points", side_effect=fake_replace)
+
+        from core.ids import make_id
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf("https://example.com/dl?id=1")
+        first = set(store)
+        ingest_pdf("https://example.com/dl?id=2")
+
+        assert first <= set(store)
+        assert len(store) == 2 * len(first)
+        # id は元の (query 付き) URL から作る = 旧実装と同じ
+        assert make_id("https://example.com/dl?id=1:0") in first
