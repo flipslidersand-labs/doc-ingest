@@ -410,7 +410,7 @@ class TestFetchPdfTextIsBounded:
     def test_it_downloads_through_the_guarded_downloader(self, mocker):
         dl = mocker.patch("ingest.arxiv.safe_download")
         doc, _ = self._doc(mocker, ["abstract page"])
-        mocker.patch("ingest.arxiv.pymupdf.open", return_value=doc)
+        mocker.patch("core.pdf_text.pymupdf.open", return_value=doc)
         from ingest.arxiv import _fetch_pdf_text
 
         assert _fetch_pdf_text("1706.03762") == "abstract page"
@@ -419,7 +419,7 @@ class TestFetchPdfTextIsBounded:
     def test_it_stops_reading_pages_once_enough_text_is_collected(self, mocker):
         mocker.patch("ingest.arxiv.safe_download")
         doc, pages = self._doc(mocker, ["x" * 5000] * 200)
-        mocker.patch("ingest.arxiv.pymupdf.open", return_value=doc)
+        mocker.patch("core.pdf_text.pymupdf.open", return_value=doc)
         from ingest.arxiv import _fetch_pdf_text
 
         out = _fetch_pdf_text("1706.03762")

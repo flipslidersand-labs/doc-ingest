@@ -21,6 +21,8 @@ class TestExtractTextFromPath:
             mock_pages.append(page)
         doc = mocker.MagicMock()
         doc.__iter__ = mocker.Mock(return_value=iter(mock_pages))
+        doc.__enter__ = mocker.Mock(return_value=doc)
+        doc.__exit__ = mocker.Mock(return_value=False)  # 実物の Document は __exit__ で close する
         return doc
 
     def test_single_page(self, mocker, tmp_path):
@@ -50,7 +52,7 @@ class TestExtractTextFromPath:
         from ingest.pdf import _extract_text_from_path
 
         _extract_text_from_path(pdf)
-        doc.close.assert_called_once()
+        doc.__exit__.assert_called_once()
 
     def test_missing_file_raises_before_opening(self, mocker, tmp_path):
         opener = mocker.patch("pymupdf.open")

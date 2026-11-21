@@ -7,11 +7,10 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
-import pymupdf
-
 from core.distiller import distill_paper, distill_webpage
 from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
+from core.pdf_text import extract_pdf_text
 from core.qdrant import upsert
 from core.schema import Collection
 from core.url_guard import assert_safe_url, safe_download, safe_get, strip_url
@@ -83,14 +82,8 @@ def _fetch_pdf_text(arxiv_id: str) -> str:
         buf = io.BytesIO()
         # arxiv.org 宛の固定 URL でも、上限なしの全量読みと未検証のリダイレクトは避ける (#224)
         safe_download(f"https://arxiv.org/pdf/{arxiv_id}", buf, timeout=60)
-        text, n = [], 0
-        with pymupdf.open(stream=buf.getvalue(), filetype="pdf") as doc:
-            for page in doc:
-                text.append(page.get_text())
-                n += len(text[-1]) + 2
-                if n >= _PDF_TEXT_LIMIT:  # 要約に使うのは先頭だけ。巨大な PDF の全ページは読まない
-                    break
-        return "\n\n".join(text)[:_PDF_TEXT_LIMIT]
+        # 要約に使うのは先頭だけ。巨大な PDF の全ページは読まない
+        return extract_pdf_text(buf.getvalue(), limit=_PDF_TEXT_LIMIT)
     except Exception as e:  # noqa: BLE001
         _log.warning("PDF fetch failed (%s), using abstract only", e)
         return ""

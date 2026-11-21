@@ -5,12 +5,11 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-import pymupdf
-
 from core.chunker import cap_chunks, chunk_text
 from core.config import get_settings
 from core.distiller import distill_text
 from core.ids import make_id
+from core.pdf_text import extract_pdf_text
 from core.qdrant import replace_points
 from core.schema import Collection
 from core.url_guard import safe_download, strip_url
@@ -24,10 +23,7 @@ def _extract_text_from_path(path: Path) -> str:
     """Open PDF from a file path (avoids loading full bytes into memory)."""
     if not path.exists():
         raise FileNotFoundError(f"No such file: '{path}'")
-    doc = pymupdf.open(str(path))
-    pages = [page.get_text() for page in doc]
-    doc.close()
-    return "\n\n".join(pages)
+    return extract_pdf_text(path)
 
 
 def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = False) -> None:
