@@ -23,7 +23,11 @@ class DocKey(NamedTuple):
 
 
 def _git(cwd: Path, *args: str) -> str | None:
-    r = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=False)
+    # フック内で git が設定する GIT_DIR 等を引き継ぐと -C が無視され、別リポを見てしまう (#314)
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    r = subprocess.run(
+        ["git", "-C", str(cwd), *args], capture_output=True, text=True, check=False, env=env
+    )
     return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
 
 
