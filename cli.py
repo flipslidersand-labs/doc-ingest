@@ -1,6 +1,7 @@
 """doc-ingest CLI entrypoint."""
 
 import logging
+import re
 
 import click
 
@@ -16,6 +17,14 @@ from ingest.notes import ingest_notes
 # qdrant_client など第三者のログ (httpx は INFO でリクエスト URL を出す) を静かに保つ。
 _HELP_KEY = "doc_ingest.help_requested"
 _OWN_LOGGERS = ("core", "ingest", "cli", "__main__")
+
+
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+
+
+def _clean(value: object) -> str:
+    """外部文書由来の表示値から C0/C1 制御文字 (ESC/OSC 等) を除く。改行・タブは残す。"""
+    return _CONTROL_CHARS.sub("", str(value))
 
 
 def setup_logging(verbose: bool) -> None:
@@ -127,14 +136,14 @@ def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int)
 
     for i, r in enumerate(results, 1):
         score = r.pop("score", None)
-        src = payload_origin(r)
-        section = r.get("section", "")
+        src = _clean(payload_origin(r))
+        section = _clean(r.get("section", ""))
         score_str = f"score={score:.4f}  " if score is not None else ""
         click.echo(f"\n[{i}] {score_str}{src}")
-        click.echo(f"    trust: {r.get('trust') or 'unknown'}")
+        click.echo(f"    trust: {_clean(r.get('trust') or 'unknown')}")
         if section:
             click.echo(f"    section: {section}")
-        text = r.get("text", "")
+        text = _clean(r.get("text", ""))
         orig_len = r.get("nugget_source_len")
         suffix = f" (nugget from {orig_len}c)" if orig_len else ("…" if len(text) > 200 else "")
         preview = text[:200].replace(chr(10), " ")
