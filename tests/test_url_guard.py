@@ -230,6 +230,19 @@ class TestSafeGet:
         resp = safe_get("https://example.com/p")
         assert "日本語" in resp.text
 
+    @pytest.mark.parametrize(
+        "label", ["rot13", "base64", "utf-7", "utf-16", "utf-32", "unicode_escape", "idna", "hex"]
+    )
+    @respx.mock
+    def test_html_hostile_meta_charset_falls_back_to_utf8(self, label):
+        body = f'<meta charset="{label}"><p>日本語</p>'.encode()
+        respx.get("https://example.com/p").mock(
+            return_value=httpx.Response(200, content=body, headers={"content-type": "text/html"})
+        )
+        resp = safe_get("https://example.com/p")
+        assert resp.encoding == "utf-8"
+        assert "日本語" in resp.text
+
     @respx.mock
     def test_html_utf8_bom_without_charset(self):
         body = b"\xef\xbb\xbf<html>\xe6\x97\xa5\xe6\x9c\xac</html>"

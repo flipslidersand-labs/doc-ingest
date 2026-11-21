@@ -148,6 +148,31 @@ _META_CHARSET = re.compile(
 )
 _META_SCAN_BYTES = 4096
 
+# meta から採ってよい charset(HTML 仕様のラベル)。codecs.lookup に通る名前を何でも採ると、
+# 悪意あるサーバーが rot13/base64/utf-7 等を指定して .text を例外や文字化けにできる。
+_CHARSET_ALLOWLIST: dict[str, str] = {
+    "utf-8": "utf-8",
+    "utf8": "utf-8",
+    "shift_jis": "cp932",
+    "shift-jis": "cp932",
+    "sjis": "cp932",
+    "x-sjis": "cp932",
+    "windows-31j": "cp932",
+    "ms_kanji": "cp932",
+    "euc-jp": "euc_jp",
+    "x-euc-jp": "euc_jp",
+    "iso-2022-jp": "iso2022_jp",
+    "gbk": "gbk",
+    "gb2312": "gbk",
+    "gb18030": "gb18030",
+    "big5": "big5",
+    "euc-kr": "euc_kr",
+    "koi8-r": "koi8_r",
+    "koi8-u": "koi8_u",
+    **{f"iso-8859-{n}": f"iso8859_{n}" for n in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15)},
+    **{f"windows-{n}": f"cp{n}" for n in range(1250, 1259)},
+}
+
 
 def _sniff_html_encoding(content_type: str, body: bytes) -> str | None:
     """Encoding for an HTML body whose Content-Type has no charset, else ``None`` (#319).
@@ -164,11 +189,8 @@ def _sniff_html_encoding(content_type: str, body: bytes) -> str | None:
     m = _META_CHARSET.search(body[:_META_SCAN_BYTES])
     if not m:
         return None
-    name = m.group(1).decode("ascii", "ignore")
-    try:
-        return codecs.lookup(name).name
-    except LookupError:
-        return "utf-8"
+    label = m.group(1).decode("ascii", "ignore").strip().strip("\"'").lower()
+    return _CHARSET_ALLOWLIST.get(label, "utf-8")
 
 
 def safe_get(
@@ -215,6 +237,10 @@ def safe_get(
             enc = _sniff_html_encoding(resp.headers.get("content-type", ""), body)
             if enc:
                 out.encoding = enc
+                try:
+                    out.text  # noqa: B018 - 呼び出し側の .text が例外にならないことの確認
+                except (ValueError, LookupError, TypeError, AssertionError):
+                    out.encoding = "utf-8"
             return out
     raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {url!r}")
 
