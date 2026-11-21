@@ -211,6 +211,10 @@ def _fetch_source(source: dict, force: bool, now: str) -> FetchResult:
         }
         for c in chunks
     ]
+    if not points:
+        # 短い 200(エラーページ等)で既存 point を全削除し ETag を固定しない (#297)
+        _log.warning("no chunks extracted, skipping (existing points and ETag kept): %s", url)
+        return FetchResult.skipped(url, source)
     return FetchResult.ready(url, source, new_etag, points)
 
 

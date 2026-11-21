@@ -79,3 +79,19 @@ def escapes_repo(path: str | Path) -> bool:
     except ValueError:
         return True
     return False
+
+
+def lexical_doc_key(path: str | Path) -> DocKey:
+    """symlink を辿らずに数えた *path* 自身の identity (#296)。
+
+    symlink 自身の point を消すときに使う。``doc_key`` は解決後のパス (= リンク先) で key を作るので、
+    リポ内の別文書を指す symlink を消すと、その文書の point まで消えてしまう。
+    リポの検出は ``escapes_repo`` と同じく字面のパスで ``.git`` を探す。見つからなければ ``doc_key``。
+    """
+    lexical = Path(os.path.abspath(path))
+    top = next((p for p in lexical.parents if os.path.lexists(p / ".git")), None)
+    info = _repo_info(top) if top is not None else None
+    if info is None:
+        return doc_key(path)
+    _, repo = info
+    return DocKey(repo, f"{repo}/{lexical.relative_to(top).as_posix()}")

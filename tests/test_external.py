@@ -65,6 +65,21 @@ class TestSyncExternal:
         assert "synced" in caplog.text
 
     @respx.mock
+    def test_short_200_keeps_existing_points_and_etag(self, mock_sources, mocker):
+        """#297: 短い 200 応答(チャンク0件)は skipped。既存 point を消さず ETag も更新しない。"""
+        respx.get("https://example.com/api").mock(
+            return_value=httpx.Response(200, text="## S\nok", headers={"etag": '"new"'})
+        )
+        replace = mocker.patch("ingest.external.replace_points")
+        from ingest.external import sync_external
+
+        sync_external()
+
+        replace.assert_not_called()
+        qdrant.upsert.assert_not_called()
+        assert all(s.get("last_etag", "") != '"new"' for s in mock_sources)
+
+    @respx.mock
     def test_dry_run_skips_upsert(self, mock_sources):
         respx.get("https://example.com/api").mock(
             return_value=httpx.Response(200, text="## S\n" + "y" * 200)

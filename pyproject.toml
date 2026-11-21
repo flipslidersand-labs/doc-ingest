@@ -23,13 +23,17 @@ doc-ingest = "cli:main"
 where = ["."]
 include = ["core*", "ingest*"]
 
+[tool.setuptools]
+# console script (doc-ingest = "cli:main") の cli.py はルート直下の単体モジュール (#296)
+py-modules = ["cli"]
+
 [tool.setuptools.package-dir]
 "" = "."
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-mock>=3", "respx>=0.21", "pytest-cov>=5", "ruff>=0.5", "pytest-timeout>=2.3", "pre-commit>=3"]
 onnx-gpu = [
-    "onnxruntime-gpu==1.31.1",
+    "onnxruntime-gpu==1.32.0",
     "transformers>=4.40",
 ]
 

@@ -49,12 +49,12 @@ def _onnx_init() -> None:
         )
     model_dir = os.path.dirname(os.path.abspath(onnx_model_path))
     _log.info("Loading ONNX model from %s …", onnx_model_path)
-    _onnx_sess = ort.InferenceSession(
+    sess = ort.InferenceSession(
         onnx_model_path,
         providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
     )
-    _onnx_input_names = frozenset(i.name for i in _onnx_sess.get_inputs())
-    active_ep = _onnx_sess.get_providers()[0]
+    input_names = frozenset(i.name for i in sess.get_inputs())
+    active_ep = sess.get_providers()[0]
     if active_ep == "CUDAExecutionProvider":
         _log.info("ONNX session ready — active EP: %s", active_ep)
     else:
@@ -65,8 +65,13 @@ def _onnx_init() -> None:
             active_ep,
         )
     _log.info("Loading tokenizer from %s …", model_dir)
-    _onnx_tok = AutoTokenizer.from_pretrained(model_dir)
+    tok = AutoTokenizer.from_pretrained(model_dir)
     _log.info("Tokenizer ready")
+    # _onnx_resources は _onnx_sess だけで初期化済みを判定する。tok・input_names を先に、sess を最後に公開し、
+    # 初期化中の別スレッドが tok=None を受け取らず、tokenizer 失敗時に sess だけ残らないようにする (#296)。
+    _onnx_tok = tok
+    _onnx_input_names = input_names
+    _onnx_sess = sess
 
 
 def _onnx_resources() -> tuple:

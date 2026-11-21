@@ -368,6 +368,16 @@ class TestSymlinksAreNotIngested:
         self.delete.assert_called_once_with("design", ["old-1", "old-2"])
         self.up.assert_not_called()
 
+    def test_removing_a_symlink_never_deletes_the_points_of_its_target(self, env, monkeypatch):
+        """#296: 削除は symlink 自身のキーで行う。解決後のキー(リンク先)だと別文書の point が消える。"""
+        repo, _ = env
+        (repo / "docs" / "alias.md").symlink_to(repo / "docs" / "real.md")
+        monkeypatch.chdir(repo)
+        self._run(Path("docs/alias.md"))
+        queried = [c.args[-1] if c.args else c.kwargs for c in self.ids.call_args_list]
+        assert "repo/docs/real.md" not in str(queried)
+        assert "repo/docs/alias.md" in str(queried)
+
     def test_a_skip_is_logged(self, env, monkeypatch, caplog):
         import logging
 
