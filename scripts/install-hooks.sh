@@ -37,7 +37,16 @@ if [ -f "$_DOC_INGEST_DIR/.env" ]; then
       ''|'#'*) continue ;;
     esac
     if printf '%s\n' "$_line" | grep -qE '^[A-Za-z_][A-Za-z0-9_]*='; then
-      export "$_line"
+      _k="${_line%%=*}"
+      _v="${_line#*=}"
+      # strip one pair of matching surrounding quotes (python-dotenv does not override
+      # existing env vars, so a leftover quote would win). Never eval the value.
+      case "$_v" in
+        \"?*\") _v="${_v#\"}"; _v="${_v%\"}" ;;
+        \'?*\') _v="${_v#\'}"; _v="${_v%\'}" ;;
+        \"\"|\'\') _v="" ;;
+      esac
+      export "$_k=$_v"
     fi
   done < "$_DOC_INGEST_DIR/.env"
 fi

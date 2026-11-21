@@ -5,12 +5,15 @@ Modules call get_settings() when they need a value; tests swap the cached object
 (see tests/conftest.py override_settings) instead of patching module constants.
 """
 
+import logging
 import os
 import threading
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -94,6 +97,11 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         load_dotenv()
         env = os.environ
     d = Settings()
+    if "EMBED_BACKEND" in env:
+        _log.warning(
+            "EMBED_BACKEND is set but ignored: the onnx_gpu backend was removed (#310); "
+            "only the HTTP embedding service (EMBED_URL) is supported."
+        )
 
     def s(name: str, default: str) -> str:
         return env.get(name, default)

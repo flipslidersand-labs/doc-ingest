@@ -17,7 +17,7 @@ EMBED_RETRIES = 3
 # e5 は文書に "passage: "、検索クエリに "query: " を付けて学習されている。HTTP embedding-svc は
 # mode="index" / "search" でこれを付け替えてから推論する。
 # 文書側 (upsert) は "index"、検索クエリ (search) は "search" (#222: 従来はクエリも "index" だった)。
-E5_PREFIX = {"index": "passage: ", "search": "query: "}
+_PURPOSES = frozenset({"index", "search"})  # prefix は サーバー側で付くので値は持たない
 Mode = Literal["index", "search"]
 
 
@@ -96,8 +96,8 @@ def embed(texts: list[str], mode: Mode = "index") -> list[list[float]]:
 
     *mode* is ``"index"`` for documents (e5 ``passage:``) and ``"search"`` for queries (``query:``).
     """
-    if mode not in E5_PREFIX:
-        raise ValueError(f"mode must be one of {sorted(E5_PREFIX)}, got {mode!r}")
+    if mode not in _PURPOSES:
+        raise ValueError(f"mode must be one of {sorted(_PURPOSES)}, got {mode!r}")
     cfg = get_settings()
     vectors: list[list[float]] = []
     for i in range(0, len(texts), cfg.embed_batch):

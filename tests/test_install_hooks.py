@@ -176,3 +176,47 @@ class TestReadmeDoesNotTeachTheUnsafePattern:
     def test_readme_never_sources_env_in_a_hook_recipe(self):
         readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
         assert '. "$_D/.env"' not in readme and "set -a" not in readme
+
+
+def _run_snippet_printing(tmp_path, env_text: str, names: list[str]) -> dict[str, str]:
+    (tmp_path / ".env").write_text(env_text, encoding="utf-8")
+    echo = "; ".join(f'printf "%s=<%s>\\n" {n} "${n}"' for n in names)
+    script = _extract_snippet().replace(
+        '"$_DOC_INGEST_DIR/.venv/bin/doc-ingest" design 2>/dev/null || true', echo
+    )
+    out = subprocess.run(
+        ["bash", "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+        env={"DOC_INGEST_DIR": str(tmp_path), "PATH": "/usr/bin:/bin"},
+    ).stdout
+    return dict(re.findall(r"^(\w+)=<(.*)>$", out, re.MULTILINE))
+
+
+class TestSnippetQuotedValues:
+    def test_matching_quotes_are_stripped(self, tmp_path):
+        got = _run_snippet_printing(
+            tmp_path,
+            'A="dq value"\nB=\'sq value\'\nC=plain\nD="mismatch\'\nE=""\nF="\n',
+            ["A", "B", "C", "D", "E", "F"],
+        )
+        assert got == {
+            "A": "dq value",
+            "B": "sq value",
+            "C": "plain",
+            "D": "\"mismatch'",
+            "E": "",
+            "F": '"',
+        }
+
+    def test_quoted_value_is_never_evaluated(self, tmp_path):
+        marker = tmp_path / "pwned"
+        got = _run_snippet_printing(
+            tmp_path,
+            f'A="$(touch {marker})"\nB=\'`touch {marker}`\'\nC="$HOME"\n',
+            ["A", "B", "C"],
+        )
+        assert not marker.exists()
+        assert got["C"] == "$HOME"
+        assert got["A"] == f"$(touch {marker})"

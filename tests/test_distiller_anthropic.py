@@ -84,3 +84,17 @@ class TestGenerateFallsBackFromAnthropic:
         sdk[1].side_effect = RuntimeError("api down")
         with pytest.raises(distiller.DistillError):
             distiller._generate("p")
+
+
+class TestEmptySummary:
+    @pytest.mark.parametrize("text", ["", "  \n\t "])
+    def test_empty_summary_raises(self, sdk, text):
+        sdk[1].return_value = _msg(text)
+        with pytest.raises(ValueError, match="empty"):
+            distiller._anthropic("hello")
+
+    def test_empty_summary_becomes_distill_error(self, sdk, mocker):
+        mocker.patch.object(distiller, "_local", side_effect=RuntimeError("down"))
+        sdk[1].return_value = _msg("   ")
+        with pytest.raises(distiller.DistillError):
+            distiller._generate("p")
