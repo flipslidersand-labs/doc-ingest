@@ -20,14 +20,16 @@ run_once() {
 }
 
 # 実行前に「全体が stage 済み」のファイルを控える(staged かつ未 stage 差分なし)
-safe="$(comm -23 <(git diff --cached --name-only --diff-filter=AM | sort) <(git diff --name-only | sort))"
+# git のパス出力は -z (NUL 区切り) で扱う: 日本語名は quotepath で "\346.." に化け、空白名は分割されるため。
+safe=()
+mapfile -d '' -t safe < <(comm -z -23 <(git diff --cached --name-only -z --diff-filter=AM | sort -z) <(git diff --name-only -z | sort -z))
 
 run_once "$@"; rc=$?
-if [ $rc -ne 0 ] && [ "$MODIFIED" = 1 ] && [ -n "$safe" ]; then
-  changed="$(comm -12 <(printf '%s\n' "$safe") <(git diff --name-only | sort))"
-  if [ -n "$changed" ]; then
-    echo "[precommit-wrapper] 自動修正を再 stage して 1 回だけ再実行します:" $changed >&2
-    mapfile -t files <<< "$changed"
+if [ $rc -ne 0 ] && [ "$MODIFIED" = 1 ] && [ ${#safe[@]} -gt 0 ]; then
+  files=()
+  mapfile -d '' -t files < <(comm -z -12 <(printf '%s\0' "${safe[@]}") <(git diff --name-only -z | sort -z))
+  if [ ${#files[@]} -gt 0 ]; then
+    echo "[precommit-wrapper] 自動修正を再 stage して 1 回だけ再実行します:" "${files[@]}" >&2
     git add -- "${files[@]}" || exit $rc
     run_once "$@"; rc=$?
   fi
