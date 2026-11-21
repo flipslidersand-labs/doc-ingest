@@ -14,8 +14,7 @@ from core.html import extract_markdown, looks_like_html
 from core.ids import make_id
 from core.qdrant import upsert
 from core.schema import Collection
-from core.url_guard import assert_safe_url, safe_download, safe_get
-from ingest.pdf import _strip_url
+from core.url_guard import assert_safe_url, safe_download, safe_get, strip_url
 
 _log = logging.getLogger(__name__)
 
@@ -132,7 +131,7 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
             body = extract_markdown(body)
             if not body:
                 raise ValueError(
-                    f"本文を抽出できませんでした (HTML から記事本文が見つからない): {_strip_url(url)}"
+                    f"本文を抽出できませんでした (HTML から記事本文が見つからない): {strip_url(url)}"
                 )
         distilled = distill_webpage(body)
         uid = make_id(url)
@@ -142,11 +141,11 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
                 "text": distilled,
                 "source": "blog",
                 "trust": "external",
-                "source_url": _strip_url(url),
+                "source_url": strip_url(url),
                 "tags": tags,
                 "ingested_at": now,
             }
         ]
 
     upsert(COLLECTION, points)
-    _log.info("ingested %s → %s", _strip_url(url), COLLECTION)
+    _log.info("ingested %s → %s", strip_url(url), COLLECTION)
