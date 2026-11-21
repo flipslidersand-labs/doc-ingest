@@ -424,6 +424,31 @@ class TestHardening317:
             ingest_pdf("https://example.com/p.pdf?token=SECRET#frag")
 
         args = replace.call_args[0]
-        assert args[2] == "https://example.com/p.pdf"
         assert all(p["source_url"] == "https://example.com/p.pdf" for p in args[3])
         assert "SECRET" not in caplog.text
+
+    def test_urls_differing_only_by_query_do_not_overwrite_each_other(self, mocker):
+        mocker.patch("ingest.pdf.safe_download")
+        mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        store: dict[str, dict] = {}
+
+        def fake_replace(collection, key, value, points, keep_extra_ids=()):
+            new = {p["id"] for p in points}
+            for i in [i for i, p in store.items() if p.get(key) == value and i not in new]:
+                del store[i]
+            store.update({p["id"]: p for p in points})
+
+        mocker.patch("ingest.pdf.replace_points", side_effect=fake_replace)
+
+        from core.ids import make_id
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf("https://example.com/dl?id=1")
+        first = set(store)
+        ingest_pdf("https://example.com/dl?id=2")
+
+        assert first <= set(store)
+        assert len(store) == 2 * len(first)
+        # id は元の (query 付き) URL から作る = 旧実装と同じ
+        assert make_id("https://example.com/dl?id=1:0") in first

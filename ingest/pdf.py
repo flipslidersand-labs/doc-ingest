@@ -45,7 +45,8 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
     """
     tags = tags or []
     now = datetime.now(UTC).isoformat()
-    source_url = source
+    source_url = source  # 表示用 (query 除去済み)
+    doc_key = source  # 識別用 (元の URL / 解決済みパス。point id の元で、query も含む)
     is_url = source.startswith("http")
     local_only = not is_url and not allow_cloud
 
@@ -64,7 +65,7 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
             # 読み込む前に見送る。既存の point は消さない
             _log.warning("skipping %s: larger than MAX_LOCAL_BYTES=%d", local_path, max_bytes)
             return
-        source_url = str(local_path.resolve())
+        source_url = doc_key = str(local_path.resolve())
         text = _extract_text_from_path(local_path)
 
     if not text.strip():
@@ -76,15 +77,17 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
         # 空で上書きしない: replace_points(..., []) は既存 point を全削除する
         _log.warning("no chunks produced for %s; keeping existing points", source_url)
         return
+    doc_id = make_id(doc_key)
     points = [
         {
-            "id": make_id(f"{source_url}:{c['chunk_index']}"),
+            "id": make_id(f"{doc_key}:{c['chunk_index']}"),
             "text": distill_text(
                 c["text"], "この資料の要点・実装に使える知見を200字以内で。", local_only=local_only
             ),
             "source": "pdf",
             "trust": "external",
             "source_url": source_url,
+            "doc_id": doc_id,
             "chunk_index": c["chunk_index"],
             "tags": tags,
             "ingested_at": now,
@@ -92,5 +95,5 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
         for c in chunks
     ]
     # 旧チャンクを先に消さない: distill / 埋め込み (upsert) のどちらが失敗しても旧データが残る
-    replace_points(COLLECTION, "source_url", source_url, points)
+    replace_points(COLLECTION, "doc_id", doc_id, points)
     _log.info("ingested %s (%d chunks) → %s", source_url, len(points), COLLECTION)
