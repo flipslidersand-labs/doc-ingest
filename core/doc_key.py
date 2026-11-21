@@ -71,7 +71,11 @@ def escapes_repo(path: str | Path) -> bool:
     if top is None:
         return False
     try:
-        lexical.resolve().relative_to(top.resolve())
+        # realpath は raw (``..`` 未正規化) を前から辿る。OS と同じく symlink 解決後に ``..`` を処理するので、
+        # ``link/../x`` (link がリポ外を指す) の実体を正しく判定できる。
+        Path(os.path.realpath(os.path.join(os.getcwd(), os.fspath(path)))).relative_to(
+            top.resolve()
+        )
     except ValueError:
         return True
     return False
