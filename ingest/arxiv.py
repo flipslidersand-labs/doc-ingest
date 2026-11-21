@@ -5,6 +5,7 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 import pymupdf
 
@@ -14,12 +15,14 @@ from core.ids import make_id
 from core.qdrant import upsert
 from core.schema import Collection
 from core.url_guard import assert_safe_url, safe_download, safe_get
+from ingest.pdf import _strip_url
 
 _log = logging.getLogger(__name__)
 
 COLLECTION = Collection.RESEARCH.value
 _PDF_TEXT_LIMIT = 8000  # 要約に渡す本文の最大文字数
 _ATOM_NS = "http://www.w3.org/2005/Atom"
+_ARXIV_HOSTS = {"arxiv.org", "www.arxiv.org", "export.arxiv.org"}
 _ARXIV_ID_RE = re.compile(r"^\d{4}\.\d{4,5}(v\d+)?$")
 
 
@@ -29,7 +32,14 @@ def _arxiv_id(url: str) -> str | None:
     The id is matched exactly (``YYMM.NNNNN``) so a trailing ``.`` from ``….pdf`` is not
     swallowed into it (#219) and an over-long digit run is not silently truncated.
     """
-    m = re.search(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})(?!\d)", url)
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return None
+    if host not in _ARXIV_HOSTS:
+        return None
+    m = re.match(r"/(?:abs|pdf)/(\d{4}\.\d{4,5})(?!\d)", parts.path)
     return m.group(1) if m else None
 
 
@@ -122,7 +132,7 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
             body = extract_markdown(body)
             if not body:
                 raise ValueError(
-                    f"本文を抽出できませんでした (HTML から記事本文が見つからない): {url}"
+                    f"本文を抽出できませんでした (HTML から記事本文が見つからない): {_strip_url(url)}"
                 )
         distilled = distill_webpage(body)
         uid = make_id(url)
@@ -132,11 +142,11 @@ def ingest_arxiv(url: str, tags: list[str] | None = None) -> None:
                 "text": distilled,
                 "source": "blog",
                 "trust": "external",
-                "source_url": url,
+                "source_url": _strip_url(url),
                 "tags": tags,
                 "ingested_at": now,
             }
         ]
 
     upsert(COLLECTION, points)
-    _log.info("ingested %s → %s", url, COLLECTION)
+    _log.info("ingested %s → %s", _strip_url(url), COLLECTION)

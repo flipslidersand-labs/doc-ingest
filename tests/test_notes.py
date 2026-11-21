@@ -231,8 +231,8 @@ class TestExplicitFile:
         safe.assert_called_once_with("rel/a.md")
         changed.assert_not_called()
         git_changed.assert_not_called()
-        # 解決前の文字列ではなく、assert_safe_path が返したパスがそのまま渡る
-        assert ingest.call_args.args[0] == [resolved]
+        # assert_safe_path は検証のみ。解決前のパスが渡る (#315)
+        assert ingest.call_args.args[0] == [Path("rel/a.md")]
         assert ingest.call_args.kwargs["collection"] == COLLECTION
 
     def test_path_outside_base_raises_before_any_write(self, mocker, tmp_path, monkeypatch):
