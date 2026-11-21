@@ -5,6 +5,8 @@ severity: high
 date: "2026-09-05"
 ---
 
+> 撤去済み(#310)。この onnx_gpu 経路は存在しない(HTTP 埋め込みのみ)。以下は当時の記録。
+
 ## 症状
 
 Phase 1-3 で `e5-onnx/model_encoder_only.onnx` を使って動作確認したが、
