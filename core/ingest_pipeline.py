@@ -145,7 +145,13 @@ def ingest_changed_or_file(
     """
     now = datetime.now(UTC).isoformat()
     sha = head_sha()
-    files = [assert_safe_path(file)] if file else changed()
+    if file:
+        # 検証だけに使い、取り込みには元 (未解決) のパスを渡す。解決後のパスだと symlink 判定が
+        # 効かず、指す先の中身が取り込まれる (#315)
+        assert_safe_path(file)
+        files = [Path(file)]
+    else:
+        files = changed()
     if not files:
         _log.debug(nothing_msg)
         return

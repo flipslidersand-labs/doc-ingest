@@ -135,3 +135,15 @@ class TestChangedFilesInARealRepo:
             (repo / name).write_text("y")
         self._commit(repo, "two", *weird)
         assert sorted(str(p) for p in changed_files(repo)) == sorted(weird)
+
+    def test_uncommitted_edits_and_deletions_are_ignored(self, tmp_path):
+        """#313: HEAD~1 と作業ツリーではなく HEAD~1 と HEAD を比較する。"""
+        repo = self._repo(tmp_path)
+        for name in ("a.md", "b.md", "c.md"):
+            (repo / name).write_text("x")
+        self._commit(repo, "one", "a.md", "b.md", "c.md")
+        (repo / "a.md").write_text("y")
+        self._commit(repo, "two", "a.md")
+        (repo / "b.md").write_text("uncommitted edit")
+        (repo / "c.md").unlink()
+        assert changed_files(repo) == [Path("a.md")]

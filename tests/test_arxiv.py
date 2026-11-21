@@ -473,3 +473,38 @@ class TestBlogBodyLimit:
             ingest_arxiv("https://example.com/huge")
         distill.assert_not_called()
         up.assert_not_called()
+
+
+class TestHardening317:
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://evil.example/?u=arxiv.org/abs/1706.03762",
+            "https://evil.example/arxiv.org/abs/1706.03762",
+            "https://notarxiv.org/abs/1706.03762",
+            "https://arxiv.org.evil.example/abs/1706.03762",
+        ],
+    )
+    def test_other_hosts_do_not_match(self, url):
+        from ingest.arxiv import _arxiv_id
+
+        assert _arxiv_id(url) is None
+
+    @pytest.mark.parametrize("host", ["arxiv.org", "www.arxiv.org", "export.arxiv.org"])
+    def test_arxiv_hosts_match(self, host):
+        from ingest.arxiv import _arxiv_id
+
+        assert _arxiv_id(f"https://{host}/abs/1706.03762v2?x=1") == "1706.03762"
+
+    def test_blog_url_query_is_not_stored_in_source_url(self, mocker):
+        mocker.patch("ingest.arxiv.assert_safe_url")
+        resp = mocker.Mock(text="plain body", headers={"content-type": "text/plain"})
+        mocker.patch("ingest.arxiv.safe_get", return_value=resp)
+        mocker.patch("ingest.arxiv.distill_webpage", return_value="d")
+        upsert = mocker.patch("ingest.arxiv.upsert")
+
+        from ingest.arxiv import ingest_arxiv
+
+        ingest_arxiv("https://example.com/post?sig=SECRET#x")
+
+        assert upsert.call_args[0][1][0]["source_url"] == "https://example.com/post"

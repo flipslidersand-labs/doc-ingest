@@ -188,3 +188,11 @@ class TestEscapesRepo:
         home.mkdir()
         (home / "forge").symlink_to(real)
         assert escapes_repo(home / "forge" / "leak.md") is True
+
+
+def test_git_env_vars_from_hooks_do_not_leak_into_git_calls(tmp_path, monkeypatch):
+    """#314: フック内では GIT_DIR 等が設定される。それに引きずられず対象ファイルのリポを返す。"""
+    a, b = _repo(tmp_path, "repoA"), _repo(tmp_path, "repoB")
+    monkeypatch.setenv("GIT_DIR", str(b / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(b))
+    assert doc_key(a / "CLAUDE.md") == DocKey("repoA", "repoA/CLAUDE.md")
