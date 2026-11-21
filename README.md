@@ -45,13 +45,24 @@ doc-ingest sync --dry-run  # preview without writing
 # Ingest a specific design doc manually
 doc-ingest design CLAUDE.md
 
+# Ingest a curated Obsidian note manually (no argument = files changed in the last commit)
+doc-ingest notes 10-projects/my-note.md
+
 # Search ingested content
 doc-ingest search "Claude API streaming"
 doc-ingest search "qdrant vector" --collection external-docs --limit 3
+doc-ingest search "qdrant vector" --nugget             # BM25 nugget sentences instead of full chunks
+doc-ingest search "qdrant vector" --nugget --nugget-k 5  # sentences per chunk (default 3)
+
+# List Qdrant collections with point counts and last ingest time
+doc-ingest list
 
 # Ingest a local PDF file
 doc-ingest pdf ./paper.pdf --tags forge
+doc-ingest pdf ./paper.pdf --allow-cloud  # allow Anthropic if the local LLM fails (default: local only)
 ```
+
+`design` and `notes` exit with code 1 when one or more files or chunks failed to ingest. Details: [docs/spec/cli.md](docs/spec/cli.md).
 
 ### Git Hook
 
@@ -110,7 +121,7 @@ cd ~/projects/forge && for f in CLAUDE.md AGENTS.md docs/*.md adr/*.md ADR/*.md;
 
 ### Distillation
 
-LLM distillation pipeline: local **llama-server** (OpenAI-compatible `/v1/chat/completions`; set `LOCAL_LLM_URL`, optional `LOCAL_LLM_MODEL` / `LOCAL_LLM_TIMEOUT` / `LOCAL_LLM_MAX_TOKENS`) → **Anthropic Haiku** (if `ANTHROPIC_API_KEY` is set). If every backend fails, the chunk is skipped (never embedded as raw text). Private sources (notes, design docs) never go to Anthropic. Point `LOCAL_LLM_URL` at a server with enough context (inputs are up to ~5000 chars); distillation runs serially by default (`DISTILL_WORKERS=1`).
+LLM distillation pipeline: local **llama-server** (OpenAI-compatible `/v1/chat/completions`; set `LOCAL_LLM_URL`, optional `LOCAL_LLM_MODEL` / `LOCAL_LLM_TIMEOUT` / `LOCAL_LLM_MAX_TOKENS`) → **Anthropic Haiku** (if `ANTHROPIC_API_KEY` is set). If every backend fails, the chunk is skipped (never embedded as raw text). Private sources (notes, design docs, and local PDFs unless `pdf --allow-cloud` is given) never go to Anthropic. Point `LOCAL_LLM_URL` at a server with enough context (inputs are up to ~5000 chars); distillation runs serially by default (`DISTILL_WORKERS=1`).
 
 
 ---
@@ -157,13 +168,24 @@ doc-ingest sync --dry-run  # 書き込まずプレビュー
 # 設計ドキュメントを手動取り込み
 doc-ingest design CLAUDE.md
 
+# Obsidian ノートを手動取り込み（引数なし = 直近コミットで変わったファイル）
+doc-ingest notes 10-projects/my-note.md
+
 # 取り込み済みコンテンツを検索
 doc-ingest search "Claude API streaming"
 doc-ingest search "qdrant vector" --collection external-docs --limit 3
+doc-ingest search "qdrant vector" --nugget             # チャンク全文ではなく BM25 で選んだ文を表示
+doc-ingest search "qdrant vector" --nugget --nugget-k 5  # チャンクあたりの文数（既定 3）
+
+# Qdrant のコレクション一覧（point 数と最終取り込み時刻）
+doc-ingest list
 
 # ローカル PDF ファイルを取り込む
 doc-ingest pdf ./paper.pdf --tags forge
+doc-ingest pdf ./paper.pdf --allow-cloud  # ローカル LLM が失敗したとき Anthropic を許可（既定はローカルのみ）
 ```
+
+`design` と `notes` は、取り込みに失敗したファイルやチャンクが 1 件以上あると終了コード 1 になります。詳細は [docs/spec/cli.md](docs/spec/cli.md)。
 
 ### Git フック
 
@@ -217,8 +239,20 @@ cd ~/projects/forge && for f in CLAUDE.md AGENTS.md docs/*.md adr/*.md ADR/*.md;
 
 ### 蒸留（Distillation）
 
-LLM 蒸留パイプライン: ローカル **llama-server**（OpenAI 互換 `/v1/chat/completions`。`LOCAL_LLM_URL`、任意で `LOCAL_LLM_MODEL` / `LOCAL_LLM_TIMEOUT` / `LOCAL_LLM_MAX_TOKENS`）→ **Anthropic Haiku**（`ANTHROPIC_API_KEY` 設定時）。全て失敗したチャンクはスキップし、生テキストは埋め込まない。非公開ソース（notes・設計 doc）は Anthropic に送らない。入力は最大約 5000 字なので、`LOCAL_LLM_URL` は n_ctx に余裕のある台を指す。既定は直列実行（`DISTILL_WORKERS=1`）。
+LLM 蒸留パイプライン: ローカル **llama-server**（OpenAI 互換 `/v1/chat/completions`。`LOCAL_LLM_URL`、任意で `LOCAL_LLM_MODEL` / `LOCAL_LLM_TIMEOUT` / `LOCAL_LLM_MAX_TOKENS`）→ **Anthropic Haiku**（`ANTHROPIC_API_KEY` 設定時）。全て失敗したチャンクはスキップし、生テキストは埋め込まない。非公開ソース（notes・設計 doc、`pdf --allow-cloud` なしのローカル PDF）は Anthropic に送らない。入力は最大約 5000 字なので、`LOCAL_LLM_URL` は n_ctx に余裕のある台を指す。既定は直列実行（`DISTILL_WORKERS=1`）。
 
+
+## Version / Documentation
+
+Current version: 0.1.0 (not yet released; no tags). Changes are tracked in [CHANGELOG.md](CHANGELOG.md).
+バージョン: 0.1.0（未リリース、タグなし）。変更履歴は [CHANGELOG.md](CHANGELOG.md)。
+
+| Document | Content / 内容 |
+|----------|----------------|
+| [docs/spec/cli.md](docs/spec/cli.md) | CLI commands, environment variables, exit codes / コマンド・環境変数・終了コード |
+| [docs/design.md](docs/design.md) | Architecture, data flow, constraints / 構成・データの流れ・制約 |
+| [CHANGELOG.md](CHANGELOG.md) | Change history / 変更履歴 |
+| [docs/adr/](docs/adr/README.md) | Architecture decision records / 設計判断 |
 
 ## License
 
