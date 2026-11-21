@@ -28,8 +28,8 @@ def _changed_files() -> list[Path]:
     return changed_matching(_is_note)
 
 
-def ingest_notes(file: str | None = None) -> None:
-    ingest_changed_or_file(
+def ingest_notes(file: str | None = None) -> int:
+    return ingest_changed_or_file(
         file,
         changed=_changed_files,
         collection=COLLECTION,

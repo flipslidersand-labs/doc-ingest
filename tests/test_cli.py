@@ -349,20 +349,20 @@ class TestDesignCommand:
     """#263: design の FILE 引数の受け渡し (省略 = git フック経路 / 指定 = 単一ファイル)。"""
 
     def test_no_argument_passes_none(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_design_docs")
+        mock_ingest = mocker.patch("cli.ingest_design_docs", return_value=0)
         result = CliRunner().invoke(main, ["design"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with(None)
 
     def test_file_argument_is_passed_as_given(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_design_docs")
+        mock_ingest = mocker.patch("cli.ingest_design_docs", return_value=0)
         result = CliRunner().invoke(main, ["design", "docs/a.md"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with("docs/a.md")
 
     def test_does_not_call_notes_ingest(self, mocker):
-        mocker.patch("cli.ingest_design_docs")
-        mock_notes = mocker.patch("cli.ingest_notes")
+        mocker.patch("cli.ingest_design_docs", return_value=0)
+        mock_notes = mocker.patch("cli.ingest_notes", return_value=0)
         CliRunner().invoke(main, ["design", "docs/a.md"])
         mock_notes.assert_not_called()
 
@@ -387,20 +387,20 @@ class TestNotesCommand:
     """#263: notes の FILE 引数の受け渡し (省略 = git フック経路 / 指定 = 単一ファイル)。"""
 
     def test_no_argument_passes_none(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_notes")
+        mock_ingest = mocker.patch("cli.ingest_notes", return_value=0)
         result = CliRunner().invoke(main, ["notes"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with(None)
 
     def test_file_argument_is_passed_as_given(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_notes")
+        mock_ingest = mocker.patch("cli.ingest_notes", return_value=0)
         result = CliRunner().invoke(main, ["notes", "10-projects/a.md"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with("10-projects/a.md")
 
     def test_does_not_call_design_ingest(self, mocker):
-        mocker.patch("cli.ingest_notes")
-        mock_design = mocker.patch("cli.ingest_design_docs")
+        mocker.patch("cli.ingest_notes", return_value=0)
+        mock_design = mocker.patch("cli.ingest_design_docs", return_value=0)
         CliRunner().invoke(main, ["notes", "10-projects/a.md"])
         mock_design.assert_not_called()
 
@@ -482,3 +482,30 @@ class TestSearchSanitizesControlChars:
         assert "https://e.com/" in result.output
         assert "RED" in result.output
         assert "c\td" in result.output
+
+
+class TestIngestFailureExitCode:
+    """#332: 取り込み失敗 (ファイル単位の例外分離で握りつぶされた分) は非ゼロ終了にする。"""
+
+    def _run(self, mocker, tmp_path, monkeypatch, cmd):
+        base = tmp_path / "base"
+        base.mkdir()
+        (base / "a.md").write_text("# t\nbody\n")
+        monkeypatch.chdir(base)
+        override_settings(doc_ingest_base_dir=str(base))
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
+        mocker.patch("core.ingest_pipeline._ingest_one", side_effect=RuntimeError("boom"))
+        return CliRunner().invoke(main, [cmd, "a.md"])
+
+    def test_design_file_failure_exits_nonzero(self, mocker, tmp_path, monkeypatch):
+        result = self._run(mocker, tmp_path, monkeypatch, "design")
+        assert result.exit_code != 0
+        assert "1 failure(s)" in result.output
+
+    def test_notes_file_failure_exits_nonzero(self, mocker, tmp_path, monkeypatch):
+        result = self._run(mocker, tmp_path, monkeypatch, "notes")
+        assert result.exit_code != 0
+
+    def test_success_exits_zero(self, mocker):
+        mocker.patch("cli.ingest_design_docs", return_value=0)
+        assert CliRunner().invoke(main, ["design", "a.md"]).exit_code == 0

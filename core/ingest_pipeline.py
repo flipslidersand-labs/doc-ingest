@@ -137,11 +137,12 @@ def ingest_changed_or_file(
     source_label: str,
     distill_fn: Callable[[str], str],
     nothing_msg: str,
-) -> None:
+) -> int:
     """Ingest *file* (validated by ``assert_safe_path``) or, without it, what *changed* returns.
 
     The entry point shared by the markdown collections (design, notes): they differ only in
     which files count (*changed*), the collection, the source label and the distiller.
+    Returns the number of failures (0 when nothing failed) so the CLI can exit non-zero (#332).
     """
     now = datetime.now(UTC).isoformat()
     sha = head_sha()
@@ -154,7 +155,7 @@ def ingest_changed_or_file(
         files = changed()
     if not files:
         _log.debug(nothing_msg)
-        return
+        return 0
     failed = ingest_markdown_files(
         files,
         collection=collection,
@@ -167,3 +168,4 @@ def ingest_changed_or_file(
         _log.warning(
             "%d failure(s) while ingesting into %s (see warnings above)", failed, collection
         )
+    return failed
