@@ -1,12 +1,10 @@
-"""Embedding acquisition: HTTP embedding service (with fallback + retry) or local ONNX.
+"""Embedding acquisition: HTTP embedding service (with fallback + retry).
 
 Split out of core/qdrant.py (#155): everything about *getting vectors* lives here;
 core/qdrant.py is the thin vector-DB client that calls embed().
 """
 
 import logging
-import os
-import threading
 from typing import Literal
 
 from core.config import get_settings
@@ -16,89 +14,15 @@ _log = logging.getLogger(__name__)
 
 EMBED_RETRIES = 3
 
-# EMBED_BACKEND=onnx_gpu: bypass HTTP and infer locally with onnxruntime CUDA EP.
-# Requires: ONNX_MODEL_PATH, LD_LIBRARY_PATH with CUDA/cuDNN libs (see .env.example).
 # e5 は文書に "passage: "、検索クエリに "query: " を付けて学習されている。HTTP embedding-svc は
-# mode="index" / "search" でこれを付け替えてから推論するので、ローカル ONNX 経路も同じ表で揃える。
-# 付けないと同じテキストでも cosine が 0.96〜0.99 ずれ、HTTP と混在すると検索順位が変わる (#156 で実測)。
+# mode="index" / "search" でこれを付け替えてから推論する。
 # 文書側 (upsert) は "index"、検索クエリ (search) は "search" (#222: 従来はクエリも "index" だった)。
 E5_PREFIX = {"index": "passage: ", "search": "query: "}
 Mode = Literal["index", "search"]
 
-# Lazy ONNX session + tokenizer — initialized once on first embed call.
-_onnx_sess = None
-_onnx_tok = None
-_onnx_input_names: frozenset[str] = frozenset()
-_onnx_lock = threading.Lock()
-
 
 class EmbeddingError(RuntimeError):
     """埋め込みの応答が不正 (ベクトル数が入力と合わない等)。"""
-
-
-def _onnx_init() -> None:
-    """Lazily initialize ONNX session + tokenizer (called once, under lock)."""
-    global _onnx_sess, _onnx_tok, _onnx_input_names
-    import onnxruntime as ort
-    from transformers import AutoTokenizer
-
-    onnx_model_path = get_settings().onnx_model_path
-    if not onnx_model_path:
-        raise RuntimeError("ONNX_MODEL_PATH is not set. Cannot use EMBED_BACKEND=onnx_gpu.")
-    model_dir = os.path.dirname(os.path.abspath(onnx_model_path))
-    _log.info("Loading ONNX model from %s …", onnx_model_path)
-    sess = ort.InferenceSession(
-        onnx_model_path,
-        providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-    )
-    input_names = frozenset(i.name for i in sess.get_inputs())
-    active_ep = sess.get_providers()[0]
-    if active_ep == "CUDAExecutionProvider":
-        _log.info("ONNX session ready — active EP: %s", active_ep)
-    else:
-        # CUDA/cuDNN のライブラリ不足などで onnxruntime は黙って CPU に落ちる。気づけるよう警告する。
-        _log.warning(
-            "ONNX session ready but CUDAExecutionProvider is NOT active (using %s) — "
-            "running on CPU. Check LD_LIBRARY_PATH / CUDA 12 / cuDNN 9.",
-            active_ep,
-        )
-    _log.info("Loading tokenizer from %s …", model_dir)
-    tok = AutoTokenizer.from_pretrained(model_dir)
-    _log.info("Tokenizer ready")
-    # _onnx_resources は _onnx_sess だけで初期化済みを判定する。tok・input_names を先に、sess を最後に公開し、
-    # 初期化中の別スレッドが tok=None を受け取らず、tokenizer 失敗時に sess だけ残らないようにする (#296)。
-    _onnx_tok = tok
-    _onnx_input_names = input_names
-    _onnx_sess = sess
-
-
-def _onnx_resources() -> tuple:
-    """Return cached (session, tokenizer, input_names), initializing on first call."""
-    if _onnx_sess is not None:
-        return _onnx_sess, _onnx_tok, _onnx_input_names
-    with _onnx_lock:
-        if _onnx_sess is None:
-            _onnx_init()
-    return _onnx_sess, _onnx_tok, _onnx_input_names
-
-
-def _embed_batch_onnx(texts: list[str], mode: Mode = "index") -> list[list[float]]:
-    """Embed texts locally using onnxruntime (CUDA EP on dev-nodee GTX1080)."""
-    import numpy as np
-
-    sess, tok, input_names = _onnx_resources()
-    texts = [E5_PREFIX[mode] + t for t in texts]
-    enc = tok(texts, padding=True, truncation=True, max_length=512, return_tensors="np")
-
-    # Always keep attention_mask from enc (may be absent from ONNX input_names).
-    mask = enc["attention_mask"].astype(np.float32)  # (batch, seq)
-    feed = {k: v.astype(np.int64) for k, v in enc.items() if k in input_names}
-    out = sess.run(None, feed)[0]  # (batch, seq, hidden)
-
-    # Mean-pool over non-padding tokens then L2-normalize (e5 convention).
-    pooled = (out * mask[:, :, None]).sum(axis=1) / mask.sum(axis=1, keepdims=True)
-    pooled /= np.maximum(np.linalg.norm(pooled, axis=1, keepdims=True), 1e-9)
-    return pooled.tolist()
 
 
 def _post_embed(url: str, texts: list[str], mode: Mode = "index") -> list[list[float]]:
@@ -175,11 +99,10 @@ def embed(texts: list[str], mode: Mode = "index") -> list[list[float]]:
     if mode not in E5_PREFIX:
         raise ValueError(f"mode must be one of {sorted(E5_PREFIX)}, got {mode!r}")
     cfg = get_settings()
-    batch_fn = _embed_batch_onnx if cfg.embed_backend == "onnx_gpu" else _embed_batch
     vectors: list[list[float]] = []
     for i in range(0, len(texts), cfg.embed_batch):
         batch = texts[i : i + cfg.embed_batch]
-        got = batch_fn(batch, mode)
+        got = _embed_batch(batch, mode)
         if len(got) != len(batch):
             # 少なく返ると、呼び出し側の zip が後ろの文書を黙って落とす (ペイロードの欠損)
             raise EmbeddingError(f"embedding returned {len(got)} vectors for {len(batch)} texts")
