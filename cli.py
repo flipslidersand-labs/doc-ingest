@@ -75,18 +75,24 @@ def arxiv(url: str, tags: str):
         raise click.ClickException(str(exc)) from exc
 
 
+def _exit_on_failures(failed: int) -> None:
+    """Exit non-zero when any file/chunk failed to ingest (#332). The git hooks keep `|| true`."""
+    if failed:
+        raise click.ClickException(f"{failed} failure(s) while ingesting (see warnings above)")
+
+
 @main.command()
 @click.argument("file", required=False)
 def design(file: str | None):
     """Ingest design docs (CLAUDE.md / ADR / docs/). Runs changed files when called from git hook."""
-    ingest_design_docs(file)
+    _exit_on_failures(ingest_design_docs(file))
 
 
 @main.command()
 @click.argument("file", required=False)
 def notes(file: str | None):
     """Ingest curated Obsidian vault notes (10-projects/20-areas/30-resources). Runs changed files when called from git hook."""
-    ingest_notes(file)
+    _exit_on_failures(ingest_notes(file))
 
 
 @main.command()
