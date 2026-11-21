@@ -207,6 +207,50 @@ class TestSafeGet:
         assert resp.status_code == 200
         assert resp.text == "ok"
 
+    @pytest.mark.parametrize(
+        ("ctype", "head", "enc"),
+        [
+            ("text/html", '<meta charset="Shift_JIS">', "shift_jis"),
+            (
+                "text/html",
+                '<meta http-equiv="Content-Type" content="text/html; charset=EUC-JP">',
+                "euc_jp",
+            ),
+            ("text/html", '<meta charset="x-no-such-charset">', "utf-8"),
+            # an explicit Content-Type charset wins over the meta tag
+            ("text/html; charset=utf-8", '<meta charset="Shift_JIS">', "utf-8"),
+        ],
+    )
+    @respx.mock
+    def test_html_charset_from_meta(self, ctype, head, enc):
+        body = (f"<html><head>{head}</head><body>日本語</body></html>").encode(enc)
+        respx.get("https://example.com/p").mock(
+            return_value=httpx.Response(200, content=body, headers={"content-type": ctype})
+        )
+        resp = safe_get("https://example.com/p")
+        assert "日本語" in resp.text
+
+    @pytest.mark.parametrize(
+        "label", ["rot13", "base64", "utf-7", "utf-16", "utf-32", "unicode_escape", "idna", "hex"]
+    )
+    @respx.mock
+    def test_html_hostile_meta_charset_falls_back_to_utf8(self, label):
+        body = f'<meta charset="{label}"><p>日本語</p>'.encode()
+        respx.get("https://example.com/p").mock(
+            return_value=httpx.Response(200, content=body, headers={"content-type": "text/html"})
+        )
+        resp = safe_get("https://example.com/p")
+        assert resp.encoding == "utf-8"
+        assert "日本語" in resp.text
+
+    @respx.mock
+    def test_html_utf8_bom_without_charset(self):
+        body = b"\xef\xbb\xbf<html>\xe6\x97\xa5\xe6\x9c\xac</html>"
+        respx.get("https://example.com/p").mock(
+            return_value=httpx.Response(200, content=body, headers={"content-type": "text/html"})
+        )
+        assert safe_get("https://example.com/p").text == "<html>日本</html>"
+
     @respx.mock
     def test_redirect_to_safe_host_is_followed(self):
         respx.get("https://example.com/old").mock(
