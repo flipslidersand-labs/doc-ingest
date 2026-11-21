@@ -1,6 +1,8 @@
 """URL safety guard: reject non-HTTPS and private/reserved addresses."""
 
+import codecs
 import ipaddress
+import re
 import socket
 from collections.abc import Iterator
 from typing import BinaryIO
@@ -136,6 +138,39 @@ def _capped_chunks(resp: httpx.Response, limit: int, url: str) -> Iterator[bytes
 _BODY_HEADERS = {"content-encoding", "content-length", "transfer-encoding"}
 
 
+_BOMS = (
+    (codecs.BOM_UTF8, "utf-8-sig"),
+    (codecs.BOM_UTF16_LE, "utf-16"),
+    (codecs.BOM_UTF16_BE, "utf-16"),
+)
+_META_CHARSET = re.compile(
+    rb"<meta\b[^>]*?charset\s*=\s*[\"']?\s*([A-Za-z0-9_.:\-]+)", re.IGNORECASE
+)
+_META_SCAN_BYTES = 4096
+
+
+def _sniff_html_encoding(content_type: str, body: bytes) -> str | None:
+    """Encoding for an HTML body whose Content-Type has no charset, else ``None`` (#319).
+
+    Looks at a BOM, then ``<meta charset=...>`` / ``<meta http-equiv=Content-Type content="...;
+    charset=...">`` in the first bytes. An unknown charset name falls back to UTF-8.
+    """
+    ctype = content_type.lower()
+    if "charset=" in ctype or not ("html" in ctype):
+        return None
+    for bom, name in _BOMS:
+        if body.startswith(bom):
+            return name
+    m = _META_CHARSET.search(body[:_META_SCAN_BYTES])
+    if not m:
+        return None
+    name = m.group(1).decode("ascii", "ignore")
+    try:
+        return codecs.lookup(name).name
+    except LookupError:
+        return "utf-8"
+
+
 def safe_get(
     url: str,
     *,
@@ -176,9 +211,11 @@ def safe_get(
                 continue
             body = b"".join(_capped_chunks(resp, limit, current))
             kept = [(k, v) for k, v in resp.headers.multi_items() if k.lower() not in _BODY_HEADERS]
-            return httpx.Response(
-                resp.status_code, headers=kept, content=body, request=resp.request
-            )
+            out = httpx.Response(resp.status_code, headers=kept, content=body, request=resp.request)
+            enc = _sniff_html_encoding(resp.headers.get("content-type", ""), body)
+            if enc:
+                out.encoding = enc
+            return out
     raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {url!r}")
 
 
