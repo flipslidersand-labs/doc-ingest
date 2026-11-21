@@ -166,3 +166,19 @@ def test_doc_ingest_base_dir_maps_from_env():
 
 def test_doc_ingest_base_dir_defaults_to_empty():
     assert load_settings({}).doc_ingest_base_dir == ""
+
+
+def test_removed_embed_backend_warns_once_per_load(caplog):
+    """#320: 撤去済みの EMBED_BACKEND が設定されていたら警告する。読み込みは失敗させない。"""
+    with caplog.at_level("WARNING", logger="core.config"):
+        s = load_settings({"EMBED_BACKEND": "onnx_gpu"})
+    assert s == Settings()
+    msgs = [r.getMessage() for r in caplog.records if "EMBED_BACKEND" in r.getMessage()]
+    assert len(msgs) == 1
+    assert "HTTP" in msgs[0]
+
+
+def test_no_warning_without_embed_backend(caplog):
+    with caplog.at_level("WARNING", logger="core.config"):
+        load_settings({})
+    assert not [r for r in caplog.records if "EMBED_BACKEND" in r.getMessage()]
