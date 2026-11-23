@@ -3,6 +3,8 @@
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+Release type: `library`
+
 ## English
 
 Document ingestion pipeline — feeds external API docs, design docs, and arxiv papers into [Qdrant](https://qdrant.tech/) vector DB for use in RAG / AI-assistant workflows.
