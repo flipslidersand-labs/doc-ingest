@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 follows [Semantic Versioning](https://semver.org/). No release has been tagged yet (`pyproject.toml`
 declares version 0.1.0), so every change below is listed under Unreleased. Entries are generated
-from merged pull requests titled `feat` / `fix` / `refactor` (newest first); `docs`, `chore`, `ci`,
+from merged pull requests titled `feat` / `fix` / `refactor` / `improve` (newest first); `docs`, `chore`, `ci`,
 `test` and other prefixes are omitted.
 
 ## [Unreleased]
@@ -32,6 +32,8 @@ from merged pull requests titled `feat` / `fix` / `refactor` (newest first); `do
 
 ### Changed
 
+- PDF テキスト抽出を共通化 (extract_pdf_text) ([#343](https://github.com/flipslidersand-labs/doc-ingest/pull/343))
+- strip_url を core.url_guard の公開関数へ移動 ([#341](https://github.com/flipslidersand-labs/doc-ingest/pull/341))
 - embedding: onnx_gpu 経路を撤去する ([#310](https://github.com/flipslidersand-labs/doc-ingest/pull/310))
 - external: 実行状態を external.state.yaml に分離 ([#293](https://github.com/flipslidersand-labs/doc-ingest/pull/293))
 - config: path_guard の基点を Settings 経由に統一 ([#282](https://github.com/flipslidersand-labs/doc-ingest/pull/282))
@@ -44,6 +46,9 @@ from merged pull requests titled `feat` / `fix` / `refactor` (newest first); `do
 - core: 埋め込み取得を core/embedding.py に切り出し、qdrant.py を薄いクライアントに戻す (#155) ([#210](https://github.com/flipslidersand-labs/doc-ingest/pull/210))
 - retry: 指数バックオフのリトライを core/retry.with_retry に共通化 (#154) ([#207](https://github.com/flipslidersand-labs/doc-ingest/pull/207))
 - ingest: notes と design_docs の取り込みを共通パイプラインに集約 (#151) ([#203](https://github.com/flipslidersand-labs/doc-ingest/pull/203))
+- external: JS描画ページを Jina Reader 経由で取得 (closes #46) ([#53](https://github.com/flipslidersand-labs/doc-ingest/pull/53))
+- chunker: チャンク上限を文字数からトークン基準へ移行 (closes #47) ([#52](https://github.com/flipslidersand-labs/doc-ingest/pull/52))
+- chunker: chunk_markdown にサイズ上限 sub-split を追加（closes #42） ([#43](https://github.com/flipslidersand-labs/doc-ingest/pull/43))
 
 ### Fixed
 
