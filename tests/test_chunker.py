@@ -5,7 +5,7 @@ from typing import ClassVar
 import pytest
 import tiktoken
 
-from core.chunker import _count_tokens, chunk_markdown, chunk_text
+from doc_ingest.core.chunker import _count_tokens, chunk_markdown, chunk_text
 from tests.conftest import override_settings
 
 _enc = tiktoken.get_encoding("cl100k_base")
@@ -131,7 +131,7 @@ class TestHardSplitKeepsWholeCharacters:
     def test_pieces_join_back_to_the_original_text_without_replacement_chars(
         self, name, max_tokens
     ):
-        from core.chunker import _hard_split_tokens
+        from doc_ingest.core.chunker import _hard_split_tokens
 
         text = self.SAMPLES[name]
         pieces = _hard_split_tokens(text, max_tokens)
@@ -141,13 +141,13 @@ class TestHardSplitKeepsWholeCharacters:
     @pytest.mark.parametrize("name", list(SAMPLES))
     @pytest.mark.parametrize("max_tokens", [5, 20, 100])
     def test_every_piece_fits_the_token_limit(self, name, max_tokens):
-        from core.chunker import _count_tokens, _hard_split_tokens
+        from doc_ingest.core.chunker import _count_tokens, _hard_split_tokens
 
         for piece in _hard_split_tokens(self.SAMPLES[name], max_tokens):
             assert _count_tokens(piece) <= max_tokens
 
     def test_each_piece_is_valid_utf8_on_its_own(self):
-        from core.chunker import _hard_split_tokens
+        from doc_ingest.core.chunker import _hard_split_tokens
 
         for piece in _hard_split_tokens(self.SAMPLES["japanese"], 7):
             piece.encode("utf-8")  # 例外にならない
@@ -155,7 +155,7 @@ class TestHardSplitKeepsWholeCharacters:
 
     def test_a_tiny_limit_still_makes_progress_and_keeps_characters_whole(self):
         """1 文字が複数トークンにまたがる状況で上限が 1 でも、無限ループせず文字を壊さない。"""
-        from core.chunker import _hard_split_tokens
+        from doc_ingest.core.chunker import _hard_split_tokens
 
         text = "日本語𠮷😀" * 3
         pieces = _hard_split_tokens(text, 1)
@@ -164,7 +164,7 @@ class TestHardSplitKeepsWholeCharacters:
     def test_random_text_roundtrips(self):
         import random
 
-        from core.chunker import _count_tokens, _hard_split_tokens
+        from doc_ingest.core.chunker import _count_tokens, _hard_split_tokens
 
         rng = random.Random(7)
         alphabet = list("あいうえお漢字日本語abcXYZ 012\n😀🎉é")
@@ -176,13 +176,13 @@ class TestHardSplitKeepsWholeCharacters:
             assert all(_count_tokens(p) <= limit for p in pieces)
 
     def test_empty_text_gives_no_pieces(self):
-        from core.chunker import _hard_split_tokens
+        from doc_ingest.core.chunker import _hard_split_tokens
 
         assert _hard_split_tokens("", 10) == []
 
     def test_a_giant_japanese_paragraph_through_chunk_markdown_stays_intact(self):
         """入口 (chunk_markdown) からも、巨大な 1 段落の日本語が化けない。"""
-        from core.chunker import chunk_markdown
+        from doc_ingest.core.chunker import chunk_markdown
 
         para = "これは日本語の長い段落です。" * 400  # 1 つの段落で上限を大きく超える
         chunks = chunk_markdown("## 節\n" + para)
@@ -195,13 +195,13 @@ class TestCapChunks:
     """1 文書のチャンク数に上限をかける (#224)。"""
 
     def test_default_cap_is_1000(self):
-        from core.config import load_settings
+        from doc_ingest.core.config import load_settings
 
         assert load_settings({}).max_chunks_per_doc == 1000
         assert load_settings({"MAX_CHUNKS_PER_DOC": "7"}).max_chunks_per_doc == 7
 
     def test_exactly_at_the_cap_is_returned_unchanged_without_a_warning(self, mocker, caplog):
-        from core.chunker import cap_chunks
+        from doc_ingest.core.chunker import cap_chunks
 
         override_settings(max_chunks_per_doc=3)
         chunks = [{"chunk_index": i} for i in range(3)]
@@ -212,7 +212,7 @@ class TestCapChunks:
         assert "MAX_CHUNKS_PER_DOC" not in caplog.text
 
     def test_over_the_cap_keeps_the_first_chunks_and_warns(self, mocker, caplog):
-        from core.chunker import cap_chunks
+        from doc_ingest.core.chunker import cap_chunks
 
         override_settings(max_chunks_per_doc=3)
         chunks = [{"chunk_index": i} for i in range(10)]

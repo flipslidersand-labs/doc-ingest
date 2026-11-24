@@ -8,8 +8,8 @@ import httpx
 import pytest
 import respx
 
-from core import qdrant
-from core.url_guard import (
+from doc_ingest.core import qdrant
+from doc_ingest.core.url_guard import (
     MAX_REDIRECTS,
     UnsafeURLError,
     assert_safe_url,
@@ -164,12 +164,12 @@ class TestExternalSsrf:
             "last_etag": "",
             "last_synced": "",
         }
-        mocker.patch("ingest.external._load_sources", return_value=[source])
-        mocker.patch("ingest.external._save_sources")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-        mocker.patch("core.qdrant.upsert")
+        mocker.patch("doc_ingest.ingest.external._load_sources", return_value=[source])
+        mocker.patch("doc_ingest.ingest.external._save_sources")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.upsert")
 
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
         sync_external()
 
@@ -185,12 +185,12 @@ class TestExternalSsrf:
             "last_etag": "",
             "last_synced": "",
         }
-        mocker.patch("ingest.external._load_sources", return_value=[source])
-        mocker.patch("ingest.external._save_sources")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-        mocker.patch("core.qdrant.upsert")
+        mocker.patch("doc_ingest.ingest.external._load_sources", return_value=[source])
+        mocker.patch("doc_ingest.ingest.external._save_sources")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.upsert")
 
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
         sync_external()
 
@@ -320,13 +320,13 @@ class TestArxivSsrf:
     """ingest_arxiv tech-blog path rejects unsafe URLs."""
 
     def test_private_blog_url_raises(self):
-        from ingest.arxiv import ingest_arxiv
+        from doc_ingest.ingest.arxiv import ingest_arxiv
 
         with pytest.raises(UnsafeURLError):
             ingest_arxiv("https://192.168.1.1/blog")
 
     def test_http_blog_url_raises(self):
-        from ingest.arxiv import ingest_arxiv
+        from doc_ingest.ingest.arxiv import ingest_arxiv
 
         with pytest.raises(UnsafeURLError):
             ingest_arxiv("http://example.com/blog")
@@ -504,7 +504,7 @@ class TestSafeDownload:
             self._dl("https://example.com/missing")
 
     def test_default_limit_is_50_mib_and_overridable_by_env(self):
-        from core.config import load_settings
+        from doc_ingest.core.config import load_settings
 
         assert load_settings({}).max_download_bytes == 50 * 1024 * 1024
         assert load_settings({"MAX_DOWNLOAD_BYTES": "1234"}).max_download_bytes == 1234
@@ -659,7 +659,7 @@ class TestDnsRebinding:
     """#224: 検証した後に DNS が内部アドレスへ変わっても、そこへは接続しない。"""
 
     def test_connect_to_a_name_that_now_resolves_private_is_refused(self, mocker):
-        from core.url_guard import _PinnedBackend
+        from doc_ingest.core.url_guard import _PinnedBackend
 
         mocker.patch("socket.getaddrinfo", return_value=[_addr("169.254.169.254")])
         base = mocker.patch("httpcore.SyncBackend.connect_tcp")
@@ -670,7 +670,7 @@ class TestDnsRebinding:
         base.assert_not_called()
 
     def test_a_name_with_one_private_record_is_refused(self, mocker):
-        from core.url_guard import _PinnedBackend
+        from doc_ingest.core.url_guard import _PinnedBackend
 
         mocker.patch("socket.getaddrinfo", return_value=[_addr("93.184.216.34"), _addr("10.0.0.5")])
         base = mocker.patch("httpcore.SyncBackend.connect_tcp")
@@ -681,7 +681,7 @@ class TestDnsRebinding:
         base.assert_not_called()
 
     def test_connects_to_the_validated_address_not_the_name(self, mocker):
-        from core.url_guard import _PinnedBackend
+        from doc_ingest.core.url_guard import _PinnedBackend
 
         mocker.patch("socket.getaddrinfo", return_value=[_addr("93.184.216.34")])
         base = mocker.patch("httpcore.SyncBackend.connect_tcp", return_value="stream")
@@ -693,7 +693,7 @@ class TestDnsRebinding:
     def test_falls_back_to_the_next_validated_address(self, mocker):
         import httpcore
 
-        from core.url_guard import _PinnedBackend
+        from doc_ingest.core.url_guard import _PinnedBackend
 
         mocker.patch(
             "socket.getaddrinfo", return_value=[_addr("93.184.216.34"), _addr("93.184.216.35")]
@@ -719,7 +719,7 @@ class TestDnsRebinding:
 
     def test_environment_proxy_is_not_used(self, monkeypatch):
         """プロキシ経由だと DNS 解決を検証できない。"""
-        from core.url_guard import _client
+        from doc_ingest.core.url_guard import _client
 
         monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:3128")
 
@@ -729,7 +729,7 @@ class TestDnsRebinding:
     def test_duplicate_records_are_tried_once(self, mocker):
         import httpcore
 
-        from core.url_guard import _PinnedBackend
+        from doc_ingest.core.url_guard import _PinnedBackend
 
         mocker.patch("socket.getaddrinfo", return_value=[_addr("93.184.216.34")] * 3)
         base = mocker.patch(
@@ -743,7 +743,7 @@ class TestDnsRebinding:
 
 
 def test_strip_url_drops_query_and_fragment():
-    from core.url_guard import strip_url
+    from doc_ingest.core.url_guard import strip_url
 
     assert strip_url("https://a.example/p/x.pdf?sig=SECRET&x=1#frag") == "https://a.example/p/x.pdf"
     assert strip_url("https://a.example:8443/p") == "https://a.example:8443/p"
@@ -754,5 +754,5 @@ def test_arxiv_does_not_import_ingest_pdf():
     import subprocess
     import sys
 
-    code = "import sys, ingest.arxiv; sys.exit(1 if 'ingest.pdf' in sys.modules else 0)"
+    code = "import sys, doc_ingest.ingest.arxiv; sys.exit(1 if 'doc_ingest.ingest.pdf' in sys.modules else 0)"
     assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0

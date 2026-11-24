@@ -35,5 +35,5 @@ embedding 次元変更、ソース追加、再取込み時の重複や古いデ�
 ## 根拠・関連資料
 
 - [README.md](../../README.md)
-- [core/qdrant.py](../../core/qdrant.py)
-- [core/ids.py](../../core/ids.py)
+- [doc_ingest/core/qdrant.py](../../doc_ingest/core/qdrant.py)
+- [doc_ingest/core/ids.py](../../doc_ingest/core/ids.py)

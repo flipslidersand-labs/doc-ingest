@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.retry import with_retry
+from doc_ingest.core.retry import with_retry
 
 
 class Boom(Exception):

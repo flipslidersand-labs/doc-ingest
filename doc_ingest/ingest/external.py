@@ -11,22 +11,22 @@ from typing import Literal
 import httpx
 from ruamel.yaml import YAML
 
-from core.chunker import cap_chunks, chunk_markdown
-from core.config import get_settings
-from core.html import extract_markdown, looks_like_html
-from core.ids import make_id
-from core.qdrant import replace_points
-from core.redact import redact_urls
-from core.retry import with_retry
-from core.schema import Collection
-from core.url_guard import UnsafeURLError, assert_safe_url, safe_get
+from doc_ingest.core.chunker import cap_chunks, chunk_markdown
+from doc_ingest.core.config import get_settings
+from doc_ingest.core.html import extract_markdown, looks_like_html
+from doc_ingest.core.ids import make_id
+from doc_ingest.core.qdrant import replace_points
+from doc_ingest.core.redact import redact_urls
+from doc_ingest.core.retry import with_retry
+from doc_ingest.core.schema import Collection
+from doc_ingest.core.url_guard import UnsafeURLError, assert_safe_url, safe_get
 
 _log = logging.getLogger(__name__)
 
 COLLECTION = Collection.EXTERNAL_DOCS.value
-SOURCES_FILE = Path(__file__).parent.parent / "sources" / "external.yaml"
+SOURCES_FILE = Path(__file__).parent.parent.parent / "sources" / "external.yaml"
 # 実行状態 (ETag・最終 sync・失敗時刻) は設定と分け、追跡対象外のファイルに置く (#291)。
-STATE_FILE = Path(__file__).parent.parent / "sources" / "external.state.yaml"
+STATE_FILE = Path(__file__).parent.parent.parent / "sources" / "external.state.yaml"
 STATE_KEYS = ("last_etag", "last_synced", "failed_at")
 MAX_RETRIES = 3
 # 生チャンクをそのまま埋め込むので、e5 の 512 token 上限 (超過は黙って切り詰め) に収める。

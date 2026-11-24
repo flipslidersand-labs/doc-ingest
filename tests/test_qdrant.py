@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-import core.qdrant as q
-from core.config import get_settings
+import doc_ingest.core.qdrant as q
+from doc_ingest.core.config import get_settings
 from tests.conftest import override_settings
 
 
@@ -504,7 +504,7 @@ class TestListCollectionsIsolatesAFailingCollection:
         import logging
 
         monkeypatch.setattr(q, "_client", self._client(fail_for={"sessions"}))
-        with caplog.at_level(logging.WARNING, logger="core.qdrant"):
+        with caplog.at_level(logging.WARNING, logger="doc_ingest.core.qdrant"):
             q.list_collections()
         assert "sessions" in caplog.text and "RuntimeError" in caplog.text
 
@@ -522,9 +522,11 @@ class TestReplacePoints:
     @staticmethod
     def _wire(mocker, old_ids):
         calls = mocker.Mock()
-        mocker.patch("core.qdrant.ids_by_payload", side_effect=lambda *a: old_ids)
-        mocker.patch("core.qdrant.upsert", side_effect=lambda *a: calls.upsert(*a))
-        mocker.patch("core.qdrant.delete_by_ids", side_effect=lambda *a: calls.delete(*a))
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", side_effect=lambda *a: old_ids)
+        mocker.patch("doc_ingest.core.qdrant.upsert", side_effect=lambda *a: calls.upsert(*a))
+        mocker.patch(
+            "doc_ingest.core.qdrant.delete_by_ids", side_effect=lambda *a: calls.delete(*a)
+        )
         return calls
 
     def test_upserts_first_then_deletes_only_stale_ids(self, mocker):
@@ -536,7 +538,7 @@ class TestReplacePoints:
 
     def test_old_points_survive_when_upsert_fails(self, mocker):
         calls = self._wire(mocker, [1, 2])
-        mocker.patch("core.qdrant.upsert", side_effect=RuntimeError("embed down"))
+        mocker.patch("doc_ingest.core.qdrant.upsert", side_effect=RuntimeError("embed down"))
         with pytest.raises(RuntimeError):
             q.replace_points("c", "file_path", "a.md", [{"id": 9}])
         calls.delete.assert_not_called()

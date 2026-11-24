@@ -5,18 +5,18 @@ import re
 
 import click
 
-from core.config import get_settings
-from core.schema import Collection, collection_names, payload_origin
-from core.url_guard import UnsafeURLError, assert_safe_url
-from ingest.arxiv import ingest_arxiv
-from ingest.design_docs import ingest_design_docs
-from ingest.external import sync_external
-from ingest.notes import ingest_notes
+from doc_ingest.core.config import get_settings
+from doc_ingest.core.schema import Collection, collection_names, payload_origin
+from doc_ingest.core.url_guard import UnsafeURLError, assert_safe_url
+from doc_ingest.ingest.arxiv import ingest_arxiv
+from doc_ingest.ingest.design_docs import ingest_design_docs
+from doc_ingest.ingest.external import sync_external
+from doc_ingest.ingest.notes import ingest_notes
 
 # このリポのパッケージ。レベルはここにだけ設定し、root は WARNING のままにして httpx / urllib3 /
 # qdrant_client など第三者のログ (httpx は INFO でリクエスト URL を出す) を静かに保つ。
 _HELP_KEY = "doc_ingest.help_requested"
-_OWN_LOGGERS = ("core", "ingest", "cli", "__main__")
+_OWN_LOGGERS = ("doc_ingest", "__main__")
 
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
@@ -128,7 +128,7 @@ def sync(force: bool, dry_run: bool):
 )
 def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int):
     """Search ingested documents by semantic similarity."""
-    from core.qdrant import search as qdrant_search
+    from doc_ingest.core.qdrant import search as qdrant_search
 
     results = qdrant_search(collection, query, limit=limit)
     if not results:
@@ -136,7 +136,7 @@ def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int)
         return
 
     if nugget:
-        from core.nugget import apply_nuggets
+        from doc_ingest.core.nugget import apply_nuggets
 
         results = apply_nuggets(query, results, top_k=nugget_k)
 
@@ -159,7 +159,7 @@ def search(query: str, collection: str, limit: int, nugget: bool, nugget_k: int)
 @main.command("list")
 def list_cmd():
     """List Qdrant collections with point counts and last ingest time."""
-    from core.qdrant import list_collections
+    from doc_ingest.core.qdrant import list_collections
 
     rows = list_collections()
     if not rows:
@@ -183,7 +183,7 @@ def list_cmd():
 )
 def pdf(path: str, tags: str, allow_cloud: bool):
     """Ingest a local PDF file into the research collection."""
-    from ingest.pdf import ingest_pdf
+    from doc_ingest.ingest.pdf import ingest_pdf
 
     tag_list = [t.strip() for t in tags.split(",") if t.strip()]
     try:

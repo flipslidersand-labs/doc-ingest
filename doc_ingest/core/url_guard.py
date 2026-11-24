@@ -11,7 +11,7 @@ from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 import httpcore
 import httpx
 
-from core.config import get_settings
+from doc_ingest.core.config import get_settings
 
 MAX_REDIRECTS = 5
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.nugget import (
+from doc_ingest.core.nugget import (
     _bm25_scores,
     _split_sentences,
     _tokenize,
@@ -131,7 +131,7 @@ class TestScoring:
     def test_document_frequency_counts_sentences_not_occurrences(self):
         """df は「その語を含む文の数」。1 文の中で繰り返されても 1 と数える。
         (スコア経由だと tf の飽和で区別できないので、df を直接確かめる。)"""
-        from core.nugget import _doc_freq
+        from doc_ingest.core.nugget import _doc_freq
 
         df = _doc_freq([["rare", "rare", "rare", "x"], ["common", "y"], ["common", "z"]])
         assert df["rare"] == 1  # 3 回出るが 1 文だけ

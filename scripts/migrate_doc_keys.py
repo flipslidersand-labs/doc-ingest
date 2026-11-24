@@ -26,7 +26,7 @@ from qdrant_client.models import (
     PayloadField,
 )
 
-from core.schema import Collection
+from doc_ingest.core.schema import Collection
 
 COLLECTIONS = (Collection.DESIGN.value, Collection.NOTES.value)
 
@@ -66,7 +66,7 @@ def main(argv=None, client=None) -> int:
     if bad:
         ap.error(f"対象外のコレクション: {bad} (許可: {list(COLLECTIONS)})")
     if client is None:
-        from core.qdrant import client as get_client
+        from doc_ingest.core.qdrant import client as get_client
 
         client = get_client()
     migrate(client, args.collections or COLLECTIONS, args.apply)

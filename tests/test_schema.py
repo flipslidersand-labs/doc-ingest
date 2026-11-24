@@ -1,4 +1,4 @@
-from core.schema import Collection, collection_names, payload_origin
+from doc_ingest.core.schema import Collection, collection_names, payload_origin
 
 
 def test_collection_names():

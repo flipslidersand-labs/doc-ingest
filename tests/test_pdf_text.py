@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.pdf_text import extract_pdf_text
+from doc_ingest.core.pdf_text import extract_pdf_text
 
 
 def _doc(mocker, pages, error_on=None):

@@ -3,7 +3,7 @@
 import httpx
 import pytest
 
-from core.redact import redact_urls
+from doc_ingest.core.redact import redact_urls
 
 
 class TestRedactUrls:

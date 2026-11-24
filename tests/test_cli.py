@@ -2,8 +2,8 @@
 
 from click.testing import CliRunner
 
-from cli import main
-from core.url_guard import UnsafeURLError
+from doc_ingest.cli import main
+from doc_ingest.core.url_guard import UnsafeURLError
 from tests.conftest import override_settings
 
 
@@ -36,47 +36,47 @@ class TestHelp:
 
 class TestSyncCommand:
     def test_sync_calls_sync_external(self, mocker):
-        mock_sync = mocker.patch("cli.sync_external")
+        mock_sync = mocker.patch("doc_ingest.cli.sync_external")
         CliRunner().invoke(main, ["sync"])
         mock_sync.assert_called_once_with(force=False, dry_run=False)
 
     def test_sync_force_flag(self, mocker):
-        mock_sync = mocker.patch("cli.sync_external")
+        mock_sync = mocker.patch("doc_ingest.cli.sync_external")
         CliRunner().invoke(main, ["sync", "--force"])
         mock_sync.assert_called_once_with(force=True, dry_run=False)
 
     def test_sync_dry_run_flag(self, mocker):
-        mock_sync = mocker.patch("cli.sync_external")
+        mock_sync = mocker.patch("doc_ingest.cli.sync_external")
         CliRunner().invoke(main, ["sync", "--dry-run"])
         mock_sync.assert_called_once_with(force=False, dry_run=True)
 
 
 class TestSearchCommand:
     def test_search_calls_qdrant_search(self, mocker):
-        mock_search = mocker.patch("core.qdrant.search", return_value=[])
+        mock_search = mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         CliRunner().invoke(main, ["search", "Claude API"])
         mock_search.assert_called_once()
         args = mock_search.call_args[0]
         assert args[1] == "Claude API"
 
     def test_search_no_results_prints_message(self, mocker):
-        mocker.patch("core.qdrant.search", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         result = CliRunner().invoke(main, ["search", "nothing"])
         assert "No results" in result.output
 
     def test_search_collection_option(self, mocker):
-        mock_search = mocker.patch("core.qdrant.search", return_value=[])
+        mock_search = mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         CliRunner().invoke(main, ["search", "q", "--collection", "research"])
         assert mock_search.call_args[0][0] == "research"
 
     def test_search_default_collection_is_external_docs(self, mocker):
-        mock_search = mocker.patch("core.qdrant.search", return_value=[])
+        mock_search = mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         CliRunner().invoke(main, ["search", "q"])
         assert mock_search.call_args[0][0] == "external-docs"
 
     def test_search_shows_origin_for_file_path_and_arxiv_id(self, mocker):
         mocker.patch(
-            "core.qdrant.search",
+            "doc_ingest.core.qdrant.search",
             return_value=[
                 {"file_path": "repo/CLAUDE.md", "text": "a", "score": 0.5},
                 {"arxiv_id": "2401.00001", "text": "b", "score": 0.4},
@@ -88,7 +88,7 @@ class TestSearchCommand:
 
     def test_search_with_results_prints_source(self, mocker):
         mocker.patch(
-            "core.qdrant.search",
+            "doc_ingest.core.qdrant.search",
             return_value=[
                 {
                     "score": 0.9,
@@ -102,13 +102,13 @@ class TestSearchCommand:
 
     def test_search_nugget_flag_calls_apply_nuggets(self, mocker):
         mocker.patch(
-            "core.qdrant.search",
+            "doc_ingest.core.qdrant.search",
             return_value=[
                 {"score": 0.5, "source_url": "https://example.com", "text": "full chunk"}
             ],
         )
         mock_nuggets = mocker.patch(
-            "core.nugget.apply_nuggets",
+            "doc_ingest.core.nugget.apply_nuggets",
             return_value=[
                 {"score": 0.5, "source_url": "https://example.com", "text": "nugget only"}
             ],
@@ -123,18 +123,18 @@ class TestSearchCommand:
 
     def test_search_without_nugget_flag_skips_apply_nuggets(self, mocker):
         mocker.patch(
-            "core.qdrant.search",
+            "doc_ingest.core.qdrant.search",
             return_value=[
                 {"score": 0.5, "source_url": "https://example.com", "text": "full chunk"}
             ],
         )
-        mock_nuggets = mocker.patch("core.nugget.apply_nuggets")
+        mock_nuggets = mocker.patch("doc_ingest.core.nugget.apply_nuggets")
         CliRunner().invoke(main, ["search", "q"])
         mock_nuggets.assert_not_called()
 
     def test_search_section_is_displayed_when_present(self, mocker):
         mocker.patch(
-            "core.qdrant.search",
+            "doc_ingest.core.qdrant.search",
             return_value=[
                 {
                     "score": 0.9,
@@ -149,7 +149,7 @@ class TestSearchCommand:
 
     def test_search_section_line_omitted_when_absent(self, mocker):
         mocker.patch(
-            "core.qdrant.search",
+            "doc_ingest.core.qdrant.search",
             return_value=[
                 {
                     "score": 0.9,
@@ -164,22 +164,24 @@ class TestSearchCommand:
 
 class TestArxivCommand:
     def test_arxiv_calls_ingest_arxiv(self, mocker):
-        mocker.patch("cli.assert_safe_url")
-        mock_ingest = mocker.patch("cli.ingest_arxiv")
+        mocker.patch("doc_ingest.cli.assert_safe_url")
+        mock_ingest = mocker.patch("doc_ingest.cli.ingest_arxiv")
         CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762"])
         mock_ingest.assert_called_once_with("https://arxiv.org/abs/1706.03762", tags=[])
 
     def test_arxiv_value_error_is_a_clear_message_not_a_traceback(self, mocker):
-        mocker.patch("cli.assert_safe_url")
-        mocker.patch("cli.ingest_arxiv", side_effect=ValueError("本文を抽出できませんでした: x"))
+        mocker.patch("doc_ingest.cli.assert_safe_url")
+        mocker.patch(
+            "doc_ingest.cli.ingest_arxiv", side_effect=ValueError("本文を抽出できませんでした: x")
+        )
         result = CliRunner().invoke(main, ["arxiv", "https://example.com/blog"])
         assert result.exit_code != 0
         assert "本文を抽出できませんでした" in result.output
         assert "Traceback" not in result.output
 
     def test_arxiv_tags_parsed(self, mocker):
-        mocker.patch("cli.assert_safe_url")
-        mock_ingest = mocker.patch("cli.ingest_arxiv")
+        mocker.patch("doc_ingest.cli.assert_safe_url")
+        mock_ingest = mocker.patch("doc_ingest.cli.ingest_arxiv")
         CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762", "--tags", "ml,nlp"])
         mock_ingest.assert_called_once_with("https://arxiv.org/abs/1706.03762", tags=["ml", "nlp"])
 
@@ -195,8 +197,8 @@ class TestArxivValidation:
         assert result.exit_code != 0
 
     def test_arxiv_accepts_https(self, mocker):
-        mocker.patch("cli.assert_safe_url")
-        mock_ingest = mocker.patch("cli.ingest_arxiv")
+        mocker.patch("doc_ingest.cli.assert_safe_url")
+        mock_ingest = mocker.patch("doc_ingest.cli.ingest_arxiv")
         result = CliRunner().invoke(main, ["arxiv", "https://arxiv.org/abs/1706.03762"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once()
@@ -209,7 +211,7 @@ class TestArxivValidation:
         assert "https" in result.output.lower()
 
     def test_arxiv_rejects_private_address(self, mocker):
-        mocker.patch("cli.assert_safe_url", side_effect=UnsafeURLError("blocked"))
+        mocker.patch("doc_ingest.cli.assert_safe_url", side_effect=UnsafeURLError("blocked"))
         result = CliRunner().invoke(main, ["arxiv", "https://internal.example/paper"])
         assert result.exit_code != 0
         assert "blocked" in result.output
@@ -217,65 +219,66 @@ class TestArxivValidation:
 
 class TestSearchLimitValidation:
     def test_search_limit_zero_rejected(self, mocker):
-        mocker.patch("core.qdrant.search", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         result = CliRunner().invoke(main, ["search", "q", "--limit", "0"])
         assert result.exit_code != 0
 
     def test_search_limit_negative_rejected(self, mocker):
-        mocker.patch("core.qdrant.search", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         result = CliRunner().invoke(main, ["search", "q", "--limit", "-1"])
         assert result.exit_code != 0
 
     def test_search_limit_over_100_rejected(self, mocker):
-        mocker.patch("core.qdrant.search", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         result = CliRunner().invoke(main, ["search", "q", "--limit", "101"])
         assert result.exit_code != 0
 
     def test_search_limit_1_accepted(self, mocker):
-        mocker.patch("core.qdrant.search", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         result = CliRunner().invoke(main, ["search", "q", "--limit", "1"])
         assert result.exit_code == 0
 
 
 class TestSearchNuggetKValidation:
     def test_nugget_k_zero_rejected(self, mocker):
-        mocker.patch("core.qdrant.search", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         result = CliRunner().invoke(main, ["search", "q", "--nugget", "--nugget-k", "0"])
         assert result.exit_code != 0
 
     def test_nugget_k_negative_rejected(self, mocker):
-        mocker.patch("core.qdrant.search", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         result = CliRunner().invoke(main, ["search", "q", "--nugget", "--nugget-k", "-1"])
         assert result.exit_code != 0
 
     def test_nugget_k_1_accepted(self, mocker):
-        mocker.patch("core.qdrant.search", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         result = CliRunner().invoke(main, ["search", "q", "--nugget", "--nugget-k", "1"])
         assert result.exit_code == 0
 
     def test_search_limit_100_accepted(self, mocker):
-        mocker.patch("core.qdrant.search", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.search", return_value=[])
         result = CliRunner().invoke(main, ["search", "q", "--limit", "100"])
         assert result.exit_code == 0
 
 
 class TestPdfValidation:
     def test_pdf_missing_file_shows_error(self, mocker):
-        mocker.patch("ingest.pdf.ingest_pdf", side_effect=FileNotFoundError)
+        mocker.patch("doc_ingest.ingest.pdf.ingest_pdf", side_effect=FileNotFoundError)
         result = CliRunner().invoke(main, ["pdf", "/nonexistent/path.pdf"])
         assert result.exit_code != 0
         assert "ファイルが見つかりません" in result.output or "Error" in result.output
 
     def test_pdf_calls_ingest_pdf(self, mocker):
-        mock_ingest = mocker.patch("ingest.pdf.ingest_pdf")
+        mock_ingest = mocker.patch("doc_ingest.ingest.pdf.ingest_pdf")
         CliRunner().invoke(main, ["pdf", "/some/file.pdf"])
         mock_ingest.assert_called_once_with("/some/file.pdf", tags=[], allow_cloud=False)
 
     def test_pdf_unsafe_url_shows_a_clear_error_not_a_traceback(self, mocker):
-        from core.url_guard import UnsafeURLError
+        from doc_ingest.core.url_guard import UnsafeURLError
 
         mocker.patch(
-            "ingest.pdf.ingest_pdf", side_effect=UnsafeURLError("blocked address 10.0.0.1")
+            "doc_ingest.ingest.pdf.ingest_pdf",
+            side_effect=UnsafeURLError("blocked address 10.0.0.1"),
         )
         result = CliRunner().invoke(main, ["pdf", "https://10.0.0.1/a.pdf"])
         assert result.exit_code != 0
@@ -283,14 +286,14 @@ class TestPdfValidation:
         assert "Traceback" not in result.output
 
     def test_pdf_allow_cloud_flag_is_opt_in(self, mocker):
-        mock_ingest = mocker.patch("ingest.pdf.ingest_pdf")
+        mock_ingest = mocker.patch("doc_ingest.ingest.pdf.ingest_pdf")
         CliRunner().invoke(main, ["pdf", "/some/file.pdf", "--allow-cloud"])
         mock_ingest.assert_called_once_with("/some/file.pdf", tags=[], allow_cloud=True)
 
 
 class TestListCommand:
     def test_empty_prints_no_collections(self, mocker):
-        mocker.patch("core.qdrant.list_collections", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.list_collections", return_value=[])
         result = CliRunner().invoke(main, ["list"])
         assert result.exit_code == 0
         assert "No collections found." in result.output
@@ -306,7 +309,7 @@ class TestListCommand:
             {"name": "docs", "points": 7, "last_ingested": "2026-09-01 00:00:00"},
             {"name": "external-docs-long", "points": 1234, "last_ingested": "—"},
         ]
-        mocker.patch("core.qdrant.list_collections", return_value=rows)
+        mocker.patch("doc_ingest.core.qdrant.list_collections", return_value=rows)
         result = CliRunner().invoke(main, ["list"])
         assert result.exit_code == 0
         lines = result.output.splitlines()
@@ -319,7 +322,7 @@ class TestListCommand:
             {"name": "docs", "points": 3, "last_ingested": "—"},
             {"name": "notes", "points": 42, "last_ingested": "—"},
         ]
-        mocker.patch("core.qdrant.list_collections", return_value=rows)
+        mocker.patch("doc_ingest.core.qdrant.list_collections", return_value=rows)
         result = CliRunner().invoke(main, ["list"])
         lines = result.output.splitlines()
         ends = {self._points_col(line) for line in (lines[0], lines[2], lines[3])}
@@ -332,7 +335,7 @@ class TestSearchTrust:
     @staticmethod
     def _search(mocker, **payload):
         mocker.patch(
-            "core.qdrant.search",
+            "doc_ingest.core.qdrant.search",
             return_value=[{"score": 0.9, "source_url": "https://e.com", "text": "t", **payload}],
         )
         return CliRunner().invoke(main, ["search", "q"]).output
@@ -349,20 +352,20 @@ class TestDesignCommand:
     """#263: design の FILE 引数の受け渡し (省略 = git フック経路 / 指定 = 単一ファイル)。"""
 
     def test_no_argument_passes_none(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_design_docs", return_value=0)
+        mock_ingest = mocker.patch("doc_ingest.cli.ingest_design_docs", return_value=0)
         result = CliRunner().invoke(main, ["design"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with(None)
 
     def test_file_argument_is_passed_as_given(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_design_docs", return_value=0)
+        mock_ingest = mocker.patch("doc_ingest.cli.ingest_design_docs", return_value=0)
         result = CliRunner().invoke(main, ["design", "docs/a.md"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with("docs/a.md")
 
     def test_does_not_call_notes_ingest(self, mocker):
-        mocker.patch("cli.ingest_design_docs", return_value=0)
-        mock_notes = mocker.patch("cli.ingest_notes", return_value=0)
+        mocker.patch("doc_ingest.cli.ingest_design_docs", return_value=0)
+        mock_notes = mocker.patch("doc_ingest.cli.ingest_notes", return_value=0)
         CliRunner().invoke(main, ["design", "docs/a.md"])
         mock_notes.assert_not_called()
 
@@ -375,7 +378,7 @@ class TestDesignCommand:
         base.mkdir()
         monkeypatch.chdir(base)
         override_settings(doc_ingest_base_dir="")
-        mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
+        mocker.patch("doc_ingest.core.ingest_pipeline.head_sha", return_value="sha")
         result = CliRunner().invoke(main, ["design", "../outside.md"])
         assert result.exit_code == 1
         assert isinstance(result.exception, PermissionError)
@@ -387,20 +390,20 @@ class TestNotesCommand:
     """#263: notes の FILE 引数の受け渡し (省略 = git フック経路 / 指定 = 単一ファイル)。"""
 
     def test_no_argument_passes_none(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_notes", return_value=0)
+        mock_ingest = mocker.patch("doc_ingest.cli.ingest_notes", return_value=0)
         result = CliRunner().invoke(main, ["notes"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with(None)
 
     def test_file_argument_is_passed_as_given(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_notes", return_value=0)
+        mock_ingest = mocker.patch("doc_ingest.cli.ingest_notes", return_value=0)
         result = CliRunner().invoke(main, ["notes", "10-projects/a.md"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with("10-projects/a.md")
 
     def test_does_not_call_design_ingest(self, mocker):
-        mocker.patch("cli.ingest_notes", return_value=0)
-        mock_design = mocker.patch("cli.ingest_design_docs", return_value=0)
+        mocker.patch("doc_ingest.cli.ingest_notes", return_value=0)
+        mock_design = mocker.patch("doc_ingest.cli.ingest_design_docs", return_value=0)
         CliRunner().invoke(main, ["notes", "10-projects/a.md"])
         mock_design.assert_not_called()
 
@@ -412,7 +415,7 @@ class TestNotesCommand:
         base.mkdir()
         monkeypatch.chdir(base)
         override_settings(doc_ingest_base_dir="")
-        mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
+        mocker.patch("doc_ingest.core.ingest_pipeline.head_sha", return_value="sha")
         result = CliRunner().invoke(main, ["notes", "../outside.md"])
         assert result.exit_code == 1
         assert isinstance(result.exception, PermissionError)
@@ -422,7 +425,7 @@ class TestNotesCommand:
 
 class TestStartupConfig:
     def test_invalid_config_fails_at_startup(self, monkeypatch):
-        from core import config
+        from doc_ingest.core import config
 
         def bad():
             raise ValueError("EMBED_BATCH must be >= 1, got 0")
@@ -436,14 +439,14 @@ class TestStartupConfig:
     def test_core_env_module_removed(self):
         import importlib.util
 
-        assert importlib.util.find_spec("core.env") is None
+        assert importlib.util.find_spec("doc_ingest.core.env") is None
 
 
 class TestHelpWithInvalidConfig:
     """不正な設定でもサブコマンドの --help は出せる (group callback が先に走るため)。"""
 
     def _bad(self, monkeypatch):
-        from core import config
+        from doc_ingest.core import config
 
         def bad():
             raise ValueError("EMBED_BATCH must be >= 1, got 0")
@@ -464,7 +467,7 @@ class TestHelpWithInvalidConfig:
 class TestSearchSanitizesControlChars:
     def test_control_characters_from_payload_are_stripped(self, mocker):
         mocker.patch(
-            "core.qdrant.search",
+            "doc_ingest.core.qdrant.search",
             return_value=[
                 {
                     "score": 0.9,
@@ -493,8 +496,10 @@ class TestIngestFailureExitCode:
         (base / "a.md").write_text("# t\nbody\n")
         monkeypatch.chdir(base)
         override_settings(doc_ingest_base_dir=str(base))
-        mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
-        mocker.patch("core.ingest_pipeline._ingest_one", side_effect=RuntimeError("boom"))
+        mocker.patch("doc_ingest.core.ingest_pipeline.head_sha", return_value="sha")
+        mocker.patch(
+            "doc_ingest.core.ingest_pipeline._ingest_one", side_effect=RuntimeError("boom")
+        )
         return CliRunner().invoke(main, [cmd, "a.md"])
 
     def test_design_file_failure_exits_nonzero(self, mocker, tmp_path, monkeypatch):
@@ -507,5 +512,5 @@ class TestIngestFailureExitCode:
         assert result.exit_code != 0
 
     def test_success_exits_zero(self, mocker):
-        mocker.patch("cli.ingest_design_docs", return_value=0)
+        mocker.patch("doc_ingest.cli.ingest_design_docs", return_value=0)
         assert CliRunner().invoke(main, ["design", "a.md"]).exit_code == 0

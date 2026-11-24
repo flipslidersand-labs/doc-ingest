@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from core.doc_key import _repo_info, escapes_repo
-from core.ingest_pipeline import ingest_changed_or_file, ingest_markdown_files
+from doc_ingest.core.doc_key import _repo_info, escapes_repo
+from doc_ingest.core.ingest_pipeline import ingest_changed_or_file, ingest_markdown_files
 from tests.conftest import override_settings
 
 SECRET = "TOP-SECRET-KEY-MATERIAL"
@@ -53,9 +53,9 @@ def _distill_seen(seen):
 
 
 def test_ingesting_such_a_path_does_not_send_the_content_to_the_llm(env, mocker):
-    mocker.patch("core.qdrant.upsert")
-    mocker.patch("core.qdrant.delete_by_ids")
-    mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+    mocker.patch("doc_ingest.core.qdrant.upsert")
+    mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+    mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
     seen: list[str] = []
     ingest_markdown_files(
         [env / "link" / ".." / "secret.md"],
@@ -69,10 +69,10 @@ def test_ingesting_such_a_path_does_not_send_the_content_to_the_llm(env, mocker)
 
 
 def test_file_option_with_widened_base_dir_does_not_ingest_it(env, mocker, monkeypatch):
-    mocker.patch("core.ingest_pipeline.head_sha", return_value="abc1234")
-    mocker.patch("core.qdrant.upsert")
-    mocker.patch("core.qdrant.delete_by_ids")
-    mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+    mocker.patch("doc_ingest.core.ingest_pipeline.head_sha", return_value="abc1234")
+    mocker.patch("doc_ingest.core.qdrant.upsert")
+    mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+    mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
     override_settings(doc_ingest_base_dir=str(env.parent))
     monkeypatch.chdir(env)
     seen: list[str] = []

@@ -7,8 +7,8 @@ core/qdrant.py is the thin vector-DB client that calls embed().
 import logging
 from typing import Literal
 
-from core.config import get_settings
-from core.retry import with_retry
+from doc_ingest.core.config import get_settings
+from doc_ingest.core.retry import with_retry
 
 _log = logging.getLogger(__name__)
 

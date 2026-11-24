@@ -14,12 +14,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 _SCRIPT = """
 import logging, sys
 sys.path.insert(0, {root!r})
-import cli
+from doc_ingest import cli
 cli.main.callback(verbose={verbose})
-logging.getLogger("ingest.external").debug("OWN-DEBUG")
-logging.getLogger("ingest.external").info("OWN-INFO")
-logging.getLogger("core.retry").debug("CORE-DEBUG")
-logging.getLogger("cli").debug("CLI-DEBUG")
+logging.getLogger("doc_ingest.ingest.external").debug("OWN-DEBUG")
+logging.getLogger("doc_ingest.ingest.external").info("OWN-INFO")
+logging.getLogger("doc_ingest.core.retry").debug("CORE-DEBUG")
+logging.getLogger("doc_ingest.cli").debug("CLI-DEBUG")
 logging.getLogger("httpx").info("HTTPX-INFO https://hooks.example.com/TOKEN-SECRET")
 logging.getLogger("httpx").debug("HTTPX-DEBUG")
 logging.getLogger("urllib3.connectionpool").debug("URLLIB3-DEBUG")
@@ -72,17 +72,17 @@ class TestVerboseFlag:
 
     def test_output_format_is_unchanged(self):
         line = next(ln for ln in _stderr(verbose=True).splitlines() if "OWN-DEBUG" in ln)
-        # "2026-11-02 00:00:00,000 DEBUG ingest.external: OWN-DEBUG"
-        assert " DEBUG ingest.external: OWN-DEBUG" in line
+        # "2026-11-02 00:00:00,000 DEBUG doc_ingest.ingest.external: OWN-DEBUG"
+        assert " DEBUG doc_ingest.ingest.external: OWN-DEBUG" in line
         assert line[:4].isdigit() and line[4] == "-"
 
 
 def test_every_module_uses_the_standard_logger():
     """独自の get_logger (propagate=False・INFO 固定) は廃止した。再導入しない。"""
-    assert not (REPO_ROOT / "core" / "logging.py").exists()
+    assert not (REPO_ROOT / "doc_ingest" / "core" / "logging.py").exists()
     offenders = [
         str(p.relative_to(REPO_ROOT))
-        for d in ("core", "ingest")
+        for d in ("doc_ingest/core", "doc_ingest/ingest")
         for p in (REPO_ROOT / d).glob("*.py")
         if "get_logger" in p.read_text(encoding="utf-8")
     ]

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.config import get_settings
+from doc_ingest.core.config import get_settings
 
 
 def _allowed_base() -> Path:

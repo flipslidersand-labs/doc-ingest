@@ -2,7 +2,7 @@
 
 import pytest
 
-from core.path_guard import assert_safe_path
+from doc_ingest.core.path_guard import assert_safe_path
 from tests.conftest import override_settings
 
 
