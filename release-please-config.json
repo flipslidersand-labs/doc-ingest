@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/v17.6.0/schemas/config.json",
+  "draft-pull-request": true,
+  "include-component-in-tag": false,
+  "packages": {
+    ".": {
+      "release-type": "python",
+      "package-name": "doc-ingest",
+      "initial-version": "0.1.0",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}

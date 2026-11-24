@@ -1,0 +1,96 @@
+name: Prepare release
+
+# Release policy: the only human step is merging the release PR.
+#  - push to main      : release-please opens/updates a release PR as a draft (merge-queue only
+#                        picks up ready PRs). It bumps [project].version in pyproject.toml and
+#                        CHANGELOG.md.
+#  - release PR merged : release-please creates the tag (v<version>) and a published GitHub
+#                        Release, then `publish` builds the sdist + wheel from that tag and uploads
+#                        them to PyPI with trusted publishing (OIDC, no long-lived token).
+# Prerequisites (human steps):
+#  - A GitHub App installed on this repo: vars.RELEASE_APP_CLIENT_ID + secrets.RELEASE_APP_PRIVATE_KEY.
+#    The job is skipped until the variable exists (GITHUB_TOKEN may not open PRs, and a PR opened
+#    with it would get no CI).
+#  - PyPI pending publisher for doc-ingest: owner flipslidersand-labs, repo doc-ingest,
+#    workflow prepare-release.yml, environment `release`. A pending publisher works before the
+#    first upload, so no manual first publish is needed.
+# Not named release*.yml on purpose: the release-readiness check reads the first release*.yml for C5.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    if: vars.RELEASE_APP_CLIENT_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - name: GitHub App token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          # release-please: tag/Release + CHANGELOG commits, the release PR, and its labels
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+      - name: Release PR / tag + GitHub Release
+        id: rp
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    # pypa/gh-action-pypi-publish is a Docker action: it needs a runner with Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+      - name: Check the artifacts before upload
+        # PyPI uploads cannot be replaced, so stop here on anything unexpected
+        run: |
+          set -euo pipefail
+          v="${TAG#v}"
+          ls dist
+          [ "$(ls dist | sort)" = "$(printf 'doc_ingest-%s-py3-none-any.whl\ndoc_ingest-%s.tar.gz\n' "$v" "$v")" ]
+          # only the doc_ingest package at the top level of site-packages (#346)
+          top=$(python -c 'import sys, zipfile; print(" ".join(sorted({n.split("/")[0] for n in zipfile.ZipFile(sys.argv[1]).namelist()})))' "dist/doc_ingest-$v-py3-none-any.whl")
+          echo "wheel top level: $top"
+          [ "$top" = "doc_ingest doc_ingest-$v.dist-info" ]
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install -q "dist/doc_ingest-$v-py3-none-any.whl"
+          (cd /tmp && /tmp/smoke/bin/doc-ingest --help >/dev/null)
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
