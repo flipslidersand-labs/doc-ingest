@@ -740,3 +740,19 @@ class TestDnsRebinding:
             _PinnedBackend().connect_tcp("example.com", 443)
 
         assert base.call_count == 1
+
+
+def test_strip_url_drops_query_and_fragment():
+    from core.url_guard import strip_url
+
+    assert strip_url("https://a.example/p/x.pdf?sig=SECRET&x=1#frag") == "https://a.example/p/x.pdf"
+    assert strip_url("https://a.example:8443/p") == "https://a.example:8443/p"
+    assert strip_url("https://a.example") == "https://a.example"
+
+
+def test_arxiv_does_not_import_ingest_pdf():
+    import subprocess
+    import sys
+
+    code = "import sys, ingest.arxiv; sys.exit(1 if 'ingest.pdf' in sys.modules else 0)"
+    assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0
