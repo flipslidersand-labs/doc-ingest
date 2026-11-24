@@ -15,7 +15,7 @@ Document ingestion pipeline — feeds external API docs, design docs, and arxiv 
 | `ingest/design_docs.py` | CLAUDE.md / ADR / docs/ | post-commit git hook |
 | `ingest/notes.py` | Obsidian vault (10-projects/20-areas/30-resources) | post-commit git hook |
 | `ingest/arxiv.py` | arxiv papers / tech blogs | CLI manual |
-| `ingest/pdf.py` | Local PDF files | CLI manual |
+| `ingest/pdf.py` | Local PDF files or HTTPS PDF URLs | CLI manual |
 
 ### Setup
 
@@ -57,9 +57,10 @@ doc-ingest search "qdrant vector" --nugget --nugget-k 5  # sentences per chunk (
 # List Qdrant collections with point counts and last ingest time
 doc-ingest list
 
-# Ingest a local PDF file
+# Ingest a PDF (local file or HTTPS URL)
 doc-ingest pdf ./paper.pdf --tags forge
 doc-ingest pdf ./paper.pdf --allow-cloud  # allow Anthropic if the local LLM fails (default: local only)
+doc-ingest pdf https://example.com/paper.pdf  # URL sources are treated as public (Anthropic fallback allowed)
 ```
 
 `design` and `notes` exit with code 1 when one or more files or chunks failed to ingest. Details: [docs/spec/cli.md](docs/spec/cli.md).
@@ -138,7 +139,7 @@ LLM distillation pipeline: local **llama-server** (OpenAI-compatible `/v1/chat/c
 | `ingest/design_docs.py` | CLAUDE.md / ADR / docs/ | post-commit git フック |
 | `ingest/notes.py` | Obsidian ノート（10-projects/20-areas/30-resources） | post-commit git フック |
 | `ingest/arxiv.py` | arxiv 論文 / 技術ブログ | CLI 手動実行 |
-| `ingest/pdf.py` | ローカル PDF ファイル | CLI 手動実行 |
+| `ingest/pdf.py` | ローカル PDF ファイル / HTTPS の PDF URL | CLI 手動実行 |
 
 ### セットアップ
 
@@ -180,9 +181,10 @@ doc-ingest search "qdrant vector" --nugget --nugget-k 5  # チャンクあたり
 # Qdrant のコレクション一覧（point 数と最終取り込み時刻）
 doc-ingest list
 
-# ローカル PDF ファイルを取り込む
+# PDF を取り込む（ローカルファイルまたは HTTPS URL）
 doc-ingest pdf ./paper.pdf --tags forge
 doc-ingest pdf ./paper.pdf --allow-cloud  # ローカル LLM が失敗したとき Anthropic を許可（既定はローカルのみ）
+doc-ingest pdf https://example.com/paper.pdf  # URL は公開ソース扱い（Anthropic へのフォールバックあり）
 ```
 
 `design` と `notes` は、取り込みに失敗したファイルやチャンクが 1 件以上あると終了コード 1 になります。詳細は [docs/spec/cli.md](docs/spec/cli.md)。
