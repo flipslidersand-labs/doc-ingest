@@ -83,8 +83,9 @@ jobs:
         run: |
           set -euo pipefail
           v="${TAG#v}"
-          ls dist
-          [ "$(ls dist | sort)" = "$(printf 'doc_ingest-%s-py3-none-any.whl\ndoc_ingest-%s.tar.gz\n' "$v" "$v")" ]
+          files=$(find dist -maxdepth 1 -type f -printf '%f\n' | sort)
+          echo "$files"
+          [ "$files" ="$(printf 'doc_ingest-%s-py3-none-any.whl\ndoc_ingest-%s.tar.gz\n' "$v" "$v")" ]
           # only the doc_ingest package at the top level of site-packages (#346)
           top=$(python -c 'import sys, zipfile; print(" ".join(sorted({n.split("/")[0] for n in zipfile.ZipFile(sys.argv[1]).namelist()})))' "dist/doc_ingest-$v-py3-none-any.whl")
           echo "wheel top level: $top"
