@@ -5,7 +5,7 @@ import re
 
 import tiktoken
 
-from core.config import get_settings
+from doc_ingest.core.config import get_settings
 
 _log = logging.getLogger(__name__)
 

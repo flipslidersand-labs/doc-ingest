@@ -1,7 +1,7 @@
 # doc-ingest CLI specification
 
-Source of truth: `cli.py` (click definitions), `core/config.py` (environment variables) and
-`tests/test_cli.py` (exit codes). The console script is `doc-ingest = "cli:main"`
+Source of truth: `doc_ingest/cli.py` (click definitions), `doc_ingest/core/config.py` (environment variables) and
+`tests/test_cli.py` (exit codes). The console script is `doc-ingest = "doc_ingest.cli:main"`
 (`pyproject.toml`).
 
 ## Global
@@ -27,7 +27,7 @@ Ingest an arxiv paper or a tech blog post into the `research` collection.
 
 | Argument / option | Default | Description |
 |-------------------|---------|-------------|
-| `URL` (required) | - | HTTPS URL. Checked with `core.url_guard.assert_safe_url` (https only, public addresses only) before anything is fetched. An arxiv `abs`/`pdf` URL is ingested as a paper; any other URL as a blog post. |
+| `URL` (required) | - | HTTPS URL. Checked with `doc_ingest.core.url_guard.assert_safe_url` (https only, public addresses only) before anything is fetched. An arxiv `abs`/`pdf` URL is ingested as a paper; any other URL as a blog post. |
 | `--tags TEXT` | `""` | Comma-separated tags (`forge,fluxion`); blank items are dropped. |
 
 ### `design [FILE]`
@@ -77,7 +77,7 @@ List Qdrant collections with point count and last ingest time (`No collections f
 ### `pdf PATH`
 
 Ingest a PDF into the `research` collection. `PATH` is a local path or, in the implementation
-(`ingest/pdf.py`), an `http...` URL (downloaded through `core.url_guard.safe_download`); the
+(`doc_ingest/ingest/pdf.py`), an `http...` URL (downloaded through `doc_ingest.core.url_guard.safe_download`); the
 help text only mentions local files.
 
 | Argument / option | Default | Description |
@@ -88,14 +88,14 @@ help text only mentions local files.
 
 ## Help output
 
-Captured with `uv run python cli.py ...` (the installed `doc-ingest` console script could not
+Captured with `uv run python -m doc_ingest.cli ...` (the installed `doc-ingest` console script could not
 be spawned by `uv run doc-ingest` in the checkout used to write this, because the package was
-not installed there; the Usage line therefore shows `cli.py`). Nothing connecting to Qdrant or
+not installed there; the Usage line therefore shows `python -m doc_ingest.cli`). Nothing connecting to Qdrant or
 the embedding service was run.
 
 ```
-$ uv run python cli.py --help
-Usage: cli.py [OPTIONS] COMMAND [ARGS]...
+$ uv run python -m doc_ingest.cli --help
+Usage: python -m doc_ingest.cli [OPTIONS] COMMAND [ARGS]...
 
 Options:
   -v, --verbose  Enable DEBUG logging
@@ -112,8 +112,8 @@ Commands:
 ```
 
 ```
-$ uv run python cli.py search --help
-Usage: cli.py search [OPTIONS] QUERY
+$ uv run python -m doc_ingest.cli search --help
+Usage: python -m doc_ingest.cli search [OPTIONS] QUERY
 
   Search ingested documents by semantic similarity.
 
@@ -130,8 +130,8 @@ Options:
 ```
 
 ```
-$ uv run python cli.py pdf --help
-Usage: cli.py pdf [OPTIONS] PATH
+$ uv run python -m doc_ingest.cli pdf --help
+Usage: python -m doc_ingest.cli pdf [OPTIONS] PATH
 
   Ingest a local PDF file into the research collection.
 
@@ -143,8 +143,8 @@ Options:
 ```
 
 ```
-$ uv run python cli.py notes --help
-Usage: cli.py notes [OPTIONS] [FILE]
+$ uv run python -m doc_ingest.cli notes --help
+Usage: python -m doc_ingest.cli notes [OPTIONS] [FILE]
 
   Ingest curated Obsidian vault notes (10-projects/20-areas/30-resources).
   Runs changed files when called from git hook.
@@ -165,30 +165,30 @@ minimums below, abort start-up.
 
 | Variable | Default | Purpose | Read by |
 |----------|---------|---------|---------|
-| `EMBED_URL` | `http://localhost:9092/embed/batch` | Primary HTTP embedding endpoint. | `core/embedding.py` |
-| `EMBED_FALLBACK_URL` | empty (none) | Secondary endpoint used when the primary is unreachable or answers 501. | `core/embedding.py` |
-| `EMBED_API_KEY` | unset | Sent as `X-API-Key` when set. | `core/embedding.py` |
-| `EMBED_COLLECTION` | `sessions` | `collection` field of the embedding request (model routing on the service side). | `core/embedding.py` |
-| `EMBED_TIMEOUT` | `180` (seconds) | HTTP timeout per embedding request. | `core/embedding.py` |
-| `EMBED_BATCH` | `16` (>= 1) | Max texts per embedding POST. | `core/embedding.py` |
-| `QDRANT_URL` | `http://localhost:6333` | Qdrant endpoint. | `core/qdrant.py` |
-| `QDRANT_API_KEY` | unset | Qdrant API key (unauthenticated when unset). | `core/qdrant.py` |
-| `LOCAL_LLM_URL` | `http://localhost:8080` | llama-server base URL (`/v1/chat/completions`). | `core/distiller.py` |
-| `LOCAL_LLM_MODEL` | empty | `model` field of the request; omitted when empty. | `core/distiller.py` |
-| `LOCAL_LLM_TIMEOUT` | `120` (seconds) | Local LLM request timeout. | `core/distiller.py` |
-| `LOCAL_LLM_MAX_TOKENS` | `1500` | `max_tokens` for local distillation. | `core/distiller.py` |
-| `ANTHROPIC_API_KEY` | empty | Enables the Anthropic fallback (public sources only). | `core/distiller.py` |
-| `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Model for the fallback. | `core/distiller.py` |
-| `DISTILL_WORKERS` | `1` (>= 1) | Threads distilling chunks of one file. | `core/ingest_pipeline.py` |
-| `SYNC_WORKERS` | `4` (>= 1) | Threads fetching sources in `sync`. | `ingest/external.py` |
-| `DISCORD_WEBHOOK_URL` | empty | Sync summary notification target (the URL is a credential). | `ingest/external.py` |
-| `MAX_CHUNKS_PER_DOC` | `1000` (>= 1) | Chunk cap per document. | `core/chunker.py` (`cap_chunks`) |
-| `MAX_LOCAL_BYTES` | `10485760` (>= 1) | Largest local file read (design/notes markdown, local PDF). | `core/ingest_pipeline.py`, `ingest/pdf.py` |
-| `MAX_DOWNLOAD_BYTES` | `52428800` (>= 1) | Default cap for `safe_get` / `safe_download` bodies. | `core/url_guard.py` |
-| `DOC_INGEST_BASE_DIR` | empty (current directory) | Root that `design`/`notes` FILE arguments must stay inside. | `core/path_guard.py` |
-| `EMBED_BACKEND` | - | Ignored (a warning is logged if set); the ONNX backend was removed. | `core/config.py` |
+| `EMBED_URL` | `http://localhost:9092/embed/batch` | Primary HTTP embedding endpoint. | `doc_ingest/core/embedding.py` |
+| `EMBED_FALLBACK_URL` | empty (none) | Secondary endpoint used when the primary is unreachable or answers 501. | `doc_ingest/core/embedding.py` |
+| `EMBED_API_KEY` | unset | Sent as `X-API-Key` when set. | `doc_ingest/core/embedding.py` |
+| `EMBED_COLLECTION` | `sessions` | `collection` field of the embedding request (model routing on the service side). | `doc_ingest/core/embedding.py` |
+| `EMBED_TIMEOUT` | `180` (seconds) | HTTP timeout per embedding request. | `doc_ingest/core/embedding.py` |
+| `EMBED_BATCH` | `16` (>= 1) | Max texts per embedding POST. | `doc_ingest/core/embedding.py` |
+| `QDRANT_URL` | `http://localhost:6333` | Qdrant endpoint. | `doc_ingest/core/qdrant.py` |
+| `QDRANT_API_KEY` | unset | Qdrant API key (unauthenticated when unset). | `doc_ingest/core/qdrant.py` |
+| `LOCAL_LLM_URL` | `http://localhost:8080` | llama-server base URL (`/v1/chat/completions`). | `doc_ingest/core/distiller.py` |
+| `LOCAL_LLM_MODEL` | empty | `model` field of the request; omitted when empty. | `doc_ingest/core/distiller.py` |
+| `LOCAL_LLM_TIMEOUT` | `120` (seconds) | Local LLM request timeout. | `doc_ingest/core/distiller.py` |
+| `LOCAL_LLM_MAX_TOKENS` | `1500` | `max_tokens` for local distillation. | `doc_ingest/core/distiller.py` |
+| `ANTHROPIC_API_KEY` | empty | Enables the Anthropic fallback (public sources only). | `doc_ingest/core/distiller.py` |
+| `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Model for the fallback. | `doc_ingest/core/distiller.py` |
+| `DISTILL_WORKERS` | `1` (>= 1) | Threads distilling chunks of one file. | `doc_ingest/core/ingest_pipeline.py` |
+| `SYNC_WORKERS` | `4` (>= 1) | Threads fetching sources in `sync`. | `doc_ingest/ingest/external.py` |
+| `DISCORD_WEBHOOK_URL` | empty | Sync summary notification target (the URL is a credential). | `doc_ingest/ingest/external.py` |
+| `MAX_CHUNKS_PER_DOC` | `1000` (>= 1) | Chunk cap per document. | `doc_ingest/core/chunker.py` (`cap_chunks`) |
+| `MAX_LOCAL_BYTES` | `10485760` (>= 1) | Largest local file read (design/notes markdown, local PDF). | `doc_ingest/core/ingest_pipeline.py`, `doc_ingest/ingest/pdf.py` |
+| `MAX_DOWNLOAD_BYTES` | `52428800` (>= 1) | Default cap for `safe_get` / `safe_download` bodies. | `doc_ingest/core/url_guard.py` |
+| `DOC_INGEST_BASE_DIR` | empty (current directory) | Root that `design`/`notes` FILE arguments must stay inside. | `doc_ingest/core/path_guard.py` |
+| `EMBED_BACKEND` | - | Ignored (a warning is logged if set); the ONNX backend was removed. | `doc_ingest/core/config.py` |
 
-`core/doc_key.py` also reads `os.environ`, but only to strip `GIT_*` variables before calling git.
+`doc_ingest/core/doc_key.py` also reads `os.environ`, but only to strip `GIT_*` variables before calling git.
 
 ## Exit codes
 
@@ -206,8 +206,8 @@ minimums below, abort start-up.
 ## 日本語要約
 
 - コマンド: `arxiv URL [--tags]`、`design [FILE]`、`notes [FILE]`、`sync [--force] [--dry-run]`、`search QUERY [--collection] [--limit 1-100 既定5] [--nugget] [--nugget-k 既定3]`、`list`、`pdf PATH [--tags] [--allow-cloud]`。グローバルは `-v/--verbose`(自パッケージのみ DEBUG)。
-- `design` / `notes` は FILE 省略時に直近コミットの変更ファイルを取り込む(git フック用)。蒸留はローカル LLM のみ。FILE は `core/path_guard.py` で `DOC_INGEST_BASE_DIR`(既定は cwd)配下に制限される。
+- `design` / `notes` は FILE 省略時に直近コミットの変更ファイルを取り込む(git フック用)。蒸留はローカル LLM のみ。FILE は `doc_ingest/core/path_guard.py` で `DOC_INGEST_BASE_DIR`(既定は cwd)配下に制限される。
 - `pdf` は実装上 URL も受け付けるが help 文はローカル PDF のみ。`--allow-cloud` はローカル PDF の要約失敗時に Anthropic へ送ることを許可する(既定は送らない)。
 - 終了コード: `design` / `notes` は取り込み失敗が 1 件以上なら 1。`arxiv` の不正 URL は usage エラー(2)、取り込み時の `ValueError` は 1。`pdf` の `FileNotFoundError` / `UnsafeURLError` は 1。`sync` は失敗ソースがあっても 0(`failed_at` と Discord 通知で把握)。
-- 環境変数は上の表の通り(`core/config.py` が `.env` と環境から一括で読み、不正値は起動時に失敗)。
-- `uv run doc-ingest --help` は検証環境では起動できなかったため、出力は `uv run python cli.py --help` のもの(Usage 行が `cli.py`)。
+- 環境変数は上の表の通り(`doc_ingest/core/config.py` が `.env` と環境から一括で読み、不正値は起動時に失敗)。
+- `uv run doc-ingest --help` は検証環境では起動できなかったため、出力は `uv run python -m doc_ingest.cli --help` のもの(Usage 行が `python -m doc_ingest.cli`)。

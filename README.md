@@ -13,11 +13,11 @@ Document ingestion pipeline — feeds external API docs, design docs, and arxiv 
 
 | Module | Source | Trigger |
 |--------|--------|---------|
-| `ingest/external.py` | External API docs (GitHub, Anthropic, Qdrant…) | Weekly cron + ETag diff |
-| `ingest/design_docs.py` | CLAUDE.md / ADR / docs/ | post-commit git hook |
-| `ingest/notes.py` | Obsidian vault (10-projects/20-areas/30-resources) | post-commit git hook |
-| `ingest/arxiv.py` | arxiv papers / tech blogs | CLI manual |
-| `ingest/pdf.py` | Local PDF files or HTTPS PDF URLs | CLI manual |
+| `doc_ingest/ingest/external.py` | External API docs (GitHub, Anthropic, Qdrant…) | Weekly cron + ETag diff |
+| `doc_ingest/ingest/design_docs.py` | CLAUDE.md / ADR / docs/ | post-commit git hook |
+| `doc_ingest/ingest/notes.py` | Obsidian vault (10-projects/20-areas/30-resources) | post-commit git hook |
+| `doc_ingest/ingest/arxiv.py` | arxiv papers / tech blogs | CLI manual |
+| `doc_ingest/ingest/pdf.py` | Local PDF files or HTTPS PDF URLs | CLI manual |
 
 ### Setup
 
@@ -137,11 +137,11 @@ LLM distillation pipeline: local **llama-server** (OpenAI-compatible `/v1/chat/c
 
 | モジュール | ソース | トリガー |
 | --------- | ------ | ------- |
-| `ingest/external.py` | 外部 API ドキュメント（GitHub, Anthropic, Qdrant…） | 週次 cron + ETag 差分 |
-| `ingest/design_docs.py` | CLAUDE.md / ADR / docs/ | post-commit git フック |
-| `ingest/notes.py` | Obsidian ノート（10-projects/20-areas/30-resources） | post-commit git フック |
-| `ingest/arxiv.py` | arxiv 論文 / 技術ブログ | CLI 手動実行 |
-| `ingest/pdf.py` | ローカル PDF ファイル / HTTPS の PDF URL | CLI 手動実行 |
+| `doc_ingest/ingest/external.py` | 外部 API ドキュメント（GitHub, Anthropic, Qdrant…） | 週次 cron + ETag 差分 |
+| `doc_ingest/ingest/design_docs.py` | CLAUDE.md / ADR / docs/ | post-commit git フック |
+| `doc_ingest/ingest/notes.py` | Obsidian ノート（10-projects/20-areas/30-resources） | post-commit git フック |
+| `doc_ingest/ingest/arxiv.py` | arxiv 論文 / 技術ブログ | CLI 手動実行 |
+| `doc_ingest/ingest/pdf.py` | ローカル PDF ファイル / HTTPS の PDF URL | CLI 手動実行 |
 
 ### セットアップ
 

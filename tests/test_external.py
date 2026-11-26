@@ -6,8 +6,8 @@ import httpx
 import pytest
 import respx
 
-from core import qdrant
-from ingest.external import FetchResult, _apply_result, _Summary
+from doc_ingest.core import qdrant
+from doc_ingest.ingest.external import FetchResult, _apply_result, _Summary
 from tests.conftest import override_settings
 
 SOURCES = [
@@ -30,11 +30,11 @@ def mock_sources(mocker, tmp_path):
     def fake_save(sources):
         saved.extend(sources)
 
-    mocker.patch("ingest.external._load_sources", return_value=list(SOURCES))
-    mocker.patch("ingest.external._save_sources", side_effect=fake_save)
-    mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-    mocker.patch("core.qdrant.delete_by_ids")
-    mocker.patch("core.qdrant.upsert")
+    mocker.patch("doc_ingest.ingest.external._load_sources", return_value=list(SOURCES))
+    mocker.patch("doc_ingest.ingest.external._save_sources", side_effect=fake_save)
+    mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+    mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+    mocker.patch("doc_ingest.core.qdrant.upsert")
     return saved
 
 
@@ -42,7 +42,7 @@ class TestSyncExternal:
     @respx.mock
     def test_304_skips_ingest(self, mock_sources, mocker):
         respx.get("https://example.com/api").mock(return_value=httpx.Response(304))
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
         sync_external()
 
@@ -56,9 +56,9 @@ class TestSyncExternal:
         )
         import logging
 
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
-        with caplog.at_level(logging.INFO, logger="ingest.external"):
+        with caplog.at_level(logging.INFO, logger="doc_ingest.ingest.external"):
             sync_external()
 
         qdrant.upsert.assert_called_once()
@@ -70,8 +70,8 @@ class TestSyncExternal:
         respx.get("https://example.com/api").mock(
             return_value=httpx.Response(200, text="## S\nok", headers={"etag": '"new"'})
         )
-        replace = mocker.patch("ingest.external.replace_points")
-        from ingest.external import sync_external
+        replace = mocker.patch("doc_ingest.ingest.external.replace_points")
+        from doc_ingest.ingest.external import sync_external
 
         sync_external()
 
@@ -84,7 +84,7 @@ class TestSyncExternal:
         respx.get("https://example.com/api").mock(
             return_value=httpx.Response(200, text="## S\n" + "y" * 200)
         )
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
         sync_external(dry_run=True)
 
@@ -97,9 +97,9 @@ class TestSyncExternal:
         mocker.patch("time.sleep")  # avoid real waits
         import logging
 
-        from ingest.external import MAX_RETRIES, sync_external
+        from doc_ingest.ingest.external import MAX_RETRIES, sync_external
 
-        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+        with caplog.at_level(logging.DEBUG, logger="doc_ingest.ingest.external"):
             sync_external()
         attempts = respx.calls.call_count
         assert attempts == MAX_RETRIES, f"expected {MAX_RETRIES} HTTP attempts, got {attempts}"
@@ -119,18 +119,18 @@ class TestSyncExternal:
                 "last_synced": "",
             }
         ]
-        mocker.patch("ingest.external._load_sources", return_value=render_source)
-        mocker.patch("ingest.external._save_sources")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-        mocker.patch("core.qdrant.delete_by_ids")
-        mocker.patch("core.qdrant.upsert")
+        mocker.patch("doc_ingest.ingest.external._load_sources", return_value=render_source)
+        mocker.patch("doc_ingest.ingest.external._save_sources")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+        mocker.patch("doc_ingest.core.qdrant.upsert")
 
         jina_url = "https://r.jina.ai/https://example.com/js-only"
         respx.get(jina_url).mock(
             return_value=httpx.Response(200, text="## Rendered\n" + "content " * 50)
         )
 
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
         sync_external()
 
@@ -142,9 +142,9 @@ class TestSyncExternal:
         respx.get("https://example.com/api").mock(return_value=httpx.Response(403))
         import logging
 
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
-        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+        with caplog.at_level(logging.WARNING, logger="doc_ingest.ingest.external"):
             sync_external()
         assert "failed" in caplog.text
         assert "403" in caplog.text
@@ -158,9 +158,9 @@ class TestSyncExternal:
         respx.get("https://example.com/api").mock(
             return_value=httpx.Response(200, text=content, headers={"etag": '"abc"'})
         )
-        notify = mocker.patch("ingest.external._notify_discord")
+        notify = mocker.patch("doc_ingest.ingest.external._notify_discord")
         override_settings(discord_webhook_url="https://discord.example/hook")
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
         sync_external()
         notify.assert_called_once()
@@ -175,8 +175,8 @@ class TestSyncExternal:
         respx.get("https://example.com/api").mock(
             return_value=httpx.Response(200, text="## S\n" + "y" * 200)
         )
-        notify = mocker.patch("ingest.external._notify_discord")
-        from ingest.external import sync_external
+        notify = mocker.patch("doc_ingest.ingest.external._notify_discord")
+        from doc_ingest.ingest.external import sync_external
 
         sync_external(dry_run=True)
         notify.assert_not_called()
@@ -185,7 +185,7 @@ class TestSyncExternal:
         """_save_sources は実行状態だけを state ファイルへ原子的に書き、設定ファイルは触らない (#291)。"""
         from ruamel.yaml import YAML
 
-        import ingest.external as ext
+        import doc_ingest.ingest.external as ext
 
         cfg = tmp_path / "external.yaml"
         cfg.write_text("- url: https://example.com\n  type: external-api\n")
@@ -212,7 +212,7 @@ class TestSyncExternal:
 
     def test_load_sources_overlays_state_and_drops_stale_failed_at(self, tmp_path, monkeypatch):
         """state があれば設定ファイル内の旧い状態キーより優先し、消えた failed_at を復活させない。"""
-        import ingest.external as ext
+        import doc_ingest.ingest.external as ext
 
         cfg = tmp_path / "external.yaml"
         cfg.write_text(
@@ -230,7 +230,7 @@ class TestSyncExternal:
         assert b["last_synced"] == "seed"  # state に無い URL は設定ファイルの値を種として使う
 
     def test_load_sources_without_state_file_uses_config_values(self, tmp_path, monkeypatch):
-        import ingest.external as ext
+        import doc_ingest.ingest.external as ext
 
         cfg = tmp_path / "external.yaml"
         cfg.write_text("- url: https://a.example\n  last_synced: seed\n")
@@ -252,20 +252,20 @@ class TestSyncExternal:
                 "last_synced": "",
             }
         ]
-        mocker.patch("ingest.external._load_sources", return_value=render_source)
-        mocker.patch("ingest.external._save_sources")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-        mocker.patch("core.qdrant.delete_by_ids")
-        mocker.patch("core.qdrant.upsert")
+        mocker.patch("doc_ingest.ingest.external._load_sources", return_value=render_source)
+        mocker.patch("doc_ingest.ingest.external._save_sources")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+        mocker.patch("doc_ingest.core.qdrant.upsert")
 
         jina_url = "https://r.jina.ai/https://example.com/js-only"
         respx.get(jina_url).mock(return_value=httpx.Response(200, text="   "))
 
         import logging
 
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
-        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+        with caplog.at_level(logging.WARNING, logger="doc_ingest.ingest.external"):
             sync_external()
 
         qdrant.upsert.assert_not_called()
@@ -299,22 +299,24 @@ class TestSyncExternalExceptionIsolation:
         the source marked failed, and the remaining sources still processed."""
         import logging
 
-        mocker.patch("ingest.external._load_sources", return_value=list(self.TWO_SOURCES))
-        mocker.patch("ingest.external._save_sources")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-        mocker.patch("core.qdrant.delete_by_ids")
-        mock_upsert = mocker.patch("core.qdrant.upsert")
+        mocker.patch(
+            "doc_ingest.ingest.external._load_sources", return_value=list(self.TWO_SOURCES)
+        )
+        mocker.patch("doc_ingest.ingest.external._save_sources")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+        mock_upsert = mocker.patch("doc_ingest.core.qdrant.upsert")
 
         def fake_fetch_source(source, force, now):
             if source["url"] == "https://example.com/broken":
                 raise RuntimeError("boom")
             return FetchResult.ready(source["url"], source, "", [{"id": "x", "text": "ok"}])
 
-        mocker.patch("ingest.external._fetch_source", side_effect=fake_fetch_source)
+        mocker.patch("doc_ingest.ingest.external._fetch_source", side_effect=fake_fetch_source)
 
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
-        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+        with caplog.at_level(logging.WARNING, logger="doc_ingest.ingest.external"):
             sync_external()
 
         # The broken source never reaches upsert; the ok source still does.
@@ -326,17 +328,21 @@ class TestSyncExternalExceptionIsolation:
         while the remaining sources are still written."""
         import logging
 
-        mocker.patch("ingest.external._load_sources", return_value=list(self.TWO_SOURCES))
+        mocker.patch(
+            "doc_ingest.ingest.external._load_sources", return_value=list(self.TWO_SOURCES)
+        )
         saved = []
-        mocker.patch("ingest.external._save_sources", side_effect=lambda s: saved.extend(s))
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-        mocker.patch("core.qdrant.delete_by_ids")
+        mocker.patch(
+            "doc_ingest.ingest.external._save_sources", side_effect=lambda s: saved.extend(s)
+        )
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
 
         def fake_upsert(collection, points):
             if points and points[0]["source_url"] == "https://example.com/broken":
                 raise RuntimeError("qdrant unavailable")
 
-        mocker.patch("core.qdrant.upsert", side_effect=fake_upsert)
+        mocker.patch("doc_ingest.core.qdrant.upsert", side_effect=fake_upsert)
 
         def fake_fetch_source(source, force, now):
             return FetchResult.ready(
@@ -346,11 +352,11 @@ class TestSyncExternalExceptionIsolation:
                 [{"id": f"{source['url']}:0", "text": "content", "source_url": source["url"]}],
             )
 
-        mocker.patch("ingest.external._fetch_source", side_effect=fake_fetch_source)
+        mocker.patch("doc_ingest.ingest.external._fetch_source", side_effect=fake_fetch_source)
 
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
-        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+        with caplog.at_level(logging.WARNING, logger="doc_ingest.ingest.external"):
             sync_external()
 
         assert "qdrant unavailable" in caplog.text or "RuntimeError" in caplog.text
@@ -367,16 +373,16 @@ class TestFetchWithRetry:
     def test_5xx_then_success_returns_response(self, mocker):
         sleep = mocker.patch("time.sleep")
         ok = httpx.Response(200, text="ok")
-        mocker.patch("ingest.external.safe_get", side_effect=[httpx.Response(503), ok])
-        from ingest.external import _fetch_with_retry
+        mocker.patch("doc_ingest.ingest.external.safe_get", side_effect=[httpx.Response(503), ok])
+        from doc_ingest.ingest.external import _fetch_with_retry
 
         assert _fetch_with_retry("https://example.com", {}) is ok
         sleep.assert_called_once_with(1)
 
     def test_4xx_is_returned_not_retried(self, mocker):
         sleep = mocker.patch("time.sleep")
-        m = mocker.patch("ingest.external.safe_get", return_value=httpx.Response(404))
-        from ingest.external import _fetch_with_retry
+        m = mocker.patch("doc_ingest.ingest.external.safe_get", return_value=httpx.Response(404))
+        from doc_ingest.ingest.external import _fetch_with_retry
 
         assert _fetch_with_retry("https://example.com", {}).status_code == 404
         assert m.call_count == 1
@@ -386,9 +392,9 @@ class TestFetchWithRetry:
         sleep = mocker.patch("time.sleep")
         ok = httpx.Response(200, text="ok")
         m = mocker.patch(
-            "ingest.external.safe_get", side_effect=[httpx.ConnectError("refused"), ok]
+            "doc_ingest.ingest.external.safe_get", side_effect=[httpx.ConnectError("refused"), ok]
         )
-        from ingest.external import _fetch_with_retry
+        from doc_ingest.ingest.external import _fetch_with_retry
 
         assert _fetch_with_retry("https://example.com", {}) is ok
         assert m.call_count == 2
@@ -396,19 +402,21 @@ class TestFetchWithRetry:
 
     def test_all_attempts_fail_returns_none(self, mocker):
         sleep = mocker.patch("time.sleep")
-        m = mocker.patch("ingest.external.safe_get", return_value=httpx.Response(500))
-        from ingest.external import MAX_RETRIES, _fetch_with_retry
+        m = mocker.patch("doc_ingest.ingest.external.safe_get", return_value=httpx.Response(500))
+        from doc_ingest.ingest.external import MAX_RETRIES, _fetch_with_retry
 
         assert _fetch_with_retry("https://example.com", {}) is None
         assert m.call_count == MAX_RETRIES
         assert sleep.call_count == MAX_RETRIES - 1
 
     def test_unsafe_redirect_returns_none_without_retry(self, mocker):
-        from core.url_guard import UnsafeURLError
+        from doc_ingest.core.url_guard import UnsafeURLError
 
         sleep = mocker.patch("time.sleep")
-        m = mocker.patch("ingest.external.safe_get", side_effect=UnsafeURLError("private ip"))
-        from ingest.external import _fetch_with_retry
+        m = mocker.patch(
+            "doc_ingest.ingest.external.safe_get", side_effect=UnsafeURLError("private ip")
+        )
+        from doc_ingest.ingest.external import _fetch_with_retry
 
         assert _fetch_with_retry("https://example.com", {}) is None
         assert m.call_count == 1
@@ -432,21 +440,21 @@ class TestExternalChunkLimit:
 
     @respx.mock
     def test_chunks_are_split_with_the_external_limit(self, mocker):
-        from core.chunker import _count_tokens
-        from ingest.external import EXTERNAL_MAX_SECTION_TOKENS
+        from doc_ingest.core.chunker import _count_tokens
+        from doc_ingest.ingest.external import EXTERNAL_MAX_SECTION_TOKENS
 
         sources, _ = self._source_with_html("")
         big = "## Section\n" + "\n\n".join(f"paragraph {i} " + "word " * 80 for i in range(12))
         respx.get("https://example.com/big").mock(
             return_value=httpx.Response(200, text=big, headers={"content-type": "text/markdown"})
         )
-        mocker.patch("ingest.external._load_sources", return_value=sources)
-        mocker.patch("ingest.external._save_sources")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-        mocker.patch("core.qdrant.delete_by_ids")
-        up = mocker.patch("core.qdrant.upsert")
+        mocker.patch("doc_ingest.ingest.external._load_sources", return_value=sources)
+        mocker.patch("doc_ingest.ingest.external._save_sources")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+        up = mocker.patch("doc_ingest.core.qdrant.upsert")
 
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
         sync_external(force=True)
 
@@ -463,21 +471,21 @@ class TestExternalChunkLimit:
             return_value=httpx.Response(200, text=big, headers={"content-type": "text/markdown"})
         )
         override_settings(max_chunks_per_doc=3)
-        mocker.patch("ingest.external._load_sources", return_value=sources)
-        mocker.patch("ingest.external._save_sources")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-        mocker.patch("core.qdrant.delete_by_ids")
-        up = mocker.patch("core.qdrant.upsert")
+        mocker.patch("doc_ingest.ingest.external._load_sources", return_value=sources)
+        mocker.patch("doc_ingest.ingest.external._save_sources")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+        up = mocker.patch("doc_ingest.core.qdrant.upsert")
 
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
         sync_external(force=True)
 
         assert len(up.call_args[0][1]) == 3
 
     def test_limit_is_below_the_default_chunker_limit(self):
-        from core.chunker import MAX_SECTION_TOKENS
-        from ingest.external import EXTERNAL_MAX_SECTION_TOKENS
+        from doc_ingest.core.chunker import MAX_SECTION_TOKENS
+        from doc_ingest.ingest.external import EXTERNAL_MAX_SECTION_TOKENS
 
         assert EXTERNAL_MAX_SECTION_TOKENS < MAX_SECTION_TOKENS
 
@@ -487,7 +495,7 @@ class TestWorkerErrorLogsAreRedacted:
         """sync の Phase 1 で予期しない例外が出たとき、メッセージ中の URL (トークン付き) を伏せる。"""
         import logging
 
-        import ingest.external as ext
+        import doc_ingest.ingest.external as ext
 
         sources = [{"url": "https://docs.example.com/x"}]
         mocker.patch.object(ext, "_load_sources", return_value=sources)
@@ -497,7 +505,7 @@ class TestWorkerErrorLogsAreRedacted:
             "_fetch_source",
             side_effect=RuntimeError("boom https://other.example/p?token=SECRET"),
         )
-        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+        with caplog.at_level(logging.WARNING, logger="doc_ingest.ingest.external"):
             ext.sync_external(force=True)
         assert "SECRET" not in caplog.text and "boom <url>" in caplog.text
 
@@ -507,19 +515,19 @@ class TestWorkerErrorLogsAreRedacted:
         """Phase 2 (Qdrant への書き込み) の例外のログ。メッセージ中の URL を伏せ、失敗として記録する。"""
         import logging
 
-        import ingest.external as ext
+        import doc_ingest.ingest.external as ext
 
         source = {"url": "https://docs.example.com/x"}
         mocker.patch.object(ext, "_load_sources", return_value=[source])
         mocker.patch.object(ext, "_save_sources")
         ready = FetchResult.ready(source["url"], source, "e", [{"id": "p1", "text": "t"}])
         mocker.patch.object(ext, "_fetch_source", return_value=ready)
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
         mocker.patch(
-            "core.qdrant.upsert",
+            "doc_ingest.core.qdrant.upsert",
             side_effect=RuntimeError("write failed at https://qdrant.internal/x?api-key=SECRET"),
         )
-        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+        with caplog.at_level(logging.WARNING, logger="doc_ingest.ingest.external"):
             ext.sync_external(force=True)
         assert "SECRET" not in caplog.text and "write failed at <url>" in caplog.text
         assert "failed_at" in source  # 失敗として記録される
@@ -530,7 +538,7 @@ class TestWorkerErrorLogsAreRedacted:
 
         import httpx
 
-        import ingest.external as ext
+        import doc_ingest.ingest.external as ext
 
         mocker.patch("time.sleep")
         mocker.patch.object(
@@ -538,7 +546,7 @@ class TestWorkerErrorLogsAreRedacted:
             "safe_get",
             side_effect=httpx.ConnectError("refused: https://h.example/p?token=SECRET"),
         )
-        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+        with caplog.at_level(logging.DEBUG, logger="doc_ingest.ingest.external"):
             assert ext._fetch_with_retry("https://h.example/p", {}) is None
         assert "SECRET" not in caplog.text and "refused: <url>" in caplog.text
 
@@ -565,16 +573,18 @@ class TestFailedResult:
         assert b.points == []  # 共有された可変オブジェクトにしない
 
     def test_a_blocked_url_is_reported_failed_not_skipped(self, mocker):
-        from core.url_guard import UnsafeURLError
-        from ingest.external import _fetch_source
+        from doc_ingest.core.url_guard import UnsafeURLError
+        from doc_ingest.ingest.external import _fetch_source
 
-        mocker.patch("ingest.external.assert_safe_url", side_effect=UnsafeURLError("blocked"))
+        mocker.patch(
+            "doc_ingest.ingest.external.assert_safe_url", side_effect=UnsafeURLError("blocked")
+        )
         result = _fetch_source({"url": "https://10.0.0.1/x"}, force=False, now="n")
         assert result.status == "failed" and result.points == []
 
     def test_an_exception_in_a_worker_is_reported_failed_and_the_rest_continue(self, mocker):
         """スレッド内の予期しない例外 (Phase 1 の隔離) も _failed で返る。"""
-        import ingest.external as ext
+        import doc_ingest.ingest.external as ext
 
         sources = [{"url": "https://a.example/x"}, {"url": "https://b.example/x"}]
         mocker.patch.object(ext, "_load_sources", return_value=sources)
@@ -586,7 +596,7 @@ class TestFailedResult:
             return FetchResult.skipped(source["url"], source)
 
         mocker.patch.object(ext, "_fetch_source", side_effect=fake_fetch)
-        mocker.patch("core.qdrant.upsert")
+        mocker.patch("doc_ingest.core.qdrant.upsert")
         ext.sync_external(force=True)
         assert ext._save_sources.called  # 失敗しても最後まで進む
 
@@ -596,8 +606,8 @@ class TestOversizedPage:
         """#224: 巨大な応答を全量メモリに読まない。上限超過は取得失敗として扱う。"""
         import logging
 
-        import ingest.external as ext
-        from core.url_guard import UnsafeURLError
+        import doc_ingest.ingest.external as ext
+        from doc_ingest.core.url_guard import UnsafeURLError
 
         mocker.patch("time.sleep")
         mocker.patch.object(ext, "assert_safe_url")
@@ -608,8 +618,8 @@ class TestOversizedPage:
                 "response exceeds 52428800 bytes: 'https://docs.example.com/x'"
             ),
         )
-        up = mocker.patch("core.qdrant.upsert")
-        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+        up = mocker.patch("doc_ingest.core.qdrant.upsert")
+        with caplog.at_level(logging.WARNING, logger="doc_ingest.ingest.external"):
             result = ext._fetch_source({"url": "https://docs.example.com/x"}, force=True, now="n")
         assert result.status == "failed" and result.points == []
         up.assert_not_called()
@@ -637,13 +647,13 @@ class TestExternalTrust:
                 headers={"content-type": "text/markdown"},
             )
         )
-        mocker.patch("ingest.external._load_sources", return_value=sources)
-        mocker.patch("ingest.external._save_sources")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-        mocker.patch("core.qdrant.delete_by_ids")
-        up = mocker.patch("core.qdrant.upsert")
+        mocker.patch("doc_ingest.ingest.external._load_sources", return_value=sources)
+        mocker.patch("doc_ingest.ingest.external._save_sources")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+        up = mocker.patch("doc_ingest.core.qdrant.upsert")
 
-        from ingest.external import sync_external
+        from doc_ingest.ingest.external import sync_external
 
         sync_external(force=True)
 
@@ -668,7 +678,7 @@ class TestApplyResult:
         assert sm.failed == [] and sm.synced == 0
 
     def test_ready_writes_and_updates_metadata(self, mocker):
-        rp = mocker.patch("ingest.external.replace_points")
+        rp = mocker.patch("doc_ingest.ingest.external.replace_points")
         s = {"url": "u", "failed_at": "old"}
         sm = _Summary()
         _apply_result(FetchResult.ready("u", s, "e1", [{"id": "a"}, {"id": "b"}]), "T", False, sm)
@@ -677,13 +687,13 @@ class TestApplyResult:
         assert (sm.synced, sm.total_chunks, sm.changed) == (1, 2, True)
 
     def test_ready_without_etag_keeps_the_stored_one(self, mocker):
-        mocker.patch("ingest.external.replace_points")
+        mocker.patch("doc_ingest.ingest.external.replace_points")
         s = {"url": "u", "last_etag": "old"}
         _apply_result(FetchResult.ready("u", s, "", [{"id": "a"}]), "T", False, _Summary())
         assert s["last_etag"] == "old"
 
     def test_write_error_marks_failed_without_syncing(self, mocker):
-        mocker.patch("ingest.external.replace_points", side_effect=RuntimeError("x"))
+        mocker.patch("doc_ingest.ingest.external.replace_points", side_effect=RuntimeError("x"))
         s = {"url": "u"}
         sm = _Summary()
         _apply_result(FetchResult.ready("u", s, "e", [{"id": "a"}]), "T", False, sm)
@@ -691,7 +701,7 @@ class TestApplyResult:
         assert sm.failed == ["u"] and sm.synced == 0 and sm.total_chunks == 0
 
     def test_dry_run_writes_nothing(self, mocker):
-        rp = mocker.patch("ingest.external.replace_points")
+        rp = mocker.patch("doc_ingest.ingest.external.replace_points")
         s = {"url": "u"}
         sm = _Summary()
         _apply_result(FetchResult.ready("u", s, "e", [{"id": "a"}]), "T", True, sm)
@@ -704,7 +714,7 @@ class TestExternalState:
 
     @staticmethod
     def _paths(tmp_path, monkeypatch, cfg_text):
-        import ingest.external as ext
+        import doc_ingest.ingest.external as ext
 
         cfg = tmp_path / "external.yaml"
         cfg.write_text(cfg_text)
@@ -746,9 +756,9 @@ class TestExternalState:
         def fake_fetch(source, force, now):
             return FetchResult.ready(source["url"], source, "etag-1", [{"id": 1}])
 
-        mocker.patch("ingest.external._fetch_source", side_effect=fake_fetch)
-        mocker.patch("ingest.external.replace_points")
-        mocker.patch("ingest.external._notify_discord")
+        mocker.patch("doc_ingest.ingest.external._fetch_source", side_effect=fake_fetch)
+        mocker.patch("doc_ingest.ingest.external.replace_points")
+        mocker.patch("doc_ingest.ingest.external._notify_discord")
         ext.sync_external()
 
         assert cfg.read_text() == cfg_text

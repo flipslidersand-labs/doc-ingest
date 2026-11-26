@@ -6,7 +6,7 @@ It depends on the following third-party package under a different,
 copyleft license:
 
 - **[trafilatura](https://github.com/adbar/trafilatura)** — GPL-3.0.
-  Used in `core/html.py` for HTML content extraction.
+  Used in `doc_ingest/core/html.py` for HTML content extraction.
 
 trafilatura is used as an ordinary PyPI runtime dependency (installed at
 `pip install` time), not bundled or statically linked into this

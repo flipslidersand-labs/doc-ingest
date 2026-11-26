@@ -2,7 +2,7 @@
 
 import uuid
 
-from core.ids import make_id
+from doc_ingest.core.ids import make_id
 
 
 class TestMakeId:

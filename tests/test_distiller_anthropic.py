@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from core import distiller
+from doc_ingest.core import distiller
 from tests.conftest import override_settings
 
 DUMMY_KEY = "sk-ant-dummy-key-for-tests"

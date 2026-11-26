@@ -4,8 +4,8 @@ import subprocess
 
 import pytest
 
-from core.doc_key import DocKey, _repo_info, doc_key
-from core.ids import make_id
+from doc_ingest.core.doc_key import DocKey, _repo_info, doc_key
+from doc_ingest.core.ids import make_id
 
 
 def _git(cwd, *args):
@@ -107,13 +107,13 @@ class TestEscapesRepo:
         return d
 
     def test_a_normal_file_in_the_repo_does_not_escape(self, tmp_path):
-        from core.doc_key import escapes_repo
+        from doc_ingest.core.doc_key import escapes_repo
 
         repo = _repo(tmp_path, "forge", files=("docs/a.md",))
         assert escapes_repo(repo / "docs" / "a.md") is False
 
     def test_a_file_symlink_to_outside_escapes(self, tmp_path):
-        from core.doc_key import escapes_repo
+        from doc_ingest.core.doc_key import escapes_repo
 
         repo = _repo(tmp_path, "forge")
         (repo / "link.md").symlink_to(self._outside(tmp_path) / "secret.md")
@@ -121,21 +121,21 @@ class TestEscapesRepo:
 
     def test_a_symlinked_directory_to_outside_escapes(self, tmp_path):
         """親ディレクトリが symlink: 解決後の親はリポ内に無いので、git rev-parse では見抜けない。"""
-        from core.doc_key import escapes_repo
+        from doc_ingest.core.doc_key import escapes_repo
 
         repo = _repo(tmp_path, "forge")
         (repo / "docs").symlink_to(self._outside(tmp_path))
         assert escapes_repo(repo / "docs" / "secret.md") is True
 
     def test_a_symlink_that_stays_inside_the_repo_does_not_escape(self, tmp_path):
-        from core.doc_key import escapes_repo
+        from doc_ingest.core.doc_key import escapes_repo
 
         repo = _repo(tmp_path, "forge", files=("docs/real.md",))
         (repo / "docs" / "alias.md").symlink_to(repo / "docs" / "real.md")
         assert escapes_repo(repo / "docs" / "alias.md") is False  # 拒否は is_symlink の側が担う
 
     def test_a_path_outside_any_repo_is_not_flagged(self, tmp_path):
-        from core.doc_key import escapes_repo
+        from doc_ingest.core.doc_key import escapes_repo
 
         loose = tmp_path / "loose.md"
         loose.write_text("x")
@@ -143,7 +143,7 @@ class TestEscapesRepo:
 
     def test_a_linked_worktree_is_a_repo_too(self, tmp_path):
         """worktree の .git は『ファイル』。lexists で見るので検出できる。"""
-        from core.doc_key import escapes_repo
+        from doc_ingest.core.doc_key import escapes_repo
 
         main = _repo(tmp_path, "forge", files=("docs/a.md",))
         wt = tmp_path / "wt"
@@ -155,7 +155,7 @@ class TestEscapesRepo:
     def test_a_relative_path_from_the_repo_root_works(self, tmp_path, monkeypatch):
         from pathlib import Path
 
-        from core.doc_key import escapes_repo
+        from doc_ingest.core.doc_key import escapes_repo
 
         repo = _repo(tmp_path, "forge")
         (repo / "link.md").symlink_to(self._outside(tmp_path) / "secret.md")
@@ -163,7 +163,7 @@ class TestEscapesRepo:
         assert escapes_repo(Path("link.md")) is True
 
     def test_a_missing_path_does_not_crash(self, tmp_path):
-        from core.doc_key import escapes_repo
+        from doc_ingest.core.doc_key import escapes_repo
 
         repo = _repo(tmp_path, "forge")
         assert escapes_repo(repo / "docs" / "gone.md") is False
@@ -171,7 +171,7 @@ class TestEscapesRepo:
     def test_a_repo_reached_through_a_symlinked_path_is_not_flagged(self, tmp_path):
         """~/projects/forge -> /data/forge のようにリポ自体が symlink 経由で置かれていても、
         正常なファイルを『リポの外』と誤判定しない (全ファイルの取り込みが止まるため)。"""
-        from core.doc_key import escapes_repo
+        from doc_ingest.core.doc_key import escapes_repo
 
         real = _repo(tmp_path, "data_forge", files=("docs/a.md",))
         home = tmp_path / "home"
@@ -180,7 +180,7 @@ class TestEscapesRepo:
         assert escapes_repo(home / "forge" / "docs" / "a.md") is False
 
     def test_a_leak_symlink_inside_a_repo_reached_through_a_symlink_is_still_caught(self, tmp_path):
-        from core.doc_key import escapes_repo
+        from doc_ingest.core.doc_key import escapes_repo
 
         real = _repo(tmp_path, "data_forge")
         (real / "leak.md").symlink_to(self._outside(tmp_path) / "secret.md")

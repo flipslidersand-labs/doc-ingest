@@ -1,6 +1,6 @@
 """Tests for core/html.py"""
 
-from core.html import extract_markdown, looks_like_html
+from doc_ingest.core.html import extract_markdown, looks_like_html
 
 SIMPLE_HTML = """<!DOCTYPE html>
 <html><head><title>Test</title></head>

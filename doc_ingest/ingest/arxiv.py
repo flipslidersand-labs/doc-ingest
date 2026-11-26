@@ -7,13 +7,13 @@ import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
-from core.distiller import distill_paper, distill_webpage
-from core.html import extract_markdown, looks_like_html
-from core.ids import make_id
-from core.pdf_text import extract_pdf_text
-from core.qdrant import upsert
-from core.schema import Collection
-from core.url_guard import assert_safe_url, safe_download, safe_get, strip_url
+from doc_ingest.core.distiller import distill_paper, distill_webpage
+from doc_ingest.core.html import extract_markdown, looks_like_html
+from doc_ingest.core.ids import make_id
+from doc_ingest.core.pdf_text import extract_pdf_text
+from doc_ingest.core.qdrant import upsert
+from doc_ingest.core.schema import Collection
+from doc_ingest.core.url_guard import assert_safe_url, safe_download, safe_get, strip_url
 
 _log = logging.getLogger(__name__)
 

@@ -2,8 +2,8 @@
 
 import pytest
 
-from core import config
-from core.config import Settings, load_settings
+from doc_ingest.core import config
+from doc_ingest.core.config import Settings, load_settings
 
 
 @pytest.fixture(autouse=True)
@@ -170,7 +170,7 @@ def test_doc_ingest_base_dir_defaults_to_empty():
 
 def test_removed_embed_backend_warns_once_per_load(caplog):
     """#320: 撤去済みの EMBED_BACKEND が設定されていたら警告する。読み込みは失敗させない。"""
-    with caplog.at_level("WARNING", logger="core.config"):
+    with caplog.at_level("WARNING", logger="doc_ingest.core.config"):
         s = load_settings({"EMBED_BACKEND": "onnx_gpu"})
     assert s == Settings()
     msgs = [r.getMessage() for r in caplog.records if "EMBED_BACKEND" in r.getMessage()]
@@ -179,6 +179,6 @@ def test_removed_embed_backend_warns_once_per_load(caplog):
 
 
 def test_no_warning_without_embed_backend(caplog):
-    with caplog.at_level("WARNING", logger="core.config"):
+    with caplog.at_level("WARNING", logger="doc_ingest.core.config"):
         load_settings({})
     assert not [r for r in caplog.records if "EMBED_BACKEND" in r.getMessage()]

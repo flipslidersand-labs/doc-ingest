@@ -2,6 +2,7 @@
 name = "doc-ingest"
 version = "0.1.0"
 description = "Document ingestion pipeline — external API docs / design docs / arxiv papers → Qdrant"
+readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
@@ -16,16 +17,16 @@ dependencies = [
     "python-dotenv>=1.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/flipslidersand-labs/doc-ingest"
+
 [project.scripts]
-doc-ingest = "cli:main"
+doc-ingest = "doc_ingest.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["core*", "ingest*"]
-
-[tool.setuptools]
-# console script (doc-ingest = "cli:main") の cli.py はルート直下の単体モジュール (#296)
-py-modules = ["cli"]
+# #346: コードは doc_ingest パッケージ 1 つにまとめる(cli / core / ingest を site-packages の最上位に置かない)
+include = ["doc_ingest*"]
 
 [tool.setuptools.package-dir]
 "" = "."
@@ -39,7 +40,7 @@ testpaths = ["tests"]
 filterwarnings = ["error::pytest.PytestUnhandledThreadExceptionWarning"]
 
 [tool.coverage.run]
-source = ["core", "ingest", "cli"]
+source = ["doc_ingest"]
 omit = ["tests/*"]
 
 [tool.coverage.report]

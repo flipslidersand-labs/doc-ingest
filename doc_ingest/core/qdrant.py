@@ -9,8 +9,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import Distance, PayloadSchemaType, PointStruct, VectorParams
 
-from core.config import get_settings
-from core.embedding import embed
+from doc_ingest.core.config import get_settings
+from doc_ingest.core.embedding import embed
 
 _log = logging.getLogger(__name__)
 

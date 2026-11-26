@@ -10,14 +10,14 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
-from core.chunker import cap_chunks, chunk_markdown
-from core.config import get_settings
-from core.distiller import DistillError
-from core.doc_key import doc_key, escapes_repo, lexical_doc_key
-from core.git import changed_files, head_sha
-from core.ids import make_id
-from core.path_guard import assert_safe_path
-from core.qdrant import replace_points
+from doc_ingest.core.chunker import cap_chunks, chunk_markdown
+from doc_ingest.core.config import get_settings
+from doc_ingest.core.distiller import DistillError
+from doc_ingest.core.doc_key import doc_key, escapes_repo, lexical_doc_key
+from doc_ingest.core.git import changed_files, head_sha
+from doc_ingest.core.ids import make_id
+from doc_ingest.core.path_guard import assert_safe_path
+from doc_ingest.core.qdrant import replace_points
 
 _log = logging.getLogger(__name__)
 

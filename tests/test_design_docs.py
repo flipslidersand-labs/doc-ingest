@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ingest.design_docs import _changed_files
+from doc_ingest.ingest.design_docs import _changed_files
 from tests.conftest import override_settings
 
 
@@ -14,7 +14,7 @@ def git_changed(mocker):
 
     def _set(paths):
         return mocker.patch(
-            "core.ingest_pipeline.changed_files", return_value=[Path(p) for p in paths]
+            "doc_ingest.core.ingest_pipeline.changed_files", return_value=[Path(p) for p in paths]
         )
 
     return _set
@@ -67,13 +67,13 @@ class TestChangedFiles:
 
 class TestIngestDesignDocs:
     def test_no_files_logs_message(self, mocker, caplog):
-        mocker.patch("ingest.design_docs._changed_files", return_value=[])
-        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc1234")
+        mocker.patch("doc_ingest.ingest.design_docs._changed_files", return_value=[])
+        mocker.patch("doc_ingest.core.ingest_pipeline.head_sha", return_value="abc1234")
         import logging
 
-        from ingest.design_docs import ingest_design_docs
+        from doc_ingest.ingest.design_docs import ingest_design_docs
 
-        with caplog.at_level(logging.DEBUG, logger="core.ingest_pipeline"):
+        with caplog.at_level(logging.DEBUG, logger="doc_ingest.core.ingest_pipeline"):
             ingest_design_docs()
         assert "no design docs changed" in caplog.text
 
@@ -82,14 +82,14 @@ class TestIngestDesignDocs:
         md.write_text("## Section\n" + "x" * 100)
 
         old_id = 9999
-        mocker.patch("ingest.design_docs._changed_files", return_value=[md])
-        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[old_id])
-        mock_upsert = mocker.patch("core.qdrant.upsert")
-        mock_delete_ids = mocker.patch("core.qdrant.delete_by_ids")
-        mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")
+        mocker.patch("doc_ingest.ingest.design_docs._changed_files", return_value=[md])
+        mocker.patch("doc_ingest.core.ingest_pipeline.head_sha", return_value="abc")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[old_id])
+        mock_upsert = mocker.patch("doc_ingest.core.qdrant.upsert")
+        mock_delete_ids = mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+        mocker.patch("doc_ingest.ingest.design_docs.distill_design_doc", return_value="distilled")
 
-        from ingest.design_docs import ingest_design_docs
+        from doc_ingest.ingest.design_docs import ingest_design_docs
 
         ingest_design_docs()
 
@@ -103,14 +103,14 @@ class TestIngestDesignDocs:
         md = tmp_path / "CLAUDE.md"
         md.write_text("## Section\n" + "x" * 100)
 
-        mocker.patch("ingest.design_docs._changed_files", return_value=[md])
-        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-        mock_upsert = mocker.patch("core.qdrant.upsert")
-        mock_delete_ids = mocker.patch("core.qdrant.delete_by_ids")
-        mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")
+        mocker.patch("doc_ingest.ingest.design_docs._changed_files", return_value=[md])
+        mocker.patch("doc_ingest.core.ingest_pipeline.head_sha", return_value="abc")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("doc_ingest.core.qdrant.upsert")
+        mock_delete_ids = mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+        mocker.patch("doc_ingest.ingest.design_docs.distill_design_doc", return_value="distilled")
 
-        from ingest.design_docs import ingest_design_docs
+        from doc_ingest.ingest.design_docs import ingest_design_docs
 
         ingest_design_docs()
 
@@ -123,13 +123,15 @@ class TestExplicitFile:
 
     def test_file_goes_through_assert_safe_path_and_skips_changed_files(self, mocker):
         resolved = Path("/resolved/CLAUDE.md")
-        safe = mocker.patch("core.ingest_pipeline.assert_safe_path", return_value=resolved)
-        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
-        changed = mocker.patch("ingest.design_docs._changed_files")
-        git_changed = mocker.patch("core.ingest_pipeline.changed_files")
-        ingest = mocker.patch("core.ingest_pipeline.ingest_markdown_files")
+        safe = mocker.patch(
+            "doc_ingest.core.ingest_pipeline.assert_safe_path", return_value=resolved
+        )
+        mocker.patch("doc_ingest.core.ingest_pipeline.head_sha", return_value="abc")
+        changed = mocker.patch("doc_ingest.ingest.design_docs._changed_files")
+        git_changed = mocker.patch("doc_ingest.core.ingest_pipeline.changed_files")
+        ingest = mocker.patch("doc_ingest.core.ingest_pipeline.ingest_markdown_files")
 
-        from ingest.design_docs import COLLECTION, ingest_design_docs
+        from doc_ingest.ingest.design_docs import COLLECTION, ingest_design_docs
 
         ingest_design_docs(file="rel/CLAUDE.md")
 
@@ -147,13 +149,13 @@ class TestExplicitFile:
         outside.write_text("## S\n" + "x" * 100)
         override_settings(doc_ingest_base_dir=str(base))
         monkeypatch.chdir(base)
-        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
-        upsert = mocker.patch("core.qdrant.upsert")
-        delete = mocker.patch("core.qdrant.delete_by_ids")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=["old"])
-        distill = mocker.patch("ingest.design_docs.distill_design_doc")
+        mocker.patch("doc_ingest.core.ingest_pipeline.head_sha", return_value="abc")
+        upsert = mocker.patch("doc_ingest.core.qdrant.upsert")
+        delete = mocker.patch("doc_ingest.core.qdrant.delete_by_ids")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=["old"])
+        distill = mocker.patch("doc_ingest.ingest.design_docs.distill_design_doc")
 
-        from ingest.design_docs import ingest_design_docs
+        from doc_ingest.ingest.design_docs import ingest_design_docs
 
         with pytest.raises(PermissionError):
             ingest_design_docs(file="../outside.md")
@@ -164,15 +166,15 @@ class TestExplicitFile:
 
     def test_md_outside_design_patterns_is_ingested_when_given_explicitly(self, mocker, tmp_path):
         """現仕様: file 指定には DESIGN_PATTERNS の絞り込みがかからない (README.md も入る)。"""
-        from ingest.design_docs import _is_design_doc, ingest_design_docs
+        from doc_ingest.ingest.design_docs import _is_design_doc, ingest_design_docs
 
         readme = tmp_path / "README.md"
         readme.write_text("## Section\n" + "x" * 100)
         assert _is_design_doc(readme) is False
-        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
-        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
-        mock_upsert = mocker.patch("core.qdrant.upsert")
-        mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")
+        mocker.patch("doc_ingest.core.ingest_pipeline.head_sha", return_value="abc")
+        mocker.patch("doc_ingest.core.qdrant.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("doc_ingest.core.qdrant.upsert")
+        mocker.patch("doc_ingest.ingest.design_docs.distill_design_doc", return_value="distilled")
 
         ingest_design_docs(file=str(readme))
 

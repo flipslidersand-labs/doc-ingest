@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from core.git import changed_files, head_sha
+from doc_ingest.core.git import changed_files, head_sha
 
 
 def _make_result(returncode: int, stdout: str = "", stderr: str = "") -> MagicMock:
@@ -38,7 +38,7 @@ class TestChangedFiles:
         result = _make_result(128, "", "fatal: bad revision 'HEAD~1'")
         with (
             patch("subprocess.run", return_value=result),
-            caplog.at_level(logging.WARNING, logger="core.git"),
+            caplog.at_level(logging.WARNING, logger="doc_ingest.core.git"),
         ):
             changed_files("/repo")
         assert any("returncode=128" in r.message for r in caplog.records)
@@ -66,7 +66,7 @@ class TestHeadSha:
         result = _make_result(128, "", "fatal: not a git repository")
         with (
             patch("subprocess.run", return_value=result),
-            caplog.at_level(logging.WARNING, logger="core.git"),
+            caplog.at_level(logging.WARNING, logger="doc_ingest.core.git"),
         ):
             head_sha("/repo")
         assert any("returncode=128" in r.message for r in caplog.records)

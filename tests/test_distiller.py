@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core import distiller
-from core.config import get_settings
+from doc_ingest.core import distiller
+from doc_ingest.core.config import get_settings
 from tests.conftest import override_settings
 
 

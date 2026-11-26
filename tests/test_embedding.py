@@ -6,8 +6,8 @@ import httpx
 import pytest
 import respx
 
-import core.embedding as emb
-from core.config import get_settings
+import doc_ingest.core.embedding as emb
+from doc_ingest.core.config import get_settings
 from tests.conftest import override_settings
 
 
@@ -210,7 +210,7 @@ def test_embed_fallback_use_is_logged(monkeypatch, caplog):
     monkeypatch.setattr(emb, "EMBED_RETRIES", 1)
     respx.post(PRIMARY_URL).mock(side_effect=httpx.ConnectError("refused"))
     respx.post(FALLBACK_URL).mock(return_value=httpx.Response(200, json={"vectors": [[0.1] * 768]}))
-    with patch("time.sleep"), caplog.at_level(logging.WARNING, logger="core.embedding"):
+    with patch("time.sleep"), caplog.at_level(logging.WARNING, logger="doc_ingest.core.embedding"):
         emb.embed(["t"])
     assert "using fallback" in caplog.text
     assert "unreachable" in caplog.text

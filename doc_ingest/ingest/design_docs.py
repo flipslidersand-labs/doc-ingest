@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-from core.distiller import distill_design_doc
-from core.ingest_pipeline import changed_matching, ingest_changed_or_file
-from core.schema import Collection
+from doc_ingest.core.distiller import distill_design_doc
+from doc_ingest.core.ingest_pipeline import changed_matching, ingest_changed_or_file
+from doc_ingest.core.schema import Collection
 
 COLLECTION = Collection.DESIGN.value
 DESIGN_PATTERNS = ("CLAUDE.md", "AGENTS.md", "docs/*.md", "adr/*.md", "ADR/*.md")

@@ -7,7 +7,7 @@ import httpx
 import pytest
 import respx
 
-from ingest.external import _notify_discord
+from doc_ingest.ingest.external import _notify_discord
 from tests.conftest import override_settings
 
 WEBHOOK = "https://discord.example.invalid/api/webhooks/0000/dummy-token"
@@ -118,7 +118,7 @@ class TestErrorsSwallowed:
 
     @respx.mock
     def test_timeout_is_set(self, webhook, mocker):
-        post = mocker.patch("ingest.external.httpx.post")
+        post = mocker.patch("doc_ingest.ingest.external.httpx.post")
         _notify_discord(1, 1, [], [], TS)
         assert post.call_args.kwargs["timeout"] == 10
         assert post.call_args.args[0] == WEBHOOK
@@ -137,7 +137,7 @@ class TestNotifyFailureNeverLogsTheWebhook:
     @pytest.mark.parametrize("status", [400, 401, 403, 404, 429, 500, 502])
     def test_http_error_logs_the_reason_but_not_the_url(self, status, caplog):
         respx.post(self.SECRET_URL).mock(return_value=httpx.Response(status))
-        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+        with caplog.at_level(logging.WARNING, logger="doc_ingest.ingest.external"):
             _notify_discord(1, 2, [], [], "ts")
         assert "SECRET-TOKEN" not in caplog.text and "webhooks/123456789" not in caplog.text
         assert "Discord notify failed" in caplog.text and str(status) in caplog.text
@@ -145,14 +145,14 @@ class TestNotifyFailureNeverLogsTheWebhook:
     @respx.mock
     def test_connection_error_is_logged_without_the_url(self, caplog):
         respx.post(self.SECRET_URL).mock(side_effect=httpx.ConnectError("refused"))
-        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+        with caplog.at_level(logging.WARNING, logger="doc_ingest.ingest.external"):
             _notify_discord(1, 2, [], [], "ts")
         assert "SECRET-TOKEN" not in caplog.text and "refused" in caplog.text
 
     @respx.mock
     def test_an_exception_that_embeds_the_url_is_redacted(self, caplog):
         respx.post(self.SECRET_URL).mock(side_effect=httpx.ReadError(f"broken: {self.SECRET_URL}"))
-        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+        with caplog.at_level(logging.WARNING, logger="doc_ingest.ingest.external"):
             _notify_discord(1, 2, [], [], "ts")
         assert "SECRET-TOKEN" not in caplog.text and "<url>" in caplog.text
 

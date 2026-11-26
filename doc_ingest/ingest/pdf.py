@@ -5,14 +5,14 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from core.chunker import cap_chunks, chunk_text
-from core.config import get_settings
-from core.distiller import distill_text
-from core.ids import make_id
-from core.pdf_text import extract_pdf_text
-from core.qdrant import replace_points
-from core.schema import Collection
-from core.url_guard import safe_download, strip_url
+from doc_ingest.core.chunker import cap_chunks, chunk_text
+from doc_ingest.core.config import get_settings
+from doc_ingest.core.distiller import distill_text
+from doc_ingest.core.ids import make_id
+from doc_ingest.core.pdf_text import extract_pdf_text
+from doc_ingest.core.qdrant import replace_points
+from doc_ingest.core.schema import Collection
+from doc_ingest.core.url_guard import safe_download, strip_url
 
 _log = logging.getLogger(__name__)
 
