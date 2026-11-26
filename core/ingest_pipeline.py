@@ -14,7 +14,7 @@ from core.chunker import cap_chunks, chunk_markdown
 from core.config import get_settings
 from core.distiller import DistillError
 from core.doc_key import doc_key, escapes_repo, lexical_doc_key
-from core.git import changed_files, head_sha
+from core.git import changed_files, head_sha, resolve_from_cwd
 from core.ids import make_id
 from core.path_guard import assert_safe_path
 from core.qdrant import replace_points
@@ -126,7 +126,8 @@ def ingest_markdown_files(
 
 def changed_matching(is_target: Callable[[Path], bool]) -> list[Path]:
     """The files changed in the last commit for which *is_target* is true."""
-    return [p for p in changed_files() if is_target(p)]
+    # 絞り込みはリポルート相対のまま行い、開けるパス (cwd 相対) にしてから返す (#354)
+    return resolve_from_cwd(p for p in changed_files() if is_target(p))
 
 
 def ingest_changed_or_file(
