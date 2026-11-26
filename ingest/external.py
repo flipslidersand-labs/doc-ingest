@@ -64,6 +64,14 @@ def _load_sources():
     dups = sorted({u for u in urls if urls.count(u) > 1})
     if dups:  # state は URL がキーなので、重複すると状態が黙って共有される
         raise ValueError(f"duplicate url in {SOURCES_FILE.name}: {dups}")
+    # source_url は query/fragment を落として保存し、replace_points はそれで絞り込む。query だけ違う
+    # 2 ソースは同じ値になり、一方の sync が他方の point を stale として消すので設定で弾く (#359)
+    shown = [strip_url(u) for u in urls]
+    clash = sorted({u for u in shown if shown.count(u) > 1})
+    if clash:
+        raise ValueError(
+            f"duplicate url in {SOURCES_FILE.name} (same after dropping query/fragment): {clash}"
+        )
     state = _load_state()
     for src in sources:
         st = state.get(src["url"])
@@ -314,7 +322,10 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
             except Exception as e:  # noqa: BLE001
                 url = sources[i]["url"]
                 _log.warning(
-                    "failed %s → %s: %s (continuing)", url, type(e).__name__, redact_urls(e)
+                    "failed %s → %s: %s (continuing)",
+                    strip_url(url),
+                    type(e).__name__,
+                    redact_urls(e),
                 )
                 fetch_results[i] = FetchResult.failed(url, sources[i])
 
