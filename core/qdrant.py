@@ -108,17 +108,6 @@ def search(collection: str, query: str, limit: int = 5) -> list[dict]:
     ]
 
 
-def delete_by_payload(collection: str, key: str, value: str) -> None:
-    from qdrant_client.models import FieldCondition, Filter, MatchValue
-
-    if not _collection_exists(collection):
-        return
-    client().delete(
-        collection_name=collection,
-        points_selector=Filter(must=[FieldCondition(key=key, match=MatchValue(value=value))]),
-    )
-
-
 def ids_by_payload(collection: str, key: str, value: str) -> list[int]:
     """Return all point IDs where payload[key] == value (scrolls to exhaustion)."""
     from qdrant_client.models import FieldCondition, Filter, MatchValue
