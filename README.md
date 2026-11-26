@@ -260,7 +260,7 @@ Current version: 0.1.0 (not yet released; no tags). Changes are tracked in [CHAN
 
 ## License
 
-MIT — see [NOTICE.md](NOTICE.md) for a third-party (GPL-3.0) dependency note.
+MIT — see [NOTICE.md](NOTICE.md) for third-party copyleft dependency notes (trafilatura: GPL-3.0, PyMuPDF: AGPL-3.0).
 
 
 ## 設計判断 / Architecture decisions
