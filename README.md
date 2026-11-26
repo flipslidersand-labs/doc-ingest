@@ -87,6 +87,11 @@ bash scripts/install-hooks.sh --uninstall
 
 Design docs (CLAUDE.md, ADR, docs/) are auto-ingested on every commit.
 
+The hook points at the checkout that ran the installer (override with `DOC_INGEST_DIR`). It never
+fails a commit, but if `doc-ingest` cannot start or exits non-zero it appends the time, repo, exit
+code and last 5 stderr lines to `${XDG_STATE_HOME:-~/.local/state}/doc-ingest/post-commit.log`.
+Hooks installed before this change keep the old fixed path: run `--uninstall`, then install again.
+
 For an Obsidian vault (default `~/notes`), `--notes` installs a post-commit hook that runs the
 `notes` command instead, so curated notes flow into the `notes` collection. It uses the same
 safe `.env` loading as the design hook (KEY=VALUE lines only, never `source`d) and can live in the
@@ -210,6 +215,8 @@ bash scripts/install-hooks.sh --uninstall
 ```
 
 コミットのたびに設計ドキュメント（CLAUDE.md / ADR / docs/）が自動取り込みされます。
+
+フックはインストーラを実行したチェックアウトを指します（`DOC_INGEST_DIR` で上書き可）。コミットは失敗させませんが、`doc-ingest` が起動できない／非 0 で終了した場合は、時刻・リポ・終了コード・stderr 末尾 5 行を `${XDG_STATE_HOME:-~/.local/state}/doc-ingest/post-commit.log` に追記します。この変更より前に入れたフックは旧い固定パスのままなので、`--uninstall` のあと再インストールしてください。
 
 Obsidian ノート（既定 `~/notes`）には `--notes` で、`notes` コマンドを実行する post-commit フックを入れます。キュレーションされたノートが `notes` コレクションに自動登録されます。`.env` の読み込みは design 用と同じ安全な方式（`KEY=VALUE` の行だけを文字列として読み、`source` しない）で、design 用と同じ `post-commit` ファイルに共存できます。
 
