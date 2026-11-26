@@ -43,6 +43,18 @@ def test_same_filename_in_two_repos_gets_different_keys_and_ids(tmp_path):
     assert make_id(f"{ka.key}:0") != make_id(f"{kb.key}:0")  # #216: 以前は同一 ID
 
 
+def test_same_filename_in_same_named_directories_of_different_repos_collides(tmp_path):
+    """既知の制約 (#352, docs/design.md「Document identity」): key はリポのディレクトリ名だけで
+    作るので、親が違っても同名ディレクトリのリポは同じ key になる。現状の挙動を固定するテスト。
+    key に識別子を足す変更を入れるときは、このテストと既存 point の移行を一緒に直す。"""
+    (tmp_path / "x").mkdir()
+    (tmp_path / "y").mkdir()
+    a, b = _repo(tmp_path / "x", "forge"), _repo(tmp_path / "y", "forge")
+    assert a != b
+    ka, kb = doc_key(a / "CLAUDE.md"), doc_key(b / "CLAUDE.md")
+    assert ka == kb == DocKey("forge", "forge/CLAUDE.md")
+
+
 def test_hook_relative_path_and_manual_absolute_path_are_the_same_key(tmp_path, monkeypatch):
     repo = _repo(tmp_path, "forge", files=("docs/design.md",))
     monkeypatch.chdir(repo)  # post-commit フックは各リポのルートで走る
