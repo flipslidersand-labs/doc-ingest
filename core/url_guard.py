@@ -241,7 +241,8 @@ def safe_get(
             _client(timeout) as client,
             client.stream("GET", current, headers=headers, follow_redirects=False) as resp,
         ):
-            if resp.is_redirect:
+            # 304 (If-None-Match の一致) は Location の無い通常応答。redirect 扱いにしない (#369)
+            if resp.is_redirect and resp.status_code != 304:
                 location = resp.headers.get("location")
                 if not location:
                     raise UnsafeURLError(
@@ -291,7 +292,8 @@ def safe_download(
             _client(timeout) as client,
             client.stream("GET", current, headers=headers, follow_redirects=False) as resp,
         ):
-            if resp.is_redirect:
+            # 304 (If-None-Match の一致) は Location の無い通常応答。redirect 扱いにしない (#369)
+            if resp.is_redirect and resp.status_code != 304:
                 location = resp.headers.get("location")
                 if not location:
                     raise UnsafeURLError(

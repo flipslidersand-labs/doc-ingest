@@ -1,6 +1,7 @@
 """Tests for core/url_guard.py"""
 
 import io
+import ipaddress
 import socket
 from pathlib import Path
 
@@ -665,6 +666,55 @@ class TestSafeGetBodyLimit:
         )
         respx.get("https://example.com/b").mock(return_value=httpx.Response(200, content=b"x" * 50))
         assert len(safe_get("https://example.com/a", max_bytes=100).content) == 50
+
+
+class TestNotModified:
+    """#369: 304 は Location を持たない。redirect 扱いにせず、そのまま返す (sync の ETag 一致)。"""
+
+    @pytest.fixture(autouse=True)
+    def _isolated(self, mocker):
+        with respx.mock:
+            real = socket.getaddrinfo
+
+            def fake(host, *a, **kw):
+                try:
+                    return real(host, *a, **kw) if ipaddress.ip_address(host) else []
+                except ValueError:
+                    return [(socket.AF_INET, None, None, None, ("93.184.216.34", 0))]
+
+            mocker.patch("socket.getaddrinfo", side_effect=fake)
+            yield
+
+    def test_safe_get_returns_304_as_is(self):
+        route = respx.get("https://example.com/doc").mock(return_value=httpx.Response(304))
+        resp = safe_get("https://example.com/doc", headers={"If-None-Match": '"x"'})
+        assert resp.status_code == 304
+        assert route.call_count == 1
+        assert route.calls.last.request.headers["if-none-match"] == '"x"'
+
+    def test_safe_download_does_not_treat_304_as_a_redirect(self):
+        # safe_download は非 2xx を HTTPStatusError にする。304 は redirect 例外ではなくそちらへ行く。
+        respx.get("https://example.com/doc").mock(return_value=httpx.Response(304))
+        with pytest.raises(httpx.HTTPStatusError) as ei:
+            safe_download("https://example.com/doc", io.BytesIO(), headers={"If-None-Match": '"x"'})
+        assert ei.value.response.status_code == 304
+
+    @pytest.mark.parametrize("status", [301, 302, 307, 308])
+    def test_redirects_with_location_are_still_followed(self, status):
+        respx.get("https://example.com/old").mock(
+            return_value=httpx.Response(status, headers={"location": "/new"})
+        )
+        respx.get("https://example.com/new").mock(return_value=httpx.Response(200, content=b"ok"))
+        assert safe_get("https://example.com/old").content == b"ok"
+        buf = io.BytesIO()
+        assert safe_download("https://example.com/old", buf) == 2 and buf.getvalue() == b"ok"
+
+    def test_a_redirect_with_location_is_still_revalidated(self):
+        respx.get("https://example.com/evil").mock(
+            return_value=httpx.Response(302, headers={"location": "https://192.168.1.1/x"})
+        )
+        with pytest.raises(UnsafeURLError, match="blocked"):
+            safe_get("https://example.com/evil")
 
 
 def _addr(ip):
