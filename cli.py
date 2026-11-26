@@ -4,11 +4,12 @@ import logging
 import re
 
 import click
+import httpx
 
 from core.config import get_settings
 from core.ingest_pipeline import IngestResult
 from core.schema import Collection, collection_names, payload_origin
-from core.url_guard import UnsafeURLError, assert_safe_url
+from core.url_guard import UnsafeURLError, assert_safe_url, describe_http_error
 from ingest.arxiv import ingest_arxiv
 from ingest.design_docs import ingest_design_docs
 from ingest.external import sync_external
@@ -74,6 +75,8 @@ def arxiv(url: str, tags: str):
         ingest_arxiv(url, tags=tag_list)
     except ValueError as exc:  # 不正な arXiv ID・論文が見つからない・本文を抽出できない
         raise click.ClickException(str(exc)) from exc
+    except httpx.HTTPStatusError as exc:  # str(exc) は query 付きの URL を含むので伏せて出す
+        raise click.ClickException(describe_http_error(exc)) from exc
 
 
 def _exit_on_failures(result: IngestResult) -> None:
@@ -202,6 +205,8 @@ def pdf(path: str, tags: str, allow_cloud: bool):
         raise click.ClickException(f"ファイルが見つかりません: {path}")
     except UnsafeURLError as e:
         raise click.ClickException(f"取り込めない URL です: {e}")
+    except httpx.HTTPStatusError as e:  # str(e) は query 付きの URL を含むので伏せて出す
+        raise click.ClickException(f"取得に失敗しました: {describe_http_error(e)}") from e
 
 
 if __name__ == "__main__":

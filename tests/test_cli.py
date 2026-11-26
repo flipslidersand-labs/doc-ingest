@@ -1,5 +1,7 @@
 """Tests for cli.py — smoke tests via click.testing.CliRunner."""
 
+from typing import ClassVar
+
 from click.testing import CliRunner
 
 from cli import main
@@ -488,15 +490,30 @@ class TestSearchSanitizesControlChars:
 class TestIngestFailureExitCode:
     """#332/#350: ファイル失敗は非ゼロ終了。蒸留スキップだけなら 0 + 警告 (件数は分けて出す)。"""
 
-    def _run(self, mocker, tmp_path, monkeypatch, cmd, *, one_file):
+    # FILE は対象コレクションの target でなければ取り込み前に拒否される (#360)
+    TARGET: ClassVar[dict[str, str]] = {"design": "CLAUDE.md", "notes": "10-projects/a.md"}
+
+    def _run(self, mocker, tmp_path, monkeypatch, cmd, *, one_file, file=None):
         base = tmp_path / "base"
-        base.mkdir()
+        (base / "10-projects").mkdir(parents=True)
         (base / "a.md").write_text("# t\nbody\n")
+        for rel in self.TARGET.values():
+            (base / rel).write_text("# t\nbody\n")
         monkeypatch.chdir(base)
         override_settings(doc_ingest_base_dir=str(base))
         mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
         mocker.patch("core.ingest_pipeline._ingest_one", **one_file)
-        return CliRunner().invoke(main, [cmd, "a.md"])
+        return CliRunner().invoke(main, [cmd, file or self.TARGET[cmd]])
+
+    def test_file_that_is_not_a_target_exits_nonzero_without_ingesting(
+        self, mocker, tmp_path, monkeypatch
+    ):
+        from core import ingest_pipeline
+
+        result = self._run(mocker, tmp_path, monkeypatch, "design", one_file={}, file="a.md")
+        assert result.exit_code == 1
+        assert "1 file(s) failed" in result.output
+        ingest_pipeline._ingest_one.assert_not_called()
 
     def test_design_file_failure_exits_nonzero(self, mocker, tmp_path, monkeypatch):
         result = self._run(

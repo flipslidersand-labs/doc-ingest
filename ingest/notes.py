@@ -31,6 +31,7 @@ def _changed_files() -> list[Path]:
 def ingest_notes(file: str | None = None) -> IngestResult:
     return ingest_changed_or_file(
         file,
+        is_target=_is_note,
         changed=_changed_files,
         collection=COLLECTION,
         source_label="obsidian-note",

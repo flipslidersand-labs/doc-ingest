@@ -437,6 +437,7 @@ class TestIngestChangedOrFile:
 
         ingest_changed_or_file(
             file,
+            is_target=lambda p: True,
             changed=changed,
             collection="c",
             source_label="s",
@@ -515,6 +516,7 @@ class TestPerFileIsolation:
         with caplog.at_level("WARNING"):
             ingest_changed_or_file(
                 None,
+                is_target=lambda p: True,
                 changed=lambda: [Path("x.md")],
                 collection="c",
                 source_label="s",
@@ -552,6 +554,7 @@ class TestExplicitFileSymlink:
             with caplog.at_level(logging.WARNING, logger="core.ingest_pipeline"):
                 ingest_changed_or_file(
                     "docs/link.md",
+                    is_target=lambda p: True,
                     changed=list,
                     collection="design",
                     source_label="d",
