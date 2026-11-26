@@ -1,5 +1,7 @@
 """core/redact: ログに出す例外テキストから URL (= 認証情報になりうる) を伏せる (#224)。"""
 
+import time
+
 import httpx
 import pytest
 
@@ -42,3 +44,48 @@ class TestRedactUrls:
 
     def test_the_query_string_secret_goes_too(self):
         assert "SECRET" not in redact_urls("GET https://api.example.com/v1/x?api_key=SECRET failed")
+
+
+class TestRedactUrlsDelimiters:
+    """#385: ``)`` ``]`` ``'`` ``"`` ``<`` ``>`` を生で含む userinfo・path の後半を残さない。"""
+
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            # URL の途中にある区切り文字は URL の一部として伏せる
+            ("https://u:pa)ss@h/", "<url>"),
+            ("https://u:pa]ss@h/", "<url>"),
+            ("https://u:pa'ss@h/", "<url>"),
+            ('https://u:pa"ss@h/', "<url>"),
+            ("https://u:pa<ss@h/", "<url>"),
+            ("https://u:pa>ss@h/", "<url>"),
+            ("https://h/a)b/SECRET", "<url>"),
+            ("GET https://u:pa)ss@h/x failed", "GET <url> failed"),
+            # 末尾に付く句読点・括弧・引用符は URL に食い込ませず残す
+            ("see https://h/SECRET.", "see <url>."),
+            ("see https://h/SECRET, then", "see <url>, then"),
+            ("at https://h/SECRET: failed", "at <url>: failed"),
+            ("(https://h/SECRET)", "(<url>)"),
+            ("[https://h/SECRET]", "[<url>]"),
+            ("'https://h/SECRET'", "'<url>'"),
+            ("for url 'https://h/SECRET').", "for url '<url>')."),
+            ('("https://h/SECRET");', '("<url>");'),
+            ("<https://h/SECRET>", "<<url>>"),
+            ("{https://h/SECRET}", "{<url>}"),
+            ("really https://h/SECRET?!", "really <url>?!"),
+        ],
+    )
+    def test_cases(self, text, expected):
+        assert redact_urls(text) == expected
+
+    def test_no_userinfo_fragment_survives(self):
+        for pw in ("pa)ss", "pa]ss", "pa'ss", 'pa"ss', "pa<ss", "pa>ss"):
+            out = redact_urls(f"fail https://u:{pw}@h/ done")
+            assert "ss@" not in out and "pa" not in out, (pw, out)
+            assert out == "fail <url> done"
+
+    def test_long_input_stays_linear(self):
+        for text in ("https://" + ")" * 100_000, "https://h/" + "a)" * 50_000, "http://)" * 20_000):
+            start = time.monotonic()
+            redact_urls(text)
+            assert time.monotonic() - start < 2.0
