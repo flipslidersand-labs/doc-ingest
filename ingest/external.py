@@ -19,7 +19,7 @@ from core.qdrant import replace_points
 from core.redact import redact_urls
 from core.retry import with_retry
 from core.schema import Collection
-from core.url_guard import UnsafeURLError, assert_safe_url, safe_get
+from core.url_guard import UnsafeURLError, assert_safe_url, safe_get, strip_url
 
 _log = logging.getLogger(__name__)
 
@@ -94,6 +94,8 @@ class _ServerError(Exception):
 
 
 def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
+    shown = strip_url(url)  # ログには query/fragment (署名・トークン) を出さない (#359)
+
     def attempt() -> httpx.Response:
         resp = safe_get(url, headers=headers, timeout=30)
         if resp.status_code >= 500:
@@ -101,7 +103,7 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
         return resp
 
     def log_retry(n: int, e: Exception) -> None:
-        _log.debug("retry %d/%d %s → %s", n + 1, MAX_RETRIES, url, redact_urls(e))
+        _log.debug("retry %d/%d %s → %s", n + 1, MAX_RETRIES, shown, redact_urls(e))
 
     try:
         return with_retry(
@@ -111,7 +113,7 @@ def _fetch_with_retry(url: str, headers: dict) -> httpx.Response | None:
             on_retry=log_retry,
         )
     except UnsafeURLError as e:
-        _log.warning("blocked %s: %s", url, redact_urls(e))
+        _log.warning("blocked %s: %s", shown, redact_urls(e))
     except (_ServerError, httpx.RequestError):
         pass  # gave up — the caller logs the failure
     return None
@@ -143,10 +145,13 @@ class FetchResult:
 def _fetch_source(source: dict, force: bool, now: str) -> FetchResult:
     """Fetch + extract content for one source. Thread-safe: reads source, never writes it."""
     url = source["url"]
+    # 識別 (point id・状態のキー) は元の URL のまま。ログ・source_url・通知に出すのは query/fragment を
+    # 落とした形 (署名・トークンが検索結果やログに残らないように) (#359)
+    shown = strip_url(url)
     try:
         assert_safe_url(url)
     except UnsafeURLError as exc:
-        _log.warning("blocked unsafe URL: %s", exc)
+        _log.warning("blocked unsafe URL: %s", redact_urls(exc))
         return FetchResult.failed(url, source)
     stored_etag = source.get("last_etag", "")
     headers: dict[str, str] = {}
@@ -158,15 +163,15 @@ def _fetch_source(source: dict, force: bool, now: str) -> FetchResult:
 
     resp = _fetch_with_retry(fetch_url, headers)
     if resp is None:
-        _log.warning("failed %s (gave up after %d attempts)", url, MAX_RETRIES)
+        _log.warning("failed %s (gave up after %d attempts)", shown, MAX_RETRIES)
         return FetchResult.failed(url, source)
 
     if resp.status_code == 304:
-        _log.info("up-to-date %s", url)
+        _log.info("up-to-date %s", shown)
         return FetchResult.skipped(url, source)
 
     if not resp.is_success:
-        _log.warning("failed %s → HTTP %d (continuing)", url, resp.status_code)
+        _log.warning("failed %s → HTTP %d (continuing)", shown, resp.status_code)
         return FetchResult.failed(url, source)
 
     new_etag = resp.headers.get("etag", "")
@@ -174,24 +179,24 @@ def _fetch_source(source: dict, force: bool, now: str) -> FetchResult:
 
     if use_jina:
         if not body.strip():
-            _log.warning("Jina returned empty body, skipping: %s", url)
+            _log.warning("Jina returned empty body, skipping: %s", shown)
             return FetchResult.skipped(url, source)
     elif looks_like_html(resp.headers.get("content-type", ""), body):
         extracted = extract_markdown(body)
         if extracted:
             body = extracted
         else:
-            _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", url)
+            _log.warning("HTML extraction empty, skipping (raw HTML not ingested): %s", shown)
             return FetchResult.skipped(url, source)
 
-    chunks = cap_chunks(chunk_markdown(body, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS), url)
+    chunks = cap_chunks(chunk_markdown(body, max_section_tokens=EXTERNAL_MAX_SECTION_TOKENS), shown)
     points = [
         {
             "id": make_id(f"{url}:{c['chunk_index']}"),
             "text": c["text"],
             "source": "external-api",
             "trust": "external",
-            "source_url": url,
+            "source_url": shown,
             "section": c["section"],
             "doc_type": source.get("type", "external-api"),
             "tags": source.get("tags", []),
@@ -201,7 +206,7 @@ def _fetch_source(source: dict, force: bool, now: str) -> FetchResult:
     ]
     if not points:
         # 短い 200(エラーページ等)で既存 point を全削除し ETag を固定しない (#297)
-        _log.warning("no chunks extracted, skipping (existing points and ETag kept): %s", url)
+        _log.warning("no chunks extracted, skipping (existing points and ETag kept): %s", shown)
         return FetchResult.skipped(url, source)
     return FetchResult.ready(url, source, new_etag, points)
 
@@ -247,7 +252,7 @@ class _Summary:
 def _apply_result(result: FetchResult, now: str, dry_run: bool, summary: _Summary) -> None:
     """ソース1件の結果を Qdrant とソースのメタデータ (source dict) に反映し、summary に積む。"""
     source = result.source
-    url = result.url
+    url = strip_url(result.url)  # ログ・通知・source_url の絞り込みに使う表示用 (#359)
 
     if result.status == "failed":
         source["failed_at"] = now
