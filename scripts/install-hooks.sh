@@ -28,9 +28,17 @@ DEFAULT_REPOS=(
 # execution via source). Only KEY=VALUE lines are accepted; comments and
 # blank lines are skipped. Values are read as literal strings — no $(…),
 # backtick, or variable expansion occurs.
+#
+# #356: __DOC_INGEST_ROOT__ is replaced at install time with this checkout's root (shell-quoted),
+# so the hook works wherever the repo was cloned. DOC_INGEST_DIR in the hook's env still wins.
+# A failing/unlaunchable doc-ingest never fails the commit (exit 0), but is appended to
+# ${XDG_STATE_HOME:-$HOME/.local/state}/doc-ingest/post-commit.log (private perms; timestamp,
+# repo, exit code, last 5 stderr lines only - never .env values). No blank lines inside the
+# snippet: --uninstall removes from the marker up to the first blank line.
 read -r -d '' SNIPPET << 'SNIPPET' || true
 # doc-ingest-hook
-_DOC_INGEST_DIR="${DOC_INGEST_DIR:-$HOME/projects/doc-ingest}"
+_DOC_INGEST_DEFAULT=__DOC_INGEST_ROOT__
+_DOC_INGEST_DIR="${DOC_INGEST_DIR:-$_DOC_INGEST_DEFAULT}"
 if [ -f "$_DOC_INGEST_DIR/.env" ]; then
   while IFS= read -r _line || [ -n "$_line" ]; do
     case "$_line" in
@@ -50,7 +58,24 @@ if [ -f "$_DOC_INGEST_DIR/.env" ]; then
     fi
   done < "$_DOC_INGEST_DIR/.env"
 fi
-PYTHONPATH="$_DOC_INGEST_DIR" "$_DOC_INGEST_DIR/.venv/bin/doc-ingest" design 2>/dev/null || true
+_di_err="$(mktemp "${TMPDIR:-/tmp}/doc-ingest-hook.XXXXXX" 2>/dev/null)" || _di_err=/dev/null
+_di_rc=0
+PYTHONPATH="$_DOC_INGEST_DIR" "$_DOC_INGEST_DIR/.venv/bin/doc-ingest" design 2>"$_di_err" || _di_rc=$?
+if [ "$_di_rc" -ne 0 ]; then
+  (
+    umask 077
+    _di_log="${XDG_STATE_HOME:-$HOME/.local/state}/doc-ingest/post-commit.log"
+    mkdir -p "${_di_log%/*}" || exit 0
+    {
+      printf '%s post-commit repo=%s exit=%s cmd=%s\n' "$(date +%Y-%m-%dT%H:%M:%S%z)" "$PWD" "$_di_rc" "$_DOC_INGEST_DIR/.venv/bin/doc-ingest"
+      tail -n 5 "$_di_err" | sed 's/^/  | /'
+    } >> "$_di_log"
+    if [ "$(wc -c < "$_di_log")" -gt 65536 ]; then
+      tail -n 200 "$_di_log" > "$_di_log.tmp" && mv "$_di_log.tmp" "$_di_log"
+    fi
+  ) 2>/dev/null || true
+fi
+[ "$_di_err" = /dev/null ] || rm -f "$_di_err"
 SNIPPET
 
 # --- parse flags ---
@@ -76,6 +101,16 @@ if [ "$NOTES" -eq 1 ]; then
   SNIPPET="${SNIPPET/doc-ingest\" design /doc-ingest\" notes }"
   DEFAULT_REPOS=("$HOME/notes")
 fi
+
+# Embed this checkout's root (the repo that holds this script) as the hook's default
+# location. Split on the placeholder rather than ${var/pat/rep}: bash 5.2 treats `&` in the
+# replacement specially, and printf %q escapes it.
+_PLACEHOLDER="__DOC_INGEST_ROOT__"
+case "$SNIPPET" in
+  *"$_PLACEHOLDER"*) ;;
+  *) echo "install-hooks.sh: internal error: root placeholder missing from snippet" >&2; exit 1 ;;
+esac
+SNIPPET="${SNIPPET%%"$_PLACEHOLDER"*}$(printf '%q' "$DOC_INGEST_DIR")${SNIPPET#*"$_PLACEHOLDER"}"
 
 if [ ${#REPOS[@]} -eq 0 ]; then
   REPOS=("${DEFAULT_REPOS[@]}")
