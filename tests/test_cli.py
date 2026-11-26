@@ -3,6 +3,7 @@
 from click.testing import CliRunner
 
 from cli import main
+from core.ingest_pipeline import IngestResult
 from core.url_guard import UnsafeURLError
 from tests.conftest import override_settings
 
@@ -36,17 +37,17 @@ class TestHelp:
 
 class TestSyncCommand:
     def test_sync_calls_sync_external(self, mocker):
-        mock_sync = mocker.patch("cli.sync_external")
+        mock_sync = mocker.patch("cli.sync_external", return_value=0)
         CliRunner().invoke(main, ["sync"])
         mock_sync.assert_called_once_with(force=False, dry_run=False)
 
     def test_sync_force_flag(self, mocker):
-        mock_sync = mocker.patch("cli.sync_external")
+        mock_sync = mocker.patch("cli.sync_external", return_value=0)
         CliRunner().invoke(main, ["sync", "--force"])
         mock_sync.assert_called_once_with(force=True, dry_run=False)
 
     def test_sync_dry_run_flag(self, mocker):
-        mock_sync = mocker.patch("cli.sync_external")
+        mock_sync = mocker.patch("cli.sync_external", return_value=0)
         CliRunner().invoke(main, ["sync", "--dry-run"])
         mock_sync.assert_called_once_with(force=False, dry_run=True)
 
@@ -349,20 +350,20 @@ class TestDesignCommand:
     """#263: design の FILE 引数の受け渡し (省略 = git フック経路 / 指定 = 単一ファイル)。"""
 
     def test_no_argument_passes_none(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_design_docs", return_value=0)
+        mock_ingest = mocker.patch("cli.ingest_design_docs", return_value=IngestResult())
         result = CliRunner().invoke(main, ["design"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with(None)
 
     def test_file_argument_is_passed_as_given(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_design_docs", return_value=0)
+        mock_ingest = mocker.patch("cli.ingest_design_docs", return_value=IngestResult())
         result = CliRunner().invoke(main, ["design", "docs/a.md"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with("docs/a.md")
 
     def test_does_not_call_notes_ingest(self, mocker):
-        mocker.patch("cli.ingest_design_docs", return_value=0)
-        mock_notes = mocker.patch("cli.ingest_notes", return_value=0)
+        mocker.patch("cli.ingest_design_docs", return_value=IngestResult())
+        mock_notes = mocker.patch("cli.ingest_notes", return_value=IngestResult())
         CliRunner().invoke(main, ["design", "docs/a.md"])
         mock_notes.assert_not_called()
 
@@ -387,20 +388,20 @@ class TestNotesCommand:
     """#263: notes の FILE 引数の受け渡し (省略 = git フック経路 / 指定 = 単一ファイル)。"""
 
     def test_no_argument_passes_none(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_notes", return_value=0)
+        mock_ingest = mocker.patch("cli.ingest_notes", return_value=IngestResult())
         result = CliRunner().invoke(main, ["notes"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with(None)
 
     def test_file_argument_is_passed_as_given(self, mocker):
-        mock_ingest = mocker.patch("cli.ingest_notes", return_value=0)
+        mock_ingest = mocker.patch("cli.ingest_notes", return_value=IngestResult())
         result = CliRunner().invoke(main, ["notes", "10-projects/a.md"])
         assert result.exit_code == 0
         mock_ingest.assert_called_once_with("10-projects/a.md")
 
     def test_does_not_call_design_ingest(self, mocker):
-        mocker.patch("cli.ingest_notes", return_value=0)
-        mock_design = mocker.patch("cli.ingest_design_docs", return_value=0)
+        mocker.patch("cli.ingest_notes", return_value=IngestResult())
+        mock_design = mocker.patch("cli.ingest_design_docs", return_value=IngestResult())
         CliRunner().invoke(main, ["notes", "10-projects/a.md"])
         mock_design.assert_not_called()
 
@@ -485,27 +486,125 @@ class TestSearchSanitizesControlChars:
 
 
 class TestIngestFailureExitCode:
-    """#332: 取り込み失敗 (ファイル単位の例外分離で握りつぶされた分) は非ゼロ終了にする。"""
+    """#332/#350: ファイル失敗は非ゼロ終了。蒸留スキップだけなら 0 + 警告 (件数は分けて出す)。"""
 
-    def _run(self, mocker, tmp_path, monkeypatch, cmd):
+    def _run(self, mocker, tmp_path, monkeypatch, cmd, *, one_file):
         base = tmp_path / "base"
         base.mkdir()
         (base / "a.md").write_text("# t\nbody\n")
         monkeypatch.chdir(base)
         override_settings(doc_ingest_base_dir=str(base))
         mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
-        mocker.patch("core.ingest_pipeline._ingest_one", side_effect=RuntimeError("boom"))
+        mocker.patch("core.ingest_pipeline._ingest_one", **one_file)
         return CliRunner().invoke(main, [cmd, "a.md"])
 
     def test_design_file_failure_exits_nonzero(self, mocker, tmp_path, monkeypatch):
-        result = self._run(mocker, tmp_path, monkeypatch, "design")
-        assert result.exit_code != 0
-        assert "1 failure(s)" in result.output
+        result = self._run(
+            mocker, tmp_path, monkeypatch, "design", one_file={"side_effect": RuntimeError("boom")}
+        )
+        assert result.exit_code == 1
+        assert "1 file(s) failed" in result.output
+        assert "0 chunk(s) skipped" in result.output
 
     def test_notes_file_failure_exits_nonzero(self, mocker, tmp_path, monkeypatch):
-        result = self._run(mocker, tmp_path, monkeypatch, "notes")
-        assert result.exit_code != 0
+        result = self._run(
+            mocker, tmp_path, monkeypatch, "notes", one_file={"side_effect": RuntimeError("boom")}
+        )
+        assert result.exit_code == 1
+        assert "1 file(s) failed" in result.output
 
-    def test_success_exits_zero(self, mocker):
-        mocker.patch("cli.ingest_design_docs", return_value=0)
-        assert CliRunner().invoke(main, ["design", "a.md"]).exit_code == 0
+    def test_design_distill_skip_only_exits_zero_with_warning(self, mocker, tmp_path, monkeypatch):
+        result = self._run(mocker, tmp_path, monkeypatch, "design", one_file={"return_value": 2})
+        assert result.exit_code == 0
+        assert "2 chunk(s) skipped" in result.output
+
+    def test_notes_distill_skip_only_exits_zero_with_warning(self, mocker, tmp_path, monkeypatch):
+        result = self._run(mocker, tmp_path, monkeypatch, "notes", one_file={"return_value": 3})
+        assert result.exit_code == 0
+        assert "3 chunk(s) skipped" in result.output
+
+    def test_nothing_failed_is_silent_and_exits_zero(self, mocker, tmp_path, monkeypatch):
+        result = self._run(mocker, tmp_path, monkeypatch, "design", one_file={"return_value": 0})
+        assert result.exit_code == 0
+        assert "skipped" not in result.output and "failed" not in result.output
+
+    def test_file_failure_and_distill_skip_are_counted_separately(
+        self, mocker, tmp_path, monkeypatch
+    ):
+        base = tmp_path / "base"
+        base.mkdir()
+        (base / "a.md").write_text("# t\nbody\n")
+        (base / "b.md").write_text("# t\nbody\n")
+        monkeypatch.chdir(base)
+        override_settings(doc_ingest_base_dir=str(base))
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="sha")
+        mocker.patch("core.ingest_pipeline._ingest_one", side_effect=[RuntimeError("boom"), 4])
+        mocker.patch(
+            "ingest.design_docs._changed_files", return_value=[base / "a.md", base / "b.md"]
+        )
+        result = CliRunner().invoke(main, ["design"])
+        assert result.exit_code == 1
+        assert "1 file(s) failed" in result.output
+        assert "4 chunk(s) skipped" in result.output
+
+
+class TestSyncExitCode:
+    """#350: sync は失敗ソース (FetchResult.failed) があれば 1。skipped / dry-run は失敗ではない。"""
+
+    def _run(self, mocker, results, args=("sync",), replace=None):
+        from ingest.external import FetchResult
+
+        sources = [{"url": f"https://e.com/{i}"} for i in range(len(results))]
+        mocker.patch("ingest.external._load_sources", return_value=sources)
+        mocker.patch("ingest.external._save_sources")
+        mocker.patch("ingest.external._notify_discord")
+        mocker.patch("ingest.external.replace_points", **(replace or {}))
+        made = [
+            getattr(FetchResult, kind)(s["url"], s, *extra)
+            for s, (kind, *extra) in zip(sources, results)
+        ]
+        mocker.patch(
+            "ingest.external._fetch_source",
+            side_effect=lambda source, force, now: made[sources.index(source)],
+        )
+        return CliRunner().invoke(main, list(args))
+
+    def test_failed_source_exits_one(self, mocker):
+        result = self._run(mocker, [("failed",)])
+        assert result.exit_code == 1
+        assert "1 source(s) failed" in result.output
+
+    def test_one_failure_among_successes_exits_one(self, mocker):
+        result = self._run(mocker, [("skipped",), ("failed",), ("ready", "e", [{"id": "a"}])])
+        assert result.exit_code == 1
+        assert "1 source(s) failed" in result.output
+
+    def test_skipped_only_exits_zero(self, mocker):
+        """304 / 未変更 (FetchResult.skipped) は失敗ではない。"""
+        result = self._run(mocker, [("skipped",), ("skipped",)])
+        assert result.exit_code == 0
+        assert "failed" not in result.output
+
+    def test_synced_exits_zero(self, mocker):
+        assert self._run(mocker, [("ready", "e", [{"id": "a"}])]).exit_code == 0
+
+    def test_write_error_exits_one(self, mocker):
+        result = self._run(
+            mocker, [("ready", "e", [{"id": "a"}])], replace={"side_effect": RuntimeError("x")}
+        )
+        assert result.exit_code == 1
+
+    def test_dry_run_without_failures_exits_zero(self, mocker):
+        result = self._run(mocker, [("ready", "e", [{"id": "a"}])], args=("sync", "--dry-run"))
+        assert result.exit_code == 0
+
+    def test_dry_run_fetch_failure_still_exits_one(self, mocker):
+        result = self._run(mocker, [("failed",)], args=("sync", "--dry-run"))
+        assert result.exit_code == 1
+
+    def test_fetch_exception_exits_one(self, mocker):
+        mocker.patch("ingest.external._load_sources", return_value=[{"url": "https://e.com/x"}])
+        mocker.patch("ingest.external._save_sources")
+        mocker.patch("ingest.external._notify_discord")
+        mocker.patch("ingest.external._fetch_source", side_effect=RuntimeError("boom"))
+        assert CliRunner().invoke(main, ["sync"]).exit_code == 1

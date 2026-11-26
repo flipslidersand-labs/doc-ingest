@@ -65,7 +65,7 @@ doc-ingest pdf ./paper.pdf --allow-cloud  # allow Anthropic if the local LLM fai
 doc-ingest pdf https://example.com/paper.pdf  # URL sources are treated as public (Anthropic fallback allowed)
 ```
 
-`design` and `notes` exit with code 1 when one or more files or chunks failed to ingest. Details: [docs/spec/cli.md](docs/spec/cli.md).
+`design` and `notes` exit with code 1 when one or more files failed to ingest (chunks skipped because distillation failed only warn). `sync` exits with code 1 when one or more sources failed. Details: [docs/spec/cli.md](docs/spec/cli.md).
 
 ### Git Hook
 
@@ -189,7 +189,7 @@ doc-ingest pdf ./paper.pdf --allow-cloud  # ローカル LLM が失敗したと�
 doc-ingest pdf https://example.com/paper.pdf  # URL は公開ソース扱い（Anthropic へのフォールバックあり）
 ```
 
-`design` と `notes` は、取り込みに失敗したファイルやチャンクが 1 件以上あると終了コード 1 になります。詳細は [docs/spec/cli.md](docs/spec/cli.md)。
+`design` と `notes` は、取り込みに失敗したファイルが 1 件以上あると終了コード 1 になります（蒸留に失敗したチャンクのスキップは警告のみ）。`sync` は失敗したソースが 1 件以上あると終了コード 1 になります。詳細は [docs/spec/cli.md](docs/spec/cli.md)。
 
 ### Git フック
 

@@ -196,11 +196,11 @@ minimums below, abort start-up.
 |---------|-----------------------------------------------|
 | all, on success | `0`. |
 | all, invalid configuration | non-zero (`Error: invalid configuration: ...`), except `--help`. |
-| `design`, `notes` | `1` when `ingest_*` reports one or more failures (a chunk whose distillation failed, or a file that raised); message `N failure(s) while ingesting (see warnings above)`. `0` when nothing failed or nothing changed. The git hooks keep `\|\| true`. |
+| `design`, `notes` | `1` when `ingest_*` reports one or more failed files (a file that raised); message `N file(s) failed, M chunk(s) skipped (distill failed; old points kept); see warnings above`. A run whose only failures are chunks skipped because distillation failed (`IngestResult.chunks_skipped`; the chunk keeps its old point) exits `0` and prints `warning: N file(s) failed, M chunk(s) skipped ...` to stderr. `0` when nothing failed or nothing changed. The git hooks keep `\|\| true`. |
 | `design`, `notes` with a FILE outside the allowed base | `PermissionError` is not caught by the CLI: traceback, exit code `1`. |
 | `arxiv` | Unsafe URL (not https, private address): usage error (click `BadParameter`, exit code 2). `ValueError` from ingestion (bad arxiv id, not found, no extractable body): `Error: ...`, exit code 1. Other exceptions propagate as a traceback. |
 | `pdf` | `FileNotFoundError` and `UnsafeURLError` become `Error: ...` (exit code 1). Other exceptions propagate. |
-| `sync` | Return value is not checked: failed sources are logged, recorded as `failed_at` in the state file and listed in the Discord summary, but the exit code stays `0`. Unhandled exceptions give a traceback. |
+| `sync` | `1` when `sync_external` returns a non-zero count of failed sources (`FetchResult.failed`: fetch failure, write failure or an exception while fetching); message `N source(s) failed (see warnings above)`. Failed sources are also logged, recorded as `failed_at` in the state file and listed in the Discord summary. A source skipped because it is unchanged (`FetchResult.skipped`, e.g. ETag match) is not a failure, and `--dry-run` does not make a run fail unless a fetch failed. `0` otherwise. Unhandled exceptions give a traceback. |
 | `search`, `list` | No special handling; connection errors propagate as a traceback. |
 
 ## 日本語要約
@@ -208,6 +208,6 @@ minimums below, abort start-up.
 - コマンド: `arxiv URL [--tags]`、`design [FILE]`、`notes [FILE]`、`sync [--force] [--dry-run]`、`search QUERY [--collection] [--limit 1-100 既定5] [--nugget] [--nugget-k 既定3]`、`list`、`pdf PATH [--tags] [--allow-cloud]`。グローバルは `-v/--verbose`(自パッケージのみ DEBUG)。
 - `design` / `notes` は FILE 省略時に直近コミットの変更ファイルを取り込む(git フック用)。蒸留はローカル LLM のみ。FILE は `core/path_guard.py` で `DOC_INGEST_BASE_DIR`(既定は cwd)配下に制限される。
 - `pdf` は実装上 URL も受け付けるが help 文はローカル PDF のみ。`--allow-cloud` はローカル PDF の要約失敗時に Anthropic へ送ることを許可する(既定は送らない)。
-- 終了コード: `design` / `notes` は取り込み失敗が 1 件以上なら 1。`arxiv` の不正 URL は usage エラー(2)、取り込み時の `ValueError` は 1。`pdf` の `FileNotFoundError` / `UnsafeURLError` は 1。`sync` は失敗ソースがあっても 0(`failed_at` と Discord 通知で把握)。
+- 終了コード: `design` / `notes` は取り込みに失敗した**ファイル**が 1 件以上なら 1(蒸留に失敗して旧 point を残したチャンクは「スキップ」として別に数え、警告のみで 0)。`arxiv` の不正 URL は usage エラー(2)、取り込み時の `ValueError` は 1。`pdf` の `FileNotFoundError` / `UnsafeURLError` は 1。`sync` は失敗ソース(取得失敗・書き込み失敗・例外)が 1 件以上なら 1(ETag 一致などの skipped は失敗ではない。`failed_at` と Discord 通知にも残る)。
 - 環境変数は上の表の通り(`core/config.py` が `.env` と環境から一括で読み、不正値は起動時に失敗)。
 - `uv run doc-ingest --help` は検証環境では起動できなかったため、出力は `uv run python cli.py --help` のもの(Usage 行が `cli.py`)。

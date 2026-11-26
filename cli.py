@@ -6,6 +6,7 @@ import re
 import click
 
 from core.config import get_settings
+from core.ingest_pipeline import IngestResult
 from core.schema import Collection, collection_names, payload_origin
 from core.url_guard import UnsafeURLError, assert_safe_url
 from ingest.arxiv import ingest_arxiv
@@ -75,10 +76,17 @@ def arxiv(url: str, tags: str):
         raise click.ClickException(str(exc)) from exc
 
 
-def _exit_on_failures(failed: int) -> None:
-    """Exit non-zero when any file/chunk failed to ingest (#332). The git hooks keep `|| true`."""
-    if failed:
-        raise click.ClickException(f"{failed} failure(s) while ingesting (see warnings above)")
+def _exit_on_failures(result: IngestResult) -> None:
+    """Exit 1 when a file failed to ingest (#332). Distill-skipped chunks keep their old point,
+    so they only warn (#350). The git hooks keep `|| true`."""
+    summary = (
+        f"{result.files_failed} file(s) failed, "
+        f"{result.chunks_skipped} chunk(s) skipped (distill failed; old points kept)"
+    )
+    if result.files_failed:
+        raise click.ClickException(f"{summary}; see warnings above")
+    if result.chunks_skipped:
+        click.echo(f"warning: {summary}", err=True)
 
 
 @main.command()
@@ -100,7 +108,9 @@ def notes(file: str | None):
 @click.option("--dry-run", is_flag=True, help="Show what would be ingested without writing")
 def sync(force: bool, dry_run: bool):
     """Sync external API docs (ETag-based freshness check)."""
-    sync_external(force=force, dry_run=dry_run)
+    failed = sync_external(force=force, dry_run=dry_run)
+    if failed:
+        raise click.ClickException(f"{failed} source(s) failed (see warnings above)")
 
 
 @main.command()

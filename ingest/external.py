@@ -292,7 +292,9 @@ def _finish_sync(sources: list, summary: _Summary) -> None:
     _notify_discord(summary.synced, summary.total_chunks, summary.skipped, summary.failed, ts)
 
 
-def sync_external(force: bool = False, dry_run: bool = False) -> None:
+def sync_external(force: bool = False, dry_run: bool = False) -> int:
+    """Returns the number of failed sources (fetch / write failures and exceptions). A source
+    skipped because it is unchanged (ETag match) is not a failure; the CLI exits 1 on any (#350)."""
     sources = _load_sources()
     now = datetime.now(UTC).isoformat()
 
@@ -321,3 +323,4 @@ def sync_external(force: bool = False, dry_run: bool = False) -> None:
 
     if not dry_run:
         _finish_sync(sources, summary)
+    return len(summary.failed)
