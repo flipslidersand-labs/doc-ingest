@@ -7,10 +7,18 @@ and for sources that carry a token in the query string it is too. Log the reason
 
 import re
 
-# 空白・引用符・山括弧・閉じ括弧で URL を打ち切る。クエリやパスのトークンごと消す。
-_URL_RE = re.compile(r"""https?://[^\s'"<>)\]]+""", re.IGNORECASE)
+# URL は空白でだけ終わる。`)` `]` `'` `"` `<` `>` は userinfo・path に生で入りうる(`https://u:pa)ss@h/`)ので、
+# そこで打ち切ると後半(パスワードの続き)がログに残る。線形時間(入れ子の量指定子なし)。
+_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+# URL の直後に続く文の記号。URL の末尾に食い込んでいたら外して残す(`(https://h/x).` → `(<url>).`)。
+_TRAILING = ".,;:!?)]}'\">"
+
+
+def _redact(m: re.Match[str]) -> str:
+    url = m.group(0)
+    return "<url>" + url[len(url.rstrip(_TRAILING)) :]
 
 
 def redact_urls(text: object) -> str:
     """Return ``str(text)`` with every ``http(s)://…`` replaced by ``<url>``."""
-    return _URL_RE.sub("<url>", str(text))
+    return _URL_RE.sub(_redact, str(text))
