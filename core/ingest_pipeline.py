@@ -5,6 +5,7 @@ Callers only decide which files to ingest and how to distill a chunk.
 """
 
 import logging
+import os
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
@@ -16,7 +17,7 @@ from core.distiller import DistillError
 from core.doc_key import doc_key, escapes_repo, lexical_doc_key
 from core.git import changed_files, head_sha
 from core.ids import make_id
-from core.path_guard import assert_safe_path
+from core.path_guard import _allowed_base, assert_safe_path
 from core.qdrant import replace_points
 
 _log = logging.getLogger(__name__)
@@ -131,16 +132,35 @@ def changed_matching(is_target: Callable[[Path], bool]) -> list[Path]:
     return [p for p in changed_files() if is_target(p)]
 
 
+def _target_relative(file: str) -> Path:
+    """*file* as the post-commit hook would name it: relative to its git repo root.
+
+    Found lexically (no symlink following, like ``escapes_repo``). Outside any repo, relative to
+    the allowed base directory; failing that, unchanged.
+    """
+    lexical = Path(os.path.abspath(file))
+    top = next((p for p in lexical.parents if os.path.lexists(p / ".git")), None)
+    for root in (top, _allowed_base()):
+        if root is not None and lexical.is_relative_to(root):
+            return lexical.relative_to(root)
+    return Path(file)
+
+
 def ingest_changed_or_file(
     file: str | None,
     *,
+    is_target: Callable[[Path], bool],
     changed: Callable[[], list[Path]],
     collection: str,
     source_label: str,
     distill_fn: Callable[[str], str],
     nothing_msg: str,
 ) -> int:
-    """Ingest *file* (validated by ``assert_safe_path``) or, without it, what *changed* returns.
+    """Ingest *file* or, without it, what *changed* returns.
+
+    *file* must pass ``assert_safe_path`` and the same *is_target* test as the changed files
+    (#360). Otherwise ``--file`` would pull in scratch notes or non-markdown files the hook
+    skips. A rejected file is logged and counted as one failure (nothing is read or written).
 
     The entry point shared by the markdown collections (design, notes): they differ only in
     which files count (*changed*), the collection, the source label and the distiller.
@@ -152,6 +172,9 @@ def ingest_changed_or_file(
         # 検証だけに使い、取り込みには元 (未解決) のパスを渡す。解決後のパスだと symlink 判定が
         # 効かず、指す先の中身が取り込まれる (#315)
         assert_safe_path(file)
+        if not is_target(_target_relative(file)):
+            _log.warning("skipping %s: not a target of the %s collection", file, collection)
+            return 1
         files = [Path(file)]
     else:
         files = changed()
