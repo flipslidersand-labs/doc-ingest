@@ -1,5 +1,7 @@
 """Tests for ingest/external.py"""
 
+import json
+import logging
 from typing import ClassVar
 
 import httpx
@@ -727,6 +729,48 @@ class TestExternalState:
         with pytest.raises(ValueError, match="duplicate url"):
             ext._load_sources()
 
+    def test_exact_duplicate_url_error_does_not_show_the_query(self, tmp_path, monkeypatch):
+        """#359: 完全に同じ URL の重複エラーにも、query のトークンを出さない。"""
+        ext, _ = self._paths(
+            tmp_path,
+            monkeypatch,
+            "- url: https://a.example/api?token=SECRET\n- url: https://a.example/api?token=SECRET\n",
+        )
+        with pytest.raises(ValueError, match="duplicate url") as ei:
+            ext._load_sources()
+        assert "SECRET" not in str(ei.value) and "https://a.example/api" in str(ei.value)
+
+    def test_urls_differing_only_in_query_raise(self, tmp_path, monkeypatch):
+        """#359: query を伏せた source_url が衝突すると、一方の sync が他方の point を消す。設定で弾く。"""
+        ext, _ = self._paths(
+            tmp_path,
+            monkeypatch,
+            "- url: https://a.example/api?id=1&token=SECRET\n- url: https://a.example/api?id=2\n",
+        )
+        with pytest.raises(ValueError, match="duplicate url") as ei:
+            ext._load_sources()
+        assert "SECRET" not in str(ei.value) and "https://a.example/api" in str(ei.value)
+
+    def test_url_differing_only_in_fragment_raises(self, tmp_path, monkeypatch):
+        ext, _ = self._paths(
+            tmp_path, monkeypatch, "- url: https://a.example/p#a\n- url: https://a.example/p\n"
+        )
+        with pytest.raises(ValueError, match="duplicate url"):
+            ext._load_sources()
+
+    def test_distinct_paths_with_queries_are_accepted(self, tmp_path, monkeypatch):
+        ext, _ = self._paths(
+            tmp_path,
+            monkeypatch,
+            "- url: https://a.example/x?t=1\n- url: https://a.example/y?t=1\n",
+        )
+        assert len(ext._load_sources()) == 2
+
+    def test_shipped_sources_have_no_stripped_duplicates(self):
+        import ingest.external as ext
+
+        assert ext._load_sources()  # sources/external.yaml の現行設定が検証を通る
+
     def test_save_failure_leaves_no_tmp(self, tmp_path, monkeypatch):
         ext, _ = self._paths(tmp_path, monkeypatch, "- url: https://a.example\n")
 
@@ -756,3 +800,136 @@ class TestExternalState:
 
         st = YAML().load(ext.STATE_FILE.read_text())["https://a.example"]
         assert st["last_etag"] == "etag-1" and st["last_synced"]
+
+
+class TestSyncUrlQueryIsRedacted:
+    """#359: 同期元 URL の query/fragment (署名・トークン) をログ・Discord 通知・payload に出さない。"""
+
+    WEBHOOK = "https://discord.example.invalid/api/webhooks/0000/dummy-token"
+    BARE = "https://example.com/api"
+    RAW = "https://example.com/api?token=SECRET#frag-SECRET"
+
+    @pytest.fixture
+    def run(self, mocker):
+        """RAW を 1 件だけ持つ sync を回し (Qdrant・状態ファイルは差し替え)、観測点を返す。"""
+        import ingest.external as ext
+
+        override_settings(discord_webhook_url=self.WEBHOOK)
+        source = {"url": self.RAW, "type": "external-api"}
+        mocker.patch.object(ext, "_load_sources", return_value=[source])
+        mocker.patch.object(ext, "_save_sources")
+        mocker.patch("time.sleep")
+        rp = mocker.patch.object(ext, "replace_points")
+        hook = respx.post(self.WEBHOOK).mock(return_value=httpx.Response(204))
+        return ext, rp, hook
+
+    @staticmethod
+    def _log(caplog) -> str:
+        """ingest.external のログだけ。httpx 自身のリクエストログは cli.py が WARNING に抑える。"""
+        return "\n".join(r.getMessage() for r in caplog.records if r.name == "ingest.external")
+
+    @staticmethod
+    def _discord(hook) -> str:
+        return json.loads(hook.calls.last.request.content)["content"]
+
+    @respx.mock
+    def test_success_log_payload_and_replace_key_have_no_query(self, run, caplog):
+        ext, rp, hook = run
+        respx.get(host="example.com").mock(
+            return_value=httpx.Response(200, text="## S\n" + "x" * 200, headers={"etag": '"e"'})
+        )
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            ext.sync_external(force=True)
+        assert "SECRET" not in self._log(caplog) and "synced " + self.BARE in self._log(caplog)
+        _, key, value, points = rp.call_args[0]
+        assert (key, value) == ("source_url", self.BARE)
+        assert points and all(p["source_url"] == self.BARE for p in points)
+        assert "SECRET" not in self._discord(hook)
+
+    @respx.mock
+    def test_dry_run_log_has_no_query(self, run, caplog):
+        ext, _, _ = run
+        respx.get(host="example.com").mock(
+            return_value=httpx.Response(200, text="## S\n" + "x" * 200)
+        )
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            ext.sync_external(force=True, dry_run=True)
+        assert "SECRET" not in self._log(caplog) and "dry-run " + self.BARE in self._log(caplog)
+
+    @respx.mock
+    def test_gave_up_shows_bare_url_in_log_and_discord(self, run, caplog):
+        ext, _, hook = run
+        respx.get(host="example.com").mock(return_value=httpx.Response(503))
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            ext.sync_external(force=True)
+        assert "SECRET" not in self._log(caplog) and "failed " + self.BARE in self._log(caplog)
+        content = self._discord(hook)
+        assert "SECRET" not in content and self.BARE in content
+
+    @respx.mock
+    def test_http_error_log_has_no_query(self, run, caplog):
+        ext, _, hook = run
+        respx.get(host="example.com").mock(return_value=httpx.Response(404))
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            ext.sync_external(force=True)
+        assert "SECRET" not in self._log(caplog) and "SECRET" not in self._discord(hook)
+
+    @respx.mock
+    def test_skipped_log_and_discord_list_have_no_query(self, run, caplog):
+        ext, _, hook = run
+        respx.get(host="example.com").mock(return_value=httpx.Response(200, text="tiny"))
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            ext.sync_external(force=True)
+        assert "no chunks extracted" in self._log(caplog) and "SECRET" not in self._log(caplog)
+        content = self._discord(hook)
+        assert "SECRET" not in content and f"skipped: 1 ({self.BARE})" in content
+
+    @respx.mock
+    def test_blocked_unsafe_url_log_has_no_query(self, run, caplog):
+        ext, _, _ = run
+        ext._load_sources.return_value[0]["url"] = "http://127.0.0.1/api?token=SECRET"
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            ext.sync_external(force=True)
+        assert "blocked" in self._log(caplog) and "SECRET" not in self._log(caplog)
+
+    def test_retry_and_blocked_logs_from_fetch_with_retry_have_no_query(self, mocker, caplog):
+        import ingest.external as ext
+
+        mocker.patch("time.sleep")
+        mocker.patch.object(ext, "safe_get", side_effect=httpx.ConnectError("refused"))
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            assert ext._fetch_with_retry(self.RAW, {}) is None
+        assert "retry" in self._log(caplog) and "SECRET" not in self._log(caplog)
+        caplog.clear()
+        mocker.patch.object(ext, "safe_get", side_effect=ext.UnsafeURLError(f"bad {self.RAW!r}"))
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            assert ext._fetch_with_retry(self.RAW, {}) is None
+        assert "blocked" in self._log(caplog) and "SECRET" not in self._log(caplog)
+
+    @respx.mock
+    def test_write_failure_log_and_failed_list_have_no_query(self, run, caplog, mocker):
+        ext, rp, hook = run
+        rp.side_effect = RuntimeError("down")
+        ready = FetchResult.ready(self.RAW, ext._load_sources()[0], "e", [{"id": "p"}])
+        mocker.patch.object(ext, "_fetch_source", return_value=ready)
+        with caplog.at_level(logging.DEBUG, logger="ingest.external"):
+            ext.sync_external(force=True)
+        assert "SECRET" not in self._log(caplog) and "SECRET" not in self._discord(hook)
+
+
+class TestWorkerExceptionFallbackIsRedacted:
+    """#359: _fetch_source が例外を投げたときの Phase 1 フォールバックログにも query を出さない。"""
+
+    def test_unexpected_exception_log_has_no_query_but_failure_is_recorded(self, mocker, caplog):
+        import ingest.external as ext
+
+        raw = "https://docs.example.com/x?token=SECRET#frag-SECRET"
+        source = {"url": raw}
+        mocker.patch.object(ext, "_load_sources", return_value=[source])
+        mocker.patch.object(ext, "_save_sources")
+        mocker.patch.object(ext, "_fetch_source", side_effect=RuntimeError("boom"))
+        with caplog.at_level(logging.WARNING, logger="ingest.external"):
+            ext.sync_external(force=True)
+        text = "\n".join(r.getMessage() for r in caplog.records if r.name == "ingest.external")
+        assert "SECRET" not in text and "failed https://docs.example.com/x → RuntimeError" in text
+        assert "failed_at" in source
