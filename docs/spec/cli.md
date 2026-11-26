@@ -37,12 +37,12 @@ Ingest design docs (`CLAUDE.md`, `AGENTS.md`, `docs/*.md`, `adr/*.md`, `ADR/*.md
 
 | Argument | Default | Description |
 |----------|---------|-------------|
-| `FILE` (optional) | none | With a file: ingest just that file (validated by `core.path_guard.assert_safe_path`). Without: ingest the matching files changed in the last commit (git post-commit hook mode). |
+| `FILE` (optional) | none | With a file: ingest just that file (validated by `core.path_guard.assert_safe_path`, then by the same target test as the hook mode: a file that is not a design doc is skipped with a warning and counts as one failure). Without: ingest the matching files changed in the last commit (git post-commit hook mode). |
 
 ### `notes [FILE]`
 
 Ingest curated Obsidian vault notes (`10-projects/`, `20-areas/`, `30-resources/`, `.md` only)
-into the `notes` collection. Distillation is local-LLM only. `FILE` behaves as for `design`.
+into the `notes` collection. Distillation is local-LLM only. `FILE` behaves as for `design`: it must also be a `.md` under one of the three directories (judged relative to its git repo root, or to the base directory outside a repo), so `00-inbox/` and `90-daily/` stay out even when named explicitly.
 
 ### `sync`
 
@@ -196,7 +196,7 @@ minimums below, abort start-up.
 |---------|-----------------------------------------------|
 | all, on success | `0`. |
 | all, invalid configuration | non-zero (`Error: invalid configuration: ...`), except `--help`. |
-| `design`, `notes` | `1` when `ingest_*` reports one or more failures (a chunk whose distillation failed, or a file that raised); message `N failure(s) while ingesting (see warnings above)`. `0` when nothing failed or nothing changed. The git hooks keep `\|\| true`. |
+| `design`, `notes` | `1` when `ingest_*` reports one or more failures (a chunk whose distillation failed, a file that raised, or a FILE that is not a target of the collection); message `N failure(s) while ingesting (see warnings above)`. `0` when nothing failed or nothing changed. The git hooks keep `\|\| true`. |
 | `design`, `notes` with a FILE outside the allowed base | `PermissionError` is not caught by the CLI: traceback, exit code `1`. |
 | `arxiv` | Unsafe URL (not https, private address): usage error (click `BadParameter`, exit code 2). `ValueError` from ingestion (bad arxiv id, not found, no extractable body): `Error: ...`, exit code 1. Other exceptions propagate as a traceback. |
 | `pdf` | `FileNotFoundError` and `UnsafeURLError` become `Error: ...` (exit code 1). Other exceptions propagate. |
@@ -206,7 +206,7 @@ minimums below, abort start-up.
 ## 日本語要約
 
 - コマンド: `arxiv URL [--tags]`、`design [FILE]`、`notes [FILE]`、`sync [--force] [--dry-run]`、`search QUERY [--collection] [--limit 1-100 既定5] [--nugget] [--nugget-k 既定3]`、`list`、`pdf PATH [--tags] [--allow-cloud]`。グローバルは `-v/--verbose`(自パッケージのみ DEBUG)。
-- `design` / `notes` は FILE 省略時に直近コミットの変更ファイルを取り込む(git フック用)。蒸留はローカル LLM のみ。FILE は `core/path_guard.py` で `DOC_INGEST_BASE_DIR`(既定は cwd)配下に制限される。
+- `design` / `notes` は FILE 省略時に直近コミットの変更ファイルを取り込む(git フック用)。蒸留はローカル LLM のみ。FILE は `core/path_guard.py` で `DOC_INGEST_BASE_DIR`(既定は cwd)配下に制限され、さらにフック経由と同じ対象判定(design は `CLAUDE.md` 等のパターン、notes は 3 ディレクトリ配下の `.md`)を通る。外れたファイルは警告を出して取り込まず、失敗 1 件として数える(終了コード 1)。
 - `pdf` は実装上 URL も受け付けるが help 文はローカル PDF のみ。`--allow-cloud` はローカル PDF の要約失敗時に Anthropic へ送ることを許可する(既定は送らない)。
 - 終了コード: `design` / `notes` は取り込み失敗が 1 件以上なら 1。`arxiv` の不正 URL は usage エラー(2)、取り込み時の `ValueError` は 1。`pdf` の `FileNotFoundError` / `UnsafeURLError` は 1。`sync` は失敗ソースがあっても 0(`failed_at` と Discord 通知で把握)。
 - 環境変数は上の表の通り(`core/config.py` が `.env` と環境から一括で読み、不正値は起動時に失敗)。
