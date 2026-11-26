@@ -114,7 +114,10 @@ class _PinnedBackend(httpcore.SyncBackend):
         for ip in _safe_addresses(host, port):
             try:
                 return super().connect_tcp(ip, port, timeout, local_address, socket_options)
-            except httpcore.ConnectError as exc:
+            except (
+                httpcore.ConnectError,
+                httpcore.ConnectTimeout,
+            ) as exc:  # AAAA が黒穴でも次を試す
                 last = exc
         raise last or UnsafeURLError(f"{host!r} has no address")
 
@@ -233,7 +236,7 @@ def safe_get(
     """
     limit = get_settings().max_download_bytes if max_bytes is None else max_bytes
     current = url
-    for _ in range(max_redirects):
+    for _ in range(max_redirects + 1):  # 初回リクエスト + 追跡できるリダイレクト max_redirects 回
         with (
             _client(timeout) as client,
             client.stream("GET", current, headers=headers, follow_redirects=False) as resp,
@@ -283,7 +286,7 @@ def safe_download(
     limit = get_settings().max_download_bytes if max_bytes is None else max_bytes
     current = url
     assert_safe_url(current)
-    for _ in range(max_redirects):
+    for _ in range(max_redirects + 1):  # 初回リクエスト + 追跡できるリダイレクト max_redirects 回
         with (
             _client(timeout) as client,
             client.stream("GET", current, headers=headers, follow_redirects=False) as resp,
