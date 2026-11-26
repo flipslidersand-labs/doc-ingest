@@ -49,15 +49,9 @@ def _collection_exists(name: str) -> bool:
 
 
 def ensure_collection(name: str) -> None:
-    with _known_collections_lock:
-        if name in _known_collections:
-            return
-    # Not cached yet — check remotely and create if needed.
-    fetched = {col.name for col in client().get_collections().collections}
-    with _known_collections_lock:
-        _known_collections.update(fetched)
-        if name in _known_collections:
-            return
+    if _collection_exists(name):
+        return
+    # Not found (cache warmed by _collection_exists) — create it.
     c = client()
     try:
         c.create_collection(
