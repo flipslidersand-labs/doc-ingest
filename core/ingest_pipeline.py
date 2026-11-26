@@ -15,7 +15,7 @@ from core.chunker import cap_chunks, chunk_markdown
 from core.config import get_settings
 from core.distiller import DistillError
 from core.doc_key import doc_key, escapes_repo, lexical_doc_key
-from core.git import changed_files, head_sha
+from core.git import changed_files, head_sha, resolve_from_cwd
 from core.ids import make_id
 from core.path_guard import _allowed_base, assert_safe_path
 from core.qdrant import replace_points
@@ -48,7 +48,9 @@ def _ingest_one(
     # 識別子は <repo>/<リポ内の相対パス>。フック(相対パス)と手動(絶対パス)で同じになり、
     # 別リポの同名ファイルとは衝突しない (#216)。
     repo, key = doc_key(path)
-    unsafe = path.exists() and (path.is_symlink() or escapes_repo(path))
+    # リンク切れ symlink は exists() が偽。それでも symlink 自身の key で消さないと、元の key の
+    # 旧チャンクが残る (#352)。escapes_repo は存在しないパスでも realpath で判定できる。
+    unsafe = path.is_symlink() or escapes_repo(path)
     if unsafe:
         # symlink は文書ではなく「指す先のパス」を持つだけ。リポ外 (~/.ssh など) の中身を LLM と
         # Qdrant に入れない。親ディレクトリが symlink でリポ外へ出る場合も同様 (#224)。
@@ -127,7 +129,8 @@ def ingest_markdown_files(
 
 def changed_matching(is_target: Callable[[Path], bool]) -> list[Path]:
     """The files changed in the last commit for which *is_target* is true."""
-    return [p for p in changed_files() if is_target(p)]
+    # 絞り込みはリポルート相対のまま行い、開けるパス (cwd 相対) にしてから返す (#354)
+    return resolve_from_cwd(p for p in changed_files() if is_target(p))
 
 
 def _target_relative(file: str) -> Path:

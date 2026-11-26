@@ -332,6 +332,51 @@ class TestSymlinksAreNotIngested:
         self.delete.assert_called_once_with("design", ["old-1", "old-2"])
         self.up.assert_not_called()
 
+    def test_points_of_a_path_that_became_a_dangling_symlink_are_removed(self, env, monkeypatch):
+        """#352: リンク切れ symlink では exists() が偽になり、解決後 (存在しないリンク先) の key で
+        消そうとして、元の key の旧チャンクが残った。symlink 自身 (解決前) の key で消す。"""
+        repo, _ = env
+        (repo / "docs" / "gone.md").symlink_to(repo / "docs" / "missing-target.md")
+        self.ids.side_effect = lambda coll, key, val: (
+            ["old-1", "old-2"] if val == "repo/docs/gone.md" else []
+        )
+        monkeypatch.chdir(repo)
+        self._run(Path("docs/gone.md"))
+        self.delete.assert_called_once_with("design", ["old-1", "old-2"])
+        self.up.assert_not_called()
+
+    def test_a_dangling_symlink_to_outside_the_repo_removes_its_own_points(self, env, monkeypatch):
+        repo, outside = env
+        (repo / "docs" / "gone.md").symlink_to(outside / "missing.md")
+        self.ids.side_effect = lambda coll, key, val: (
+            ["old-1"] if val == "repo/docs/gone.md" else []
+        )
+        monkeypatch.chdir(repo)
+        self._run(Path("docs/gone.md"))
+        self.delete.assert_called_once_with("design", ["old-1"])
+        self.up.assert_not_called()
+
+    def test_a_file_under_a_dangling_symlinked_directory_removes_its_own_points(
+        self, env, monkeypatch
+    ):
+        """親ディレクトリがリンク切れ symlink になった場合も、元の key の旧チャンクを消す。"""
+        repo, outside = env
+        (repo / "linked").symlink_to(outside / "missing-dir")
+        self.ids.side_effect = lambda coll, key, val: ["old-1"] if val == "repo/linked/a.md" else []
+        monkeypatch.chdir(repo)
+        self._run(Path("linked/a.md"))
+        self.delete.assert_called_once_with("design", ["old-1"])
+        self.up.assert_not_called()
+
+    def test_a_plainly_deleted_file_still_removes_its_points(self, env, monkeypatch):
+        repo, _ = env
+        self.ids.side_effect = lambda coll, key, val: (
+            ["old-1"] if val == "repo/docs/deleted.md" else []
+        )
+        monkeypatch.chdir(repo)
+        self._run(Path("docs/deleted.md"))
+        self.delete.assert_called_once_with("design", ["old-1"])
+
     def test_removing_a_symlink_never_deletes_the_points_of_its_target(self, env, monkeypatch):
         """#296: 削除は symlink 自身のキーで行う。解決後のキー(リンク先)だと別文書の point が消える。"""
         repo, _ = env

@@ -147,3 +147,103 @@ class TestChangedFilesInARealRepo:
         (repo / "b.md").write_text("uncommitted edit")
         (repo / "c.md").unlink()
         assert changed_files(repo) == [Path("a.md")]
+
+
+class TestRunFromASubdirectory:
+    """#354: git はリポルート相対のパスを返す。cwd がサブディレクトリだと、それを cwd 相対として
+    開いて「存在しない」= 削除扱いになり、実在する文書の point を消していた。"""
+
+    @staticmethod
+    def _vault(tmp_path):
+        """10-projects/sub/ を cwd にできる vault。直近のコミットで note.md と outside.md が変更される。"""
+        repo = TestChangedFilesInARealRepo._repo(tmp_path)
+        (repo / "10-projects" / "sub").mkdir(parents=True)
+        (repo / "10-projects" / "note.md").write_text("## 節\n" + "内容 " * 40)
+        (repo / "outside.md").write_text("x")
+        TestChangedFilesInARealRepo._commit(repo, "one", "10-projects/note.md", "outside.md")
+        (repo / "10-projects" / "note.md").write_text("## 節\n" + "追記 " * 40)
+        (repo / "outside.md").write_text("y")
+        TestChangedFilesInARealRepo._commit(repo, "two", "10-projects/note.md", "outside.md")
+        return repo
+
+    def test_changed_matching_returns_paths_that_exist_from_a_subdirectory(
+        self, tmp_path, monkeypatch
+    ):
+        from core.ingest_pipeline import changed_matching
+
+        repo = self._vault(tmp_path)
+        monkeypatch.chdir(repo / "10-projects" / "sub")
+        paths = changed_matching(lambda p: p.parts[0] == "10-projects")  # 絞り込みはルート相対
+        assert [p.resolve() for p in paths] == [(repo / "10-projects" / "note.md").resolve()]
+        assert all(p.exists() for p in paths)
+
+    def test_a_file_changed_outside_the_cwd_subtree_is_still_found(self, tmp_path, monkeypatch):
+        """`--relative` で cwd 配下だけに絞る案は採らない: 配下の外の変更 (と削除) を取りこぼす。"""
+        from core.ingest_pipeline import changed_matching
+
+        repo = self._vault(tmp_path)
+        monkeypatch.chdir(repo / "10-projects" / "sub")
+        paths = changed_matching(lambda p: p.name == "outside.md")
+        assert [p.resolve() for p in paths] == [(repo / "outside.md").resolve()]
+
+    def test_a_deleted_file_is_still_reported_as_missing_from_a_subdirectory(
+        self, tmp_path, monkeypatch
+    ):
+        """本当に消えたファイルは、サブディレクトリからでも「存在しない」path として返る。"""
+        from core.ingest_pipeline import changed_matching
+
+        repo = self._vault(tmp_path)
+        TestChangedFilesInARealRepo._commit(repo, "del", rm=["10-projects/note.md"])
+        monkeypatch.chdir(repo / "10-projects" / "sub")
+        paths = changed_matching(lambda p: p.suffix == ".md")
+        assert [p.resolve() for p in paths] == [(repo / "10-projects" / "note.md").resolve()]
+        assert not paths[0].exists()
+
+    def test_from_the_repo_root_the_paths_stay_relative(self, tmp_path, monkeypatch):
+        """post-commit フック (ルートで実行) の挙動は変えない。"""
+        from core.ingest_pipeline import changed_matching
+
+        repo = self._vault(tmp_path)
+        monkeypatch.chdir(repo)
+        paths = changed_matching(lambda p: p.suffix == ".md")
+        assert sorted(paths) == [Path("10-projects/note.md"), Path("outside.md")]
+
+    def test_ingest_notes_from_a_subdirectory_updates_the_note_and_deletes_nothing(
+        self, tmp_path, monkeypatch, mocker
+    ):
+        from core.doc_key import _repo_info
+        from core.ids import make_id
+        from ingest.notes import ingest_notes
+
+        _repo_info.cache_clear()
+        repo = self._vault(tmp_path)
+        monkeypatch.chdir(repo / "10-projects" / "sub")
+        key = "r/10-projects/note.md"
+        mocker.patch(
+            "core.qdrant.ids_by_payload",
+            side_effect=lambda coll, k, val: [make_id(f"{key}:0")] if val == key else [],
+        )
+        up = mocker.patch("core.qdrant.upsert")
+        delete = mocker.patch("core.qdrant.delete_by_ids")
+        mocker.patch("ingest.notes.distill_text", return_value="要約")
+
+        ingest_notes()
+
+        assert [p["file_path"] for p in up.call_args[0][1]] == [key]
+        delete.assert_not_called()  # 既存の point は同じ id で置き換わる。消えてはいけない
+        _repo_info.cache_clear()
+
+    def test_unresolvable_root_returns_nothing_instead_of_guessing(
+        self, tmp_path, monkeypatch, mocker, caplog
+    ):
+        """ルートが分からないとき、cwd 相対のまま返すと「全部削除」になる。空にして警告する。"""
+        import logging
+
+        from core.ingest_pipeline import changed_matching
+
+        repo = self._vault(tmp_path)
+        monkeypatch.chdir(repo / "10-projects" / "sub")
+        mocker.patch("core.git.repo_root", return_value=None)
+        with caplog.at_level(logging.WARNING, logger="core.git"):
+            assert changed_matching(lambda p: True) == []
+        assert any("repo root" in r.message for r in caplog.records)
