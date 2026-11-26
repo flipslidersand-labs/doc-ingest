@@ -729,6 +729,17 @@ class TestExternalState:
         with pytest.raises(ValueError, match="duplicate url"):
             ext._load_sources()
 
+    def test_exact_duplicate_url_error_does_not_show_the_query(self, tmp_path, monkeypatch):
+        """#359: 完全に同じ URL の重複エラーにも、query のトークンを出さない。"""
+        ext, _ = self._paths(
+            tmp_path,
+            monkeypatch,
+            "- url: https://a.example/api?token=SECRET\n- url: https://a.example/api?token=SECRET\n",
+        )
+        with pytest.raises(ValueError, match="duplicate url") as ei:
+            ext._load_sources()
+        assert "SECRET" not in str(ei.value) and "https://a.example/api" in str(ei.value)
+
     def test_urls_differing_only_in_query_raise(self, tmp_path, monkeypatch):
         """#359: query を伏せた source_url が衝突すると、一方の sync が他方の point を消す。設定で弾く。"""
         ext, _ = self._paths(

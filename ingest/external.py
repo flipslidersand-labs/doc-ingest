@@ -63,7 +63,7 @@ def _load_sources():
     urls = [src["url"] for src in sources]
     dups = sorted({u for u in urls if urls.count(u) > 1})
     if dups:  # state は URL がキーなので、重複すると状態が黙って共有される
-        raise ValueError(f"duplicate url in {SOURCES_FILE.name}: {dups}")
+        raise ValueError(f"duplicate url in {SOURCES_FILE.name}: {[strip_url(u) for u in dups]}")
     # source_url は query/fragment を落として保存し、replace_points はそれで絞り込む。query だけ違う
     # 2 ソースは同じ値になり、一方の sync が他方の point を stale として消すので設定で弾く (#359)
     shown = [strip_url(u) for u in urls]
