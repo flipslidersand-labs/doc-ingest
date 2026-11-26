@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from core.ingest_pipeline import IngestResult
 from ingest.design_docs import _changed_files
 from tests.conftest import override_settings
 
@@ -182,7 +183,7 @@ class TestExplicitFile:
 
         failed = ingest_design_docs(file=str(target))
 
-        assert failed == 1
+        assert failed == IngestResult(files_failed=1)
         mock_upsert.assert_not_called()
         distill.assert_not_called()
         assert "not a target of the" in caplog.text
@@ -203,7 +204,7 @@ class TestExplicitFile:
         mock_upsert = mocker.patch("core.qdrant.upsert")
         mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")
 
-        assert ingest_design_docs(file=str(target)) == 0
+        assert ingest_design_docs(file=str(target)) == IngestResult()
 
         mock_upsert.assert_called_once()
         assert mock_upsert.call_args.args[0] == "design"

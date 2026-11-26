@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from core.ingest_pipeline import IngestResult
 from ingest.notes import _is_note
 from tests.conftest import override_settings
 
@@ -281,7 +282,7 @@ class TestExplicitFile:
 
         failed = ingest_notes(file=str(target) if absolute else rel)
 
-        assert failed == 1
+        assert failed == IngestResult(files_failed=1)
         mock_upsert.assert_not_called()
         distill.assert_not_called()
         assert "not a target of the" in caplog.text
@@ -302,7 +303,9 @@ class TestExplicitFile:
         mock_upsert = mocker.patch("core.qdrant.upsert")
         mocker.patch("ingest.notes.distill_text", return_value="distilled")
 
-        assert ingest_notes(file=str(target) if absolute else "10-projects/memo.md") == 0
+        assert (
+            ingest_notes(file=str(target) if absolute else "10-projects/memo.md") == IngestResult()
+        )
 
         mock_upsert.assert_called_once()
         assert mock_upsert.call_args.args[0] == "notes"

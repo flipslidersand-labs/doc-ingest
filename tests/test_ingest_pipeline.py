@@ -6,7 +6,7 @@ import pytest
 
 from core.distiller import DistillError
 from core.ids import make_id
-from core.ingest_pipeline import ingest_markdown_files
+from core.ingest_pipeline import IngestResult, ingest_markdown_files
 from tests.conftest import override_settings
 
 
@@ -82,7 +82,7 @@ def test_failed_chunk_is_not_embedded_and_counted(mocker, tmp_path):
     )
 
     points = mock_upsert.call_args.args[1]
-    assert failed == 1
+    assert failed == IngestResult(files_failed=0, chunks_skipped=1)
     assert [p["section"] for p in points] == ["First"]
     assert all(p["text"] == "ok" for p in points)  # 原文断片が要約として混入しない
 
@@ -108,12 +108,9 @@ def test_all_success_returns_zero(mocker, tmp_path):
     mocker.patch("core.qdrant.ids_by_payload", return_value=[])
     mocker.patch("core.qdrant.upsert")
     mocker.patch("core.qdrant.delete_by_ids")
-    assert (
-        ingest_markdown_files(
-            [md], collection="c", source_label="l", distill_fn=lambda t: "ok", git_sha="s", now="n"
-        )
-        == 0
-    )
+    assert ingest_markdown_files(
+        [md], collection="c", source_label="l", distill_fn=lambda t: "ok", git_sha="s", now="n"
+    ) == IngestResult(0, 0)
 
 
 def test_distill_workers_default_is_serial(monkeypatch):
@@ -478,7 +475,9 @@ class TestIngestChangedOrFile:
 
         mocker.patch("core.ingest_pipeline.head_sha", return_value="abc1234")
         safe = mocker.patch("core.ingest_pipeline.assert_safe_path", return_value=Path("safe.md"))
-        ingest = mocker.patch("core.ingest_pipeline.ingest_markdown_files", return_value=0)
+        ingest = mocker.patch(
+            "core.ingest_pipeline.ingest_markdown_files", return_value=IngestResult()
+        )
         from core.ingest_pipeline import ingest_changed_or_file
 
         ingest_changed_or_file(
@@ -548,7 +547,7 @@ class TestPerFileIsolation:
                 now="2026-11-01T00:00:00+00:00",
             )
 
-        assert failed == 1
+        assert failed == IngestResult(files_failed=1, chunks_skipped=0)
         assert replace.call_count == 1
         assert replace.call_args.args[2].endswith("good.md")
         assert "bad.md" in caplog.text
@@ -558,7 +557,7 @@ class TestPerFileIsolation:
         from core.ingest_pipeline import ingest_changed_or_file
 
         mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
-        mocker.patch("core.ingest_pipeline.ingest_markdown_files", return_value=2)
+        mocker.patch("core.ingest_pipeline.ingest_markdown_files", return_value=IngestResult(2, 3))
         with caplog.at_level("WARNING"):
             ingest_changed_or_file(
                 None,
@@ -569,7 +568,7 @@ class TestPerFileIsolation:
                 distill_fn=str,
                 nothing_msg="n",
             )
-        assert "2 failure(s)" in caplog.text
+        assert "2 file(s) failed, 3 chunk(s) skipped" in caplog.text
 
 
 class TestExplicitFileSymlink:

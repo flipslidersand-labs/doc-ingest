@@ -8,7 +8,7 @@ collection with unfinished thinking.
 from pathlib import Path
 
 from core.distiller import distill_text
-from core.ingest_pipeline import changed_matching, ingest_changed_or_file
+from core.ingest_pipeline import IngestResult, changed_matching, ingest_changed_or_file
 from core.schema import Collection
 
 COLLECTION = Collection.NOTES.value
@@ -28,7 +28,7 @@ def _changed_files() -> list[Path]:
     return changed_matching(_is_note)
 
 
-def ingest_notes(file: str | None = None) -> int:
+def ingest_notes(file: str | None = None) -> IngestResult:
     return ingest_changed_or_file(
         file,
         is_target=_is_note,
