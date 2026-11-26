@@ -9,7 +9,7 @@ import logging
 import os
 import threading
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 from dotenv import load_dotenv
 
@@ -75,16 +75,16 @@ class Settings:
                 raise ValueError(f"{env_name} must be >= 1, got {value}")
 
 
-def _int(env: Mapping[str, str], name: str, default: str | int) -> int:
-    raw = env.get(name, str(default))
+def _int(env: Mapping[str, str], name: str) -> int:
+    raw = env[name]
     try:
         return int(raw)
     except ValueError:
         raise ValueError(f"{name} must be an integer, got {raw!r}") from None
 
 
-def _float(env: Mapping[str, str], name: str, default: str) -> float:
-    raw = env.get(name, default)
+def _float(env: Mapping[str, str], name: str) -> float:
+    raw = env[name]
     try:
         return float(raw)
     except ValueError:
@@ -92,43 +92,34 @@ def _float(env: Mapping[str, str], name: str, default: str) -> float:
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
-    """Build Settings from `env`. With env=None, load .env once and read os.environ."""
+    """Build Settings from `env`. With env=None, load .env once and read os.environ.
+
+    Each field is read from the variable named after it in upper case (embed_url -> EMBED_URL)
+    and parsed by its annotation; an unset variable keeps the default declared on Settings.
+    """
     if env is None:
         load_dotenv()
         env = os.environ
-    d = Settings()
     if "EMBED_BACKEND" in env:
         _log.warning(
             "EMBED_BACKEND is set but ignored: the onnx_gpu backend was removed (#310); "
             "only the HTTP embedding service (EMBED_URL) is supported."
         )
 
-    def s(name: str, default: str) -> str:
-        return env.get(name, default)
-
-    return Settings(
-        embed_url=s("EMBED_URL", d.embed_url),
-        embed_fallback_url=s("EMBED_FALLBACK_URL", d.embed_fallback_url),
-        embed_api_key=env.get("EMBED_API_KEY") or None,
-        embed_collection=s("EMBED_COLLECTION", d.embed_collection),
-        embed_timeout=_float(env, "EMBED_TIMEOUT", "180"),
-        embed_batch=_int(env, "EMBED_BATCH", "16"),
-        qdrant_url=s("QDRANT_URL", d.qdrant_url),
-        qdrant_api_key=env.get("QDRANT_API_KEY") or None,
-        local_llm_url=s("LOCAL_LLM_URL", d.local_llm_url),
-        local_llm_model=s("LOCAL_LLM_MODEL", d.local_llm_model),
-        local_llm_timeout=_float(env, "LOCAL_LLM_TIMEOUT", "120"),
-        local_llm_max_tokens=_int(env, "LOCAL_LLM_MAX_TOKENS", "1500"),
-        anthropic_api_key=s("ANTHROPIC_API_KEY", d.anthropic_api_key),
-        anthropic_model=s("ANTHROPIC_MODEL", d.anthropic_model),
-        distill_workers=_int(env, "DISTILL_WORKERS", "1"),
-        sync_workers=_int(env, "SYNC_WORKERS", "4"),
-        discord_webhook_url=s("DISCORD_WEBHOOK_URL", d.discord_webhook_url),
-        max_chunks_per_doc=_int(env, "MAX_CHUNKS_PER_DOC", str(d.max_chunks_per_doc)),
-        max_local_bytes=_int(env, "MAX_LOCAL_BYTES", str(d.max_local_bytes)),
-        max_download_bytes=_int(env, "MAX_DOWNLOAD_BYTES", str(d.max_download_bytes)),
-        doc_ingest_base_dir=s("DOC_INGEST_BASE_DIR", d.doc_ingest_base_dir),
-    )
+    values: dict[str, object] = {}
+    for f in fields(Settings):
+        name = f.name.upper()
+        if name not in env:
+            continue
+        if f.type is int:
+            values[f.name] = _int(env, name)
+        elif f.type is float:
+            values[f.name] = _float(env, name)
+        elif f.type == (str | None):
+            values[f.name] = env[name] or None  # empty -> None (e.g. no API key)
+        else:
+            values[f.name] = env[name]
+    return Settings(**values)
 
 
 _settings: Settings | None = None

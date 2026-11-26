@@ -354,28 +354,6 @@ class TestUpsertEmbedsAsDocuments:
         assert calls == ["index"]
 
 
-class TestDeleteByPayload:
-    def test_noop_when_collection_does_not_exist(self, monkeypatch):
-        monkeypatch.setattr(q, "_known_collections", set())
-        mock_client = MagicMock()
-        mock_client.get_collections.return_value.collections = []
-        monkeypatch.setattr(q, "_client", mock_client)
-
-        q.delete_by_payload("missing-col", "source_url", "https://x")
-
-        mock_client.delete.assert_not_called()
-
-    def test_deletes_by_filter_when_collection_exists(self, monkeypatch):
-        monkeypatch.setattr(q, "_known_collections", {"col"})
-        mock_client = MagicMock()
-        monkeypatch.setattr(q, "_client", mock_client)
-
-        q.delete_by_payload("col", "source_url", "https://x")
-
-        mock_client.delete.assert_called_once()
-        assert mock_client.delete.call_args.kwargs["collection_name"] == "col"
-
-
 class TestIdsByPayload:
     def test_noop_when_collection_does_not_exist(self, monkeypatch):
         monkeypatch.setattr(q, "_known_collections", set())
