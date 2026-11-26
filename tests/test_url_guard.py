@@ -4,6 +4,7 @@ import io
 import socket
 from pathlib import Path
 
+import httpcore
 import httpx
 import pytest
 import respx
@@ -305,6 +306,20 @@ class TestSafeGet:
         assert resp.text == "done"
 
     @respx.mock
+    def test_chain_of_exactly_max_redirects_succeeds(self):
+        """「> 5」の文言どおり、リダイレクト 5 回までは追う(初回リクエストを数えない)。"""
+        for i in range(MAX_REDIRECTS):
+            respx.get(f"https://example.com/hop{i}").mock(
+                return_value=httpx.Response(
+                    302, headers={"location": f"https://example.com/hop{i + 1}"}
+                )
+            )
+        respx.get(f"https://example.com/hop{MAX_REDIRECTS}").mock(
+            return_value=httpx.Response(200, text="done")
+        )
+        assert safe_get("https://example.com/hop0").text == "done"
+
+    @respx.mock
     def test_too_many_redirects_raises(self):
         for i in range(MAX_REDIRECTS + 1):
             respx.get(f"https://example.com/hop{i}").mock(
@@ -478,16 +493,18 @@ class TestSafeDownload:
         )
         with pytest.raises(UnsafeURLError, match="too many redirects"):
             self._dl("https://example.com/start")
-        assert route.call_count == MAX_REDIRECTS  # それ以上は取りに行かない
+        assert (
+            route.call_count == MAX_REDIRECTS + 1
+        )  # 初回 + リダイレクト MAX_REDIRECTS 回。それ以上は取りに行かない
 
-    def test_a_chain_just_under_the_redirect_limit_succeeds(self):
-        for n in range(MAX_REDIRECTS - 1):
+    def test_a_chain_of_exactly_the_redirect_limit_succeeds(self):
+        for n in range(MAX_REDIRECTS):
             respx.get(f"https://example.com/h{n}").mock(
                 return_value=httpx.Response(
                     302, headers={"location": f"https://example.com/h{n + 1}"}
                 )
             )
-        respx.get(f"https://example.com/h{MAX_REDIRECTS - 1}").mock(
+        respx.get(f"https://example.com/h{MAX_REDIRECTS}").mock(
             return_value=httpx.Response(200, content=b"end")
         )
         assert self._dl("https://example.com/h0") == (3, b"end")
@@ -679,6 +696,22 @@ class TestDnsRebinding:
             _PinnedBackend().connect_tcp("mixed.example", 443)
 
         base.assert_not_called()
+
+    def test_connect_timeout_on_one_address_falls_through_to_the_next(self, mocker):
+        """ConnectTimeout は ConnectError の派生でない。AAAA が黒穴でも IPv4 を試す。"""
+        from core.url_guard import _PinnedBackend
+
+        mocker.patch(
+            "socket.getaddrinfo",
+            return_value=[_addr("2606:2800:220:1:248:1893:25c8:1946"), _addr("93.184.216.34")],
+        )
+        base = mocker.patch(
+            "httpcore.SyncBackend.connect_tcp",
+            side_effect=[httpcore.ConnectTimeout("blackhole"), "stream"],
+        )
+
+        assert _PinnedBackend().connect_tcp("example.com", 443, 5.0) == "stream"
+        assert base.call_count == 2
 
     def test_connects_to_the_validated_address_not_the_name(self, mocker):
         from core.url_guard import _PinnedBackend
