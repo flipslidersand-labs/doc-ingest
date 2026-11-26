@@ -95,7 +95,12 @@ distillation, embedding or upsert leaves the previous data in place. Point ids a
 - **Document identity.** `core/doc_key.py` keys documents as `<repo>/<path-in-repo>` (repo = main
   working tree name, so worktrees agree) so two repos' `CLAUDE.md` do not collide and hook runs
   (relative paths) match manual runs (absolute paths). `scripts/migrate_doc_keys.py` cleans points
-  written before this scheme.
+  written before this scheme. Known limitation: the key uses only the repo's directory name, so two
+  different repos whose directories have the same name (e.g. `~/a/forge` and `~/b/forge`) produce
+  the same keys and overwrite each other's points. Workaround: give such repos different directory
+  names. Adding a remote URL or root identifier to the key would change every existing key
+  (re-ingest plus orphaned points), so it needs a migration and is not done yet. A symlink (including
+  a dangling one) is removed by its own, unresolved key (`lexical_doc_key`), never its target's.
 - **URL checks.** `core/url_guard.py` allows only `https` and only hosts whose every resolved
   address is globally routable (private, loopback, link-local, CGNAT, multicast, reserved, Teredo
   and NAT64 are refused). `safe_get` / `safe_download` re-check every redirect hop (max 5), connect
@@ -147,7 +152,7 @@ Qdrant、HTTP 埋め込みサービス(`EMBED_URL`、任意で `EMBED_FALLBACK_U
 - **要約に失敗した生テキストを埋め込まない**: 失敗したチャンクはスキップ(`DistillError`)。ただし `external` は設計上、公開ドキュメントの生チャンクをそのまま埋め込む。
 - **取り込んだ文書は信頼しない**: `<document>` で囲み、中の指示に従わないよう明記する(完全な防御ではない)。`trust` を point に保存し検索で表示する。
 - **パス検査**: `core/path_guard.py` は `design` / `notes` の FILE 引数を `DOC_INGEST_BASE_DIR`(既定は cwd)配下に制限する。`pdf` には適用されない。パイプライン内では symlink やリポ外に解決されるファイルは読まず、その point を削除する(`escapes_repo`)。
-- **文書の識別子**: `core/doc_key.py` が `<repo>/<リポ内パス>` で識別し、別リポの同名ファイルの衝突と、フック(相対)・手動(絶対)の不一致を防ぐ。
+- **文書の識別子**: `core/doc_key.py` が `<repo>/<リポ内パス>` で識別し、別リポの同名ファイルの衝突と、フック(相対)・手動(絶対)の不一致を防ぐ。既知の制約: key はリポのディレクトリ名しか使わないため、ディレクトリ名が同じ別リポ(例: `~/a/forge` と `~/b/forge`)は key が衝突し、互いの point を上書きする。回避策はリポのディレクトリ名を変えること。key にリモート URL やルートの識別子を足すと既存の全 key が変わる(再取り込みと旧 point の孤立)ため、移行手順とあわせて別途対応する。symlink(リンク切れを含む)は、リンク先ではなく symlink 自身の解決前の key で point を削除する(`lexical_doc_key`)。
 - **URL 検査**: `core/url_guard.py` は https のみ、解決された全アドレスが公開アドレスの場合だけ許可。リダイレクトごとに再検査し、接続時に検証した IP にだけ接続(DNS rebinding 対策)、プロキシ環境変数は無視、本文サイズに上限を設ける。
 - **上限と秘匿**: `MAX_CHUNKS_PER_DOC` `MAX_LOCAL_BYTES` `MAX_DOWNLOAD_BYTES` で入力による負荷を制限。例外メッセージ中の URL は `core/redact.py` で除去。フックは `.env` を `source` せず解析する。
 - **終了コード**: `design` / `notes` は失敗があれば 1。git フックは `|| true` で無視する。

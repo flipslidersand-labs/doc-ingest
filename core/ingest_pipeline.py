@@ -47,7 +47,9 @@ def _ingest_one(
     # 識別子は <repo>/<リポ内の相対パス>。フック(相対パス)と手動(絶対パス)で同じになり、
     # 別リポの同名ファイルとは衝突しない (#216)。
     repo, key = doc_key(path)
-    unsafe = path.exists() and (path.is_symlink() or escapes_repo(path))
+    # リンク切れ symlink は exists() が偽。それでも symlink 自身の key で消さないと、元の key の
+    # 旧チャンクが残る (#352)。escapes_repo は存在しないパスでも realpath で判定できる。
+    unsafe = path.is_symlink() or escapes_repo(path)
     if unsafe:
         # symlink は文書ではなく「指す先のパス」を持つだけ。リポ外 (~/.ssh など) の中身を LLM と
         # Qdrant に入れない。親ディレクトリが symlink でリポ外へ出る場合も同様 (#224)。
