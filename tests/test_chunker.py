@@ -5,7 +5,7 @@ from typing import ClassVar
 import pytest
 import tiktoken
 
-from core.chunker import _count_tokens, chunk_markdown, chunk_text
+from core.chunker import MAX_SECTION_TOKENS, _count_tokens, chunk_markdown, chunk_text
 from tests.conftest import override_settings
 
 _enc = tiktoken.get_encoding("cl100k_base")
@@ -238,6 +238,35 @@ class TestChunkTextBoundsChunkSize:
         para = " ".join(f"w{i}" for i in range(180))  # 約360 token の段落を並べる
         chunks = chunk_text("\n\n".join([para] * 6))
         assert max(_count_tokens(c["text"]) for c in chunks) <= 512
+
+    def test_a_short_chunk_plus_a_large_paragraph_is_flushed_before_overshooting(self):
+        """#351: 閾値(200)未満の段落の後に上限近い段落が来ると、足してから判定する実装では
+        合計が 512 を超えた(199 + 400 = 599 token)。足す前に上限で確定する。"""
+        small = " ".join(f"s{i}" for i in range(90))  # 200 未満
+        big = " ".join(f"b{i}" for i in range(190))  # 400 未満
+        assert _count_tokens(small) < 200
+        assert _count_tokens(big) <= MAX_SECTION_TOKENS < _count_tokens(small) + _count_tokens(big)
+        chunks = chunk_text(small + "\n\n" + big)
+        assert [c["chunk_index"] for c in chunks] == list(range(len(chunks)))
+        assert max(_count_tokens(c["text"]) for c in chunks) <= MAX_SECTION_TOKENS
+        assert "s0" in chunks[0]["text"] and "b189" in chunks[-1]["text"]
+
+    def test_many_short_paragraphs_do_not_overshoot_through_separators(self):
+        """/code-review 指摘: 結合の区切り("\\n\\n")も token。段落の合計だけ数えると超える。"""
+        text = "\n\n".join(["a b c"] * 300)
+        chunks = chunk_text(text, chunk_tokens=1000)  # 閾値で確定せず、上限判定だけに任せる
+        assert len(chunks) > 1
+        assert max(_count_tokens(c["text"]) for c in chunks) <= 512
+
+    def test_a_tiny_leading_paragraph_is_merged_not_a_chunk_of_its_own(self):
+        heading = "Chapter 1"
+        big = " ".join(f"b{i}" for i in range(200))  # ちょうど 400 token
+        assert _count_tokens(heading) < 10
+        assert _count_tokens(big) <= MAX_SECTION_TOKENS
+        assert _count_tokens(heading) + _count_tokens(big) > MAX_SECTION_TOKENS
+        chunks = chunk_text(heading + "\n\n" + big)
+        assert len(chunks) == 1
+        assert chunks[0]["text"].startswith(heading)
 
     def test_no_text_is_lost_when_splitting(self):
         text = " ".join(f"word{i}" for i in range(3000))
