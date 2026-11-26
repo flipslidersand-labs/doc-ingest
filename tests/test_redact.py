@@ -28,6 +28,19 @@ class TestRedactUrls:
     def test_cases(self, text, expected):
         assert redact_urls(text) == expected
 
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "GET https://user:SECRETPW@h/p failed",
+            "GET https://user@h/p failed",
+            "GET https://user:SECRETPW@[::1]:8443/p failed",
+            "url 'https://a%40b:SECRETPW@h/p?x=1' bad",
+        ],
+    )
+    def test_userinfo_goes_too(self, text):
+        out = redact_urls(text)
+        assert "SECRETPW" not in out and "user" not in out and "a%40b" not in out
+
     def test_accepts_an_exception(self):
         assert redact_urls(RuntimeError("fail at https://h/SECRET")) == "fail at <url>"
 

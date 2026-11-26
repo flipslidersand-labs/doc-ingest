@@ -833,6 +833,49 @@ def test_strip_url_drops_query_and_fragment():
     assert strip_url("https://a.example") == "https://a.example"
 
 
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://user:pass@a.example/p", "https://a.example/p"),
+        ("https://user:pass@a.example:8443/p?t=S#f", "https://a.example:8443/p"),
+        ("https://user@a.example/p", "https://a.example/p"),  # パスワード無し
+        ("https://:pass@a.example/p", "https://a.example/p"),  # ユーザー名が空
+        ("https://U:P@A.Example/p", "https://A.Example/p"),  # 大文字ホストは保つ
+        ("https://u:p@[::1]:8443/p", "https://[::1]:8443/p"),  # IPv6 のブラケット・ポート
+        ("https://a%40b:p%40ss@a.example/p", "https://a.example/p"),  # %40 を含む userinfo
+        ("https://u:p@a@b.example/p", "https://b.example/p"),  # userinfo 内の生の @ は最後で分割
+        (
+            "https://a.example/p@x?e=u@v#f@g",
+            "https://a.example/p@x",
+        ),  # path の @ は userinfo でない
+        ("https://a.example/p%40x", "https://a.example/p%40x"),
+        ("https:///p", "https:///p"),  # ホストが空
+        ("https://u:p@/p", "https:///p"),  # userinfo だけでホストが空
+    ],
+)
+def test_strip_url_drops_userinfo(url, expected):
+    from core.url_guard import strip_url
+
+    assert strip_url(url) == expected
+
+
+def test_unsafe_url_error_does_not_leak_userinfo():
+    with pytest.raises(UnsafeURLError) as ei:
+        assert_safe_url("http://user:SECRETPW@a.example/p")
+    assert "SECRETPW" not in str(ei.value) and "user" not in str(ei.value)
+
+
+def test_describe_http_error_does_not_leak_userinfo():
+    from core.url_guard import describe_http_error
+
+    url = "https://user:SECRETPW@a.example/p?t=TOKEN"
+    exc = httpx.HTTPStatusError(
+        "boom", request=httpx.Request("GET", url), response=httpx.Response(404)
+    )
+    out = describe_http_error(exc)
+    assert "SECRETPW" not in out and "TOKEN" not in out and "a.example/p" in out
+
+
 def test_arxiv_does_not_import_ingest_pdf():
     import subprocess
     import sys

@@ -112,7 +112,8 @@ distillation, embedding or upsert leaves the previous data in place. Point ids a
   token once leaked this way); `.env` is parsed, never `source`d, by the hook scripts.
 - **Embedding limits.** The e5 model has a 512-token window, so chunk sizes are capped (300 tokens
   for external docs) and embeddings are sent in batches (`EMBED_BATCH`).
-- **Exit codes.** `design` / `notes` exit 1 on any failure so callers can notice; the git hooks
+- **Exit codes.** `design` / `notes` exit 1 when a file failed and `sync` exits 1 when a source failed, so
+  callers (cron, CI) can notice; chunks skipped because distillation failed only warn. The git hooks
   deliberately ignore it (`|| true`). See [spec/cli.md](spec/cli.md).
 
 ---
@@ -155,4 +156,4 @@ Qdrant、HTTP 埋め込みサービス(`EMBED_URL`、任意で `EMBED_FALLBACK_U
 - **文書の識別子**: `core/doc_key.py` が `<repo>/<リポ内パス>` で識別し、別リポの同名ファイルの衝突と、フック(相対)・手動(絶対)の不一致を防ぐ。既知の制約: key はリポのディレクトリ名しか使わないため、ディレクトリ名が同じ別リポ(例: `~/a/forge` と `~/b/forge`)は key が衝突し、互いの point を上書きする。回避策はリポのディレクトリ名を変えること。key にリモート URL やルートの識別子を足すと既存の全 key が変わる(再取り込みと旧 point の孤立)ため、移行手順とあわせて別途対応する。symlink(リンク切れを含む)は、リンク先ではなく symlink 自身の解決前の key で point を削除する(`lexical_doc_key`)。
 - **URL 検査**: `core/url_guard.py` は https のみ、解決された全アドレスが公開アドレスの場合だけ許可。リダイレクトごとに再検査し、接続時に検証した IP にだけ接続(DNS rebinding 対策)、プロキシ環境変数は無視、本文サイズに上限を設ける。
 - **上限と秘匿**: `MAX_CHUNKS_PER_DOC` `MAX_LOCAL_BYTES` `MAX_DOWNLOAD_BYTES` で入力による負荷を制限。例外メッセージ中の URL は `core/redact.py` で除去。フックは `.env` を `source` せず解析する。
-- **終了コード**: `design` / `notes` は失敗があれば 1。git フックは `|| true` で無視する。
+- **終了コード**: `design` / `notes` は失敗ファイルがあれば 1、`sync` は失敗ソースがあれば 1(蒸留スキップのチャンクは警告のみ)。git フックは `|| true` で無視する。

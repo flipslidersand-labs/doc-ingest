@@ -49,15 +49,9 @@ def _collection_exists(name: str) -> bool:
 
 
 def ensure_collection(name: str) -> None:
-    with _known_collections_lock:
-        if name in _known_collections:
-            return
-    # Not cached yet — check remotely and create if needed.
-    fetched = {col.name for col in client().get_collections().collections}
-    with _known_collections_lock:
-        _known_collections.update(fetched)
-        if name in _known_collections:
-            return
+    if _collection_exists(name):
+        return
+    # Not found (cache warmed by _collection_exists) — create it.
     c = client()
     try:
         c.create_collection(
@@ -106,17 +100,6 @@ def search(collection: str, query: str, limit: int = 5) -> list[dict]:
         }
         for hit in hits
     ]
-
-
-def delete_by_payload(collection: str, key: str, value: str) -> None:
-    from qdrant_client.models import FieldCondition, Filter, MatchValue
-
-    if not _collection_exists(collection):
-        return
-    client().delete(
-        collection_name=collection,
-        points_selector=Filter(must=[FieldCondition(key=key, match=MatchValue(value=value))]),
-    )
 
 
 def ids_by_payload(collection: str, key: str, value: str) -> list[int]:

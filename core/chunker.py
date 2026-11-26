@@ -12,7 +12,7 @@ _log = logging.getLogger(__name__)
 # multilingual-e5-base context window: 512 tokens. Leave headroom for the
 # "query: " / "passage: " prefix that the embedding service prepends.
 MAX_SECTION_TOKENS = 400
-_MIN_CHUNK_TOKENS = 10  # これ未満のチャンクはノイズとして捨てる(末尾)・単独にしない
+_MIN_CHUNK_TOKENS = 10  # これ未満のチャンクは単独にしない(先頭は結合、末尾は直前に結合か残す)
 
 _enc = tiktoken.get_encoding("cl100k_base")
 
@@ -34,6 +34,11 @@ def cap_chunks(chunks: list[dict], label: str) -> list[dict]:
 
 def _count_tokens(text: str) -> int:
     return len(_enc.encode(text))
+
+
+def _has_content(text: str) -> bool:
+    """False for text with no letter/digit/CJK character (whitespace and punctuation only)."""
+    return any(ch.isalnum() for ch in text)
 
 
 def _hard_split_tokens(text: str, max_tokens: int) -> list[str]:
@@ -79,6 +84,7 @@ def _split_by_tokens(text: str, max_tokens: int) -> list[str]:
     so every output piece is guaranteed to fit.
     """
     paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
+    sep = _count_tokens("\n\n")  # 結合の区切りも token に数える (chunk_text と同じ。#366)
     pieces: list[str] = []
     current: list[str] = []
     size = 0
@@ -91,11 +97,11 @@ def _split_by_tokens(text: str, max_tokens: int) -> list[str]:
                 current, size = [], 0
             pieces.extend(_hard_split_tokens(para, max_tokens))
             continue
-        if current and size + para_tokens > max_tokens:
+        if current and size + sep + para_tokens > max_tokens:
             pieces.append("\n\n".join(current))
             current, size = [], 0
+        size += para_tokens + (sep if current else 0)
         current.append(para)
-        size += para_tokens
     if current:
         pieces.append("\n\n".join(current))
     return pieces
@@ -144,6 +150,14 @@ def chunk_text(text: str, chunk_tokens: int = 200) -> list[dict]:
         body = "\n\n".join(current)
         if _count_tokens(body) >= _MIN_CHUNK_TOKENS:
             chunks.append({"text": body, "section": "", "chunk_index": idx})
+        elif chunks and _has_content(body):
+            # 末尾の短い段落(「以上」・署名など)を捨てない (#366)。直前のチャンクに収まるなら
+            # 結合し、収まらないなら独立チャンクとして残す。文書が短い段落だけのときは従来どおり捨てる。
+            merged = chunks[-1]["text"] + "\n\n" + body
+            if _count_tokens(merged) <= MAX_SECTION_TOKENS:
+                chunks[-1]["text"] = merged
+            else:
+                chunks.append({"text": body, "section": "", "chunk_index": idx})
     return chunks
 
 

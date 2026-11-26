@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from core.distiller import distill_design_doc
-from core.ingest_pipeline import changed_matching, ingest_changed_or_file
+from core.ingest_pipeline import IngestResult, changed_matching, ingest_changed_or_file
 from core.schema import Collection
 
 COLLECTION = Collection.DESIGN.value
@@ -18,7 +18,7 @@ def _changed_files() -> list[Path]:
     return changed_matching(_is_design_doc)
 
 
-def ingest_design_docs(file: str | None = None) -> int:
+def ingest_design_docs(file: str | None = None) -> IngestResult:
     return ingest_changed_or_file(
         file,
         is_target=_is_design_doc,

@@ -20,9 +20,14 @@ _NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1:
 
 
 def strip_url(url: str) -> str:
-    """Drop query and fragment (signed-URL tokens) before logging or storing a URL."""
+    """Drop userinfo, query and fragment (credentials, signed-URL tokens) before logging or storing.
+
+    For display only: never fetch or key on the result, the original URL carries the credentials.
+    The host part is kept as written (case, IPv6 brackets, port); only what precedes the last
+    ``@`` of the netloc is removed.
+    """
     u = urlsplit(url)
-    return urlunsplit((u.scheme, u.netloc, u.path, "", ""))
+    return urlunsplit((u.scheme, u.netloc.rpartition("@")[2], u.path, "", ""))
 
 
 def describe_http_error(exc: httpx.HTTPStatusError) -> str:

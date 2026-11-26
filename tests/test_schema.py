@@ -15,6 +15,6 @@ def test_origin_falls_back_to_file_path_then_arxiv_id():
     assert payload_origin({"arxiv_id": "a"}) == "a"
 
 
-def test_origin_new_key_wins_and_empty():
-    assert payload_origin({"origin": "o", "source_url": "u"}) == "o"
+def test_origin_empty_when_no_source_key():
+    assert payload_origin({"text": "t"}) == ""
     assert payload_origin({}) == ""

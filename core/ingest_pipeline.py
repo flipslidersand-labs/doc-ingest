@@ -8,6 +8,7 @@ import logging
 import os
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -24,6 +25,18 @@ _log = logging.getLogger(__name__)
 
 # git 管理外のファイルの repo。空にすると scripts/migrate_doc_keys.py が「未移行」と見分けられない。
 NO_REPO = "-"
+
+
+@dataclass(frozen=True)
+class IngestResult:
+    """Failures of one ingest run, counted separately (#350).
+
+    files_failed: files that raised (not ingested). The CLI exits non-zero for these.
+    chunks_skipped: chunks whose distillation failed; their old point is kept. Warning only.
+    """
+
+    files_failed: int = 0
+    chunks_skipped: int = 0
 
 
 def _distill_or_none(distill_fn: Callable[[str], str], text: str) -> str | None:
@@ -104,14 +117,15 @@ def ingest_markdown_files(
     distill_fn: Callable[[str], str],
     git_sha: str,
     now: str,
-) -> int:
-    """Returns the number of failures: chunks skipped because distillation failed, plus files
-    that raised (logged and skipped so the remaining files are still ingested)."""
-    failed = 0
+) -> IngestResult:
+    """Files that raised are logged and counted so the remaining files are still ingested;
+    chunks skipped because distillation failed are counted apart from them (#350)."""
+    files_failed = 0
+    chunks_skipped = 0
     with ThreadPoolExecutor(max_workers=get_settings().distill_workers) as ex:
         for path in files:
             try:
-                failed += _ingest_one(
+                chunks_skipped += _ingest_one(
                     path,
                     ex=ex,
                     collection=collection,
@@ -121,10 +135,10 @@ def ingest_markdown_files(
                     now=now,
                 )
             except Exception as e:  # noqa: BLE001
-                failed += 1
+                files_failed += 1
                 _log.warning("failed to ingest %s: %s: %s", path, type(e).__name__, e)
                 _log.debug("traceback for %s", path, exc_info=True)
-    return failed
+    return IngestResult(files_failed=files_failed, chunks_skipped=chunks_skipped)
 
 
 def changed_matching(is_target: Callable[[Path], bool]) -> list[Path]:
@@ -156,16 +170,16 @@ def ingest_changed_or_file(
     source_label: str,
     distill_fn: Callable[[str], str],
     nothing_msg: str,
-) -> int:
+) -> IngestResult:
     """Ingest *file* or, without it, what *changed* returns.
 
     *file* must pass ``assert_safe_path`` and the same *is_target* test as the changed files
     (#360). Otherwise ``--file`` would pull in scratch notes or non-markdown files the hook
-    skips. A rejected file is logged and counted as one failure (nothing is read or written).
+    skips. A rejected file is logged and counted as one failed file (nothing is read or written).
 
     The entry point shared by the markdown collections (design, notes): they differ only in
     which files count (*changed*), the collection, the source label and the distiller.
-    Returns the number of failures (0 when nothing failed) so the CLI can exit non-zero (#332).
+    Returns the failure counts so the CLI can exit non-zero for failed files (#332, #350).
     """
     now = datetime.now(UTC).isoformat()
     sha = head_sha()
@@ -175,14 +189,14 @@ def ingest_changed_or_file(
         assert_safe_path(file)
         if not is_target(_target_relative(file)):
             _log.warning("skipping %s: not a target of the %s collection", file, collection)
-            return 1
+            return IngestResult(files_failed=1)
         files = [Path(file)]
     else:
         files = changed()
     if not files:
         _log.debug(nothing_msg)
-        return 0
-    failed = ingest_markdown_files(
+        return IngestResult()
+    result = ingest_markdown_files(
         files,
         collection=collection,
         source_label=source_label,
@@ -190,8 +204,12 @@ def ingest_changed_or_file(
         git_sha=sha,
         now=now,
     )
-    if failed:
+    if result.files_failed or result.chunks_skipped:
         _log.warning(
-            "%d failure(s) while ingesting into %s (see warnings above)", failed, collection
+            "%d file(s) failed, %d chunk(s) skipped (distill failed) while ingesting into %s"
+            " (see warnings above)",
+            result.files_failed,
+            result.chunks_skipped,
+            collection,
         )
-    return failed
+    return result
