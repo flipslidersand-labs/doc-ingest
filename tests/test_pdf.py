@@ -520,7 +520,7 @@ class TestIngestPdfPathGuard:
             ingest_pdf(str(tmp_path / "nope.pdf"))
 
     def test_pdf_inside_base_is_ingested(self, base, io):
-        extract, upsert = io
+        _, upsert = io
         pdf = base / "sub" / "paper.pdf"
         pdf.parent.mkdir()
         pdf.write_bytes(b"%PDF-fake")
