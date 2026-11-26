@@ -49,6 +49,31 @@ class TestSyncExternal:
         qdrant.upsert.assert_not_called()
 
     @respx.mock
+    def test_etag_match_304_is_skipped_not_failed(self, mocker):
+        """#369: If-None-Match の 304 は failed (failed_at 付与) にならず skipped になる。"""
+        import socket
+
+        from ingest.external import _fetch_source, sync_external
+
+        mocker.patch(
+            "socket.getaddrinfo",
+            return_value=[(socket.AF_INET, None, None, None, ("93.184.216.34", 0))],
+        )
+        route = respx.get("https://example.com/api").mock(return_value=httpx.Response(304))
+        source = {**SOURCES[0], "last_etag": '"x"'}
+        result = _fetch_source(source, force=False, now="n")
+        assert result.status == "skipped"
+        assert route.calls.last.request.headers["if-none-match"] == '"x"'
+
+        # sync 全体でも failed_at が付かない
+        synced = {**SOURCES[0], "last_etag": '"x"'}
+        mocker.patch("ingest.external._load_sources", return_value=[synced])
+        mocker.patch("ingest.external._save_sources")
+        mocker.patch("core.qdrant.upsert")
+        sync_external()
+        assert "failed_at" not in synced
+
+    @respx.mock
     def test_new_content_is_upserted(self, mock_sources, mocker, caplog):
         content = "## Section\n" + "x" * 200
         respx.get("https://example.com/api").mock(
