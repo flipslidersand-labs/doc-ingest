@@ -114,7 +114,7 @@ def ingest_markdown_files(
     distill_fn: Callable[[str], str],
     git_sha: str,
     now: str,
-) -> int:
+) -> IngestResult:
     """Files that raised are logged and counted so the remaining files are still ingested;
     chunks skipped because distillation failed are counted apart from them (#350)."""
     files_failed = 0
