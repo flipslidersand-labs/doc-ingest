@@ -12,6 +12,7 @@ _log = logging.getLogger(__name__)
 # multilingual-e5-base context window: 512 tokens. Leave headroom for the
 # "query: " / "passage: " prefix that the embedding service prepends.
 MAX_SECTION_TOKENS = 400
+_MIN_CHUNK_TOKENS = 10  # これ未満のチャンクはノイズとして捨てる(末尾)・単独にしない
 
 _enc = tiktoken.get_encoding("cl100k_base")
 
@@ -114,16 +115,26 @@ def chunk_text(text: str, chunk_tokens: int = 200) -> list[dict]:
         else:
             paragraphs.append(p)
     chunks, current, size, idx = [], [], 0, 0
+    sep = _count_tokens("\n\n")  # 結合の区切りも token に数える (段落の合計だけだと超える)
     for para in paragraphs:
         t = _count_tokens(para)
         # 足してから判定すると 199 + 400 = 599 token のチャンクができ、e5 の 512 を超える。
-        # 足す前に上限を見て、超えるなら今のチャンクを確定する (#351)
-        if current and size + t > MAX_SECTION_TOKENS:
+        # 足す前に上限を見て、超えるなら今のチャンクを確定する (#351)。
+        # ただし極短い段落(見出し・末尾の一行)は単独チャンクにせず前後に結合する:
+        # 単独だと 10 token 未満で捨てられる(末尾)か、ノイズの点になる(先頭)。
+        # 結合しても超過は 10 token 未満で、512 に対する余裕(上限 400)に収まる。
+        total = size + sep + t
+        tiny = size < _MIN_CHUNK_TOKENS or t < _MIN_CHUNK_TOKENS
+        if (
+            current
+            and total > MAX_SECTION_TOKENS
+            and not (tiny and total <= MAX_SECTION_TOKENS + _MIN_CHUNK_TOKENS)
+        ):
             chunks.append({"text": "\n\n".join(current), "section": "", "chunk_index": idx})
             idx += 1
             current, size = [], 0
+        size += t + (sep if current else 0)
         current.append(para)
-        size += t
         if size >= chunk_tokens:
             body = "\n\n".join(current)
             chunks.append({"text": body, "section": "", "chunk_index": idx})
@@ -131,7 +142,7 @@ def chunk_text(text: str, chunk_tokens: int = 200) -> list[dict]:
             current, size = [], 0
     if current:
         body = "\n\n".join(current)
-        if _count_tokens(body) >= 10:
+        if _count_tokens(body) >= _MIN_CHUNK_TOKENS:
             chunks.append({"text": body, "section": "", "chunk_index": idx})
     return chunks
 

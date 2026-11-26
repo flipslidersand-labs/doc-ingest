@@ -251,6 +251,23 @@ class TestChunkTextBoundsChunkSize:
         assert max(_count_tokens(c["text"]) for c in chunks) <= MAX_SECTION_TOKENS
         assert "s0" in chunks[0]["text"] and "b189" in chunks[-1]["text"]
 
+    def test_many_short_paragraphs_do_not_overshoot_through_separators(self):
+        """/code-review 指摘: 結合の区切り("\\n\\n")も token。段落の合計だけ数えると超える。"""
+        text = "\n\n".join(["a b c"] * 300)
+        chunks = chunk_text(text, chunk_tokens=1000)  # 閾値で確定せず、上限判定だけに任せる
+        assert len(chunks) > 1
+        assert max(_count_tokens(c["text"]) for c in chunks) <= 512
+
+    def test_a_tiny_leading_paragraph_is_merged_not_a_chunk_of_its_own(self):
+        heading = "Chapter 1"
+        big = " ".join(f"b{i}" for i in range(200))  # ちょうど 400 token
+        assert _count_tokens(heading) < 10
+        assert _count_tokens(big) <= MAX_SECTION_TOKENS
+        assert _count_tokens(heading) + _count_tokens(big) > MAX_SECTION_TOKENS
+        chunks = chunk_text(heading + "\n\n" + big)
+        assert len(chunks) == 1
+        assert chunks[0]["text"].startswith(heading)
+
     def test_no_text_is_lost_when_splitting(self):
         text = " ".join(f"word{i}" for i in range(3000))
         joined = " ".join(c["text"] for c in chunk_text(text))
