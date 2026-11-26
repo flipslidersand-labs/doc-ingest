@@ -116,6 +116,12 @@ def chunk_text(text: str, chunk_tokens: int = 200) -> list[dict]:
     chunks, current, size, idx = [], [], 0, 0
     for para in paragraphs:
         t = _count_tokens(para)
+        # 足してから判定すると 199 + 400 = 599 token のチャンクができ、e5 の 512 を超える。
+        # 足す前に上限を見て、超えるなら今のチャンクを確定する (#351)
+        if current and size + t > MAX_SECTION_TOKENS:
+            chunks.append({"text": "\n\n".join(current), "section": "", "chunk_index": idx})
+            idx += 1
+            current, size = [], 0
         current.append(para)
         size += t
         if size >= chunk_tokens:
