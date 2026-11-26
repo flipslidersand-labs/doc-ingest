@@ -454,3 +454,139 @@ class TestHardening317:
         assert len(store) == 2 * len(first)
         # id は元の (query 付き) URL から作る = 旧実装と同じ
         assert make_id("https://example.com/dl?id=1:0") in first
+
+
+class TestIngestPdfPathGuard:
+    """#357: ローカル PDF も design/notes と同じく DOC_INGEST_BASE_DIR 配下に限る。"""
+
+    @pytest.fixture
+    def base(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        override_settings(doc_ingest_base_dir=str(base))
+        return base
+
+    @pytest.fixture
+    def io(self, mocker):
+        extract = mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("core.qdrant.delete_by_ids")
+        upsert = mocker.patch("core.qdrant.upsert")
+        return extract, upsert
+
+    def test_pdf_outside_base_is_rejected_before_reading(self, tmp_path, base, io):
+        extract, upsert = io
+        outside = tmp_path / "outside.pdf"
+        outside.write_bytes(b"%PDF-fake")
+
+        from ingest.pdf import ingest_pdf
+
+        with pytest.raises(PermissionError, match="outside the allowed base"):
+            ingest_pdf(str(outside))
+
+        extract.assert_not_called()
+        upsert.assert_not_called()
+
+    def test_dotdot_escape_is_rejected(self, tmp_path, base, io):
+        extract, upsert = io
+        (tmp_path / "outside.pdf").write_bytes(b"%PDF-fake")
+
+        from ingest.pdf import ingest_pdf
+
+        with pytest.raises(PermissionError):
+            ingest_pdf(str(base / ".." / "outside.pdf"))
+        extract.assert_not_called()
+        upsert.assert_not_called()
+
+    def test_symlink_inside_base_pointing_outside_is_rejected(self, tmp_path, base, io):
+        extract, upsert = io
+        outside = tmp_path / "outside.pdf"
+        outside.write_bytes(b"%PDF-fake")
+        (base / "link.pdf").symlink_to(outside)
+
+        from ingest.pdf import ingest_pdf
+
+        with pytest.raises(PermissionError):
+            ingest_pdf(str(base / "link.pdf"))
+        extract.assert_not_called()
+        upsert.assert_not_called()
+
+    def test_outside_base_missing_file_is_still_a_permission_error(self, tmp_path, base, io):
+        """存在確認より先に検査する (base 外のファイルの有無を FileNotFoundError で漏らさない)。"""
+        from ingest.pdf import ingest_pdf
+
+        with pytest.raises(PermissionError):
+            ingest_pdf(str(tmp_path / "nope.pdf"))
+
+    def test_pdf_inside_base_is_ingested(self, base, io):
+        _, upsert = io
+        pdf = base / "sub" / "paper.pdf"
+        pdf.parent.mkdir()
+        pdf.write_bytes(b"%PDF-fake")
+
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf(str(pdf))
+
+        upsert.assert_called_once()
+        assert upsert.call_args[0][1][0]["source_url"] == str(pdf.resolve())
+
+    def test_url_is_not_subject_to_the_path_guard(self, mocker, base, io):
+        """URL は path_guard の対象外 (url_guard の対象)。base 外でも取り込める。"""
+        download = mocker.patch("ingest.pdf.safe_download")
+        _, upsert = io
+
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf("https://example.com/paper.pdf")
+
+        download.assert_called_once()
+        upsert.assert_called_once()
+
+
+class TestIngestPdfSourceKind:
+    """#357: URL かどうかは scheme で判定する (startswith("http") ではない)。"""
+
+    @pytest.fixture
+    def io(self, mocker):
+        mocker.patch("ingest.pdf._extract_text_from_path", return_value=FAKE_TEXT)
+        mocker.patch("ingest.pdf.distill_text", side_effect=lambda text, purpose, **kw: text)
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mocker.patch("core.qdrant.delete_by_ids")
+        mocker.patch("core.qdrant.upsert")
+        return mocker.patch("ingest.pdf.safe_download")
+
+    def test_uppercase_scheme_is_treated_as_a_url(self, io):
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf("HTTPS://example.com/paper.pdf")
+
+        io.assert_called_once()
+
+    def test_http_scheme_goes_to_url_guard_not_the_filesystem(self, io):
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf("http://example.com/paper.pdf")
+
+        io.assert_called_once()
+
+    def test_local_file_whose_name_starts_with_http_is_local(self, tmp_path, io):
+        pdf = tmp_path / "http_notes.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf(str(pdf))
+
+        io.assert_not_called()
+
+    def test_relative_local_file_named_http_is_local(self, tmp_path, io, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "httpd.pdf").write_bytes(b"%PDF-fake")
+
+        from ingest.pdf import ingest_pdf
+
+        ingest_pdf("httpd.pdf")
+
+        io.assert_not_called()
