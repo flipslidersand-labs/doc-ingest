@@ -4,17 +4,21 @@ import logging
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from core.chunker import cap_chunks, chunk_text
 from core.config import get_settings
 from core.distiller import distill_text
 from core.ids import make_id
+from core.path_guard import assert_safe_path
 from core.pdf_text import extract_pdf_text
 from core.qdrant import replace_points
 from core.schema import Collection
 from core.url_guard import safe_download, strip_url
 
 _log = logging.getLogger(__name__)
+
+_URL_SCHEMES = {"http", "https"}  # 判定のみ。https 以外は url_guard が拒否する
 
 COLLECTION = Collection.RESEARCH.value
 
@@ -31,12 +35,16 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
 
     A local file may be private, so by default it is summarised by the local LLM only and is
     never sent to Anthropic (``allow_cloud=True`` opts in). A URL is a public document.
+
+    A local path must resolve (symlinks followed) inside ``DOC_INGEST_BASE_DIR`` (default: cwd),
+    like ``design`` / ``notes``; otherwise ``PermissionError`` is raised before the file is read.
     """
     tags = tags or []
     now = datetime.now(UTC).isoformat()
     source_url = source  # 表示用 (query 除去済み)
     doc_key = source  # 識別用 (元の URL / 解決済みパス。point id の元で、query も含む)
-    is_url = source.startswith("http")
+    # scheme で判定する (大文字小文字は無視)。"http_notes.pdf" のようなローカル名は URL にしない
+    is_url = urlsplit(source).scheme.lower() in _URL_SCHEMES
     local_only = not is_url and not allow_cloud
 
     if is_url:
@@ -48,13 +56,14 @@ def ingest_pdf(source: str, tags: list[str] | None = None, allow_cloud: bool = F
             tmp.flush()
             text = _extract_text_from_path(Path(tmp.name))
     else:
-        local_path = Path(source)
+        # 存在確認・読み込みより先に検査する (base 外のファイルの有無を漏らさない)
+        local_path = assert_safe_path(source)
         max_bytes = get_settings().max_local_bytes
         if local_path.exists() and local_path.stat().st_size > max_bytes:
             # 読み込む前に見送る。既存の point は消さない
             _log.warning("skipping %s: larger than MAX_LOCAL_BYTES=%d", local_path, max_bytes)
             return
-        source_url = doc_key = str(local_path.resolve())
+        source_url = doc_key = str(local_path)
         text = _extract_text_from_path(local_path)
 
     if not text.strip():

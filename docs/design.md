@@ -88,9 +88,10 @@ distillation, embedding or upsert leaves the previous data in place. Point ids a
   follow it, and repeated after the document (prompt-injection mitigation, not a guarantee).
   Each point stores a `trust` value (`internal` for design/notes, `external` otherwise) and
   `search` shows it.
-- **Path checks for local markdown.** `core/path_guard.py` (`assert_safe_path`) restricts the
-  `design` / `notes` FILE argument to `DOC_INGEST_BASE_DIR` (default: current directory). It is not
-  applied to `pdf`. In the ingest pipeline, a file that is a symlink or resolves outside its git
+- **Path checks for local files.** `core/path_guard.py` (`assert_safe_path`) restricts the
+  `design` / `notes` FILE argument and a local `pdf` PATH to `DOC_INGEST_BASE_DIR` (default:
+  current directory), checked before the file is opened. A `pdf` PATH is a URL only when its
+  scheme is `http`/`https` (case-insensitive); URLs go through `core/url_guard.py` instead. In the ingest pipeline, a file that is a symlink or resolves outside its git
   repo (`core/doc_key.py` `escapes_repo`) is not read; its points are removed instead.
 - **Document identity.** `core/doc_key.py` keys documents as `<repo>/<path-in-repo>` (repo = main
   working tree name, so worktrees agree) so two repos' `CLAUDE.md` do not collide and hook runs
@@ -146,7 +147,7 @@ Qdrant、HTTP 埋め込みサービス(`EMBED_URL`、任意で `EMBED_FALLBACK_U
 - **非公開ソースは Anthropic に送らない**: `design` / `notes` は `local_only=True`。ローカル PDF も `--allow-cloud` が無い限りローカルのみ。
 - **要約に失敗した生テキストを埋め込まない**: 失敗したチャンクはスキップ(`DistillError`)。ただし `external` は設計上、公開ドキュメントの生チャンクをそのまま埋め込む。
 - **取り込んだ文書は信頼しない**: `<document>` で囲み、中の指示に従わないよう明記する(完全な防御ではない)。`trust` を point に保存し検索で表示する。
-- **パス検査**: `core/path_guard.py` は `design` / `notes` の FILE 引数を `DOC_INGEST_BASE_DIR`(既定は cwd)配下に制限する。`pdf` には適用されない。パイプライン内では symlink やリポ外に解決されるファイルは読まず、その point を削除する(`escapes_repo`)。
+- **パス検査**: `core/path_guard.py` は `design` / `notes` の FILE 引数とローカル `pdf` の PATH を `DOC_INGEST_BASE_DIR`(既定は cwd)配下に制限する(ファイルを開く前に検査)。`pdf` の PATH が URL になるのは scheme が `http`/`https`(大文字小文字不問)のときだけで、URL は `url_guard.py` の対象。パイプライン内では symlink やリポ外に解決されるファイルは読まず、その point を削除する(`escapes_repo`)。
 - **文書の識別子**: `core/doc_key.py` が `<repo>/<リポ内パス>` で識別し、別リポの同名ファイルの衝突と、フック(相対)・手動(絶対)の不一致を防ぐ。
 - **URL 検査**: `core/url_guard.py` は https のみ、解決された全アドレスが公開アドレスの場合だけ許可。リダイレクトごとに再検査し、接続時に検証した IP にだけ接続(DNS rebinding 対策)、プロキシ環境変数は無視、本文サイズに上限を設ける。
 - **上限と秘匿**: `MAX_CHUNKS_PER_DOC` `MAX_LOCAL_BYTES` `MAX_DOWNLOAD_BYTES` で入力による負荷を制限。例外メッセージ中の URL は `core/redact.py` で除去。フックは `.env` を `source` せず解析する。

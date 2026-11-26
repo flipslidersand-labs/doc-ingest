@@ -77,8 +77,12 @@ List Qdrant collections with point count and last ingest time (`No collections f
 ### `pdf PATH`
 
 Ingest a PDF into the `research` collection. `PATH` is a local path or, in the implementation
-(`ingest/pdf.py`), an `http...` URL (downloaded through `core.url_guard.safe_download`); the
-help text only mentions local files.
+(`ingest/pdf.py`), an `http`/`https` URL (downloaded through `core.url_guard.safe_download`); the
+help text only mentions local files. A `PATH` is a URL when its scheme (case-insensitive) is
+`http` or `https`; anything else, including a file named `http_notes.pdf`, is a local path.
+A local path must resolve inside `DOC_INGEST_BASE_DIR` (default: cwd) after following symlinks,
+as for `design` / `notes`; otherwise `PermissionError` is raised before the file is opened. A URL
+is not subject to this check (it goes through `core.url_guard`).
 
 | Argument / option | Default | Description |
 |-------------------|---------|-------------|
@@ -185,7 +189,7 @@ minimums below, abort start-up.
 | `MAX_CHUNKS_PER_DOC` | `1000` (>= 1) | Chunk cap per document. | `core/chunker.py` (`cap_chunks`) |
 | `MAX_LOCAL_BYTES` | `10485760` (>= 1) | Largest local file read (design/notes markdown, local PDF). | `core/ingest_pipeline.py`, `ingest/pdf.py` |
 | `MAX_DOWNLOAD_BYTES` | `52428800` (>= 1) | Default cap for `safe_get` / `safe_download` bodies. | `core/url_guard.py` |
-| `DOC_INGEST_BASE_DIR` | empty (current directory) | Root that `design`/`notes` FILE arguments must stay inside. | `core/path_guard.py` |
+| `DOC_INGEST_BASE_DIR` | empty (current directory) | Root that `design`/`notes` FILE arguments and local `pdf` paths must stay inside. | `core/path_guard.py` |
 | `EMBED_BACKEND` | - | Ignored (a warning is logged if set); the ONNX backend was removed. | `core/config.py` |
 
 `core/doc_key.py` also reads `os.environ`, but only to strip `GIT_*` variables before calling git.
@@ -200,6 +204,7 @@ minimums below, abort start-up.
 | `design`, `notes` with a FILE outside the allowed base | `PermissionError` is not caught by the CLI: traceback, exit code `1`. |
 | `arxiv` | Unsafe URL (not https, private address): usage error (click `BadParameter`, exit code 2). `ValueError` from ingestion (bad arxiv id, not found, no extractable body): `Error: ...`, exit code 1. Other exceptions propagate as a traceback. |
 | `pdf` | `FileNotFoundError` and `UnsafeURLError` become `Error: ...` (exit code 1). Other exceptions propagate. |
+| `pdf` with a local PATH outside the allowed base | `PermissionError` is not caught by the CLI: traceback, exit code `1` (same as `design` / `notes`). |
 | `sync` | Return value is not checked: failed sources are logged, recorded as `failed_at` in the state file and listed in the Discord summary, but the exit code stays `0`. Unhandled exceptions give a traceback. |
 | `search`, `list` | No special handling; connection errors propagate as a traceback. |
 
@@ -207,7 +212,7 @@ minimums below, abort start-up.
 
 - コマンド: `arxiv URL [--tags]`、`design [FILE]`、`notes [FILE]`、`sync [--force] [--dry-run]`、`search QUERY [--collection] [--limit 1-100 既定5] [--nugget] [--nugget-k 既定3]`、`list`、`pdf PATH [--tags] [--allow-cloud]`。グローバルは `-v/--verbose`(自パッケージのみ DEBUG)。
 - `design` / `notes` は FILE 省略時に直近コミットの変更ファイルを取り込む(git フック用)。蒸留はローカル LLM のみ。FILE は `core/path_guard.py` で `DOC_INGEST_BASE_DIR`(既定は cwd)配下に制限される。
-- `pdf` は実装上 URL も受け付けるが help 文はローカル PDF のみ。`--allow-cloud` はローカル PDF の要約失敗時に Anthropic へ送ることを許可する(既定は送らない)。
+- `pdf` は実装上 URL も受け付けるが help 文はローカル PDF のみ。URL 判定は scheme(`http`/`https`、大文字小文字不問)で行い、ローカル PATH は `DOC_INGEST_BASE_DIR` 配下に制限される(外は `PermissionError`)。`--allow-cloud` はローカル PDF の要約失敗時に Anthropic へ送ることを許可する(既定は送らない)。
 - 終了コード: `design` / `notes` は取り込み失敗が 1 件以上なら 1。`arxiv` の不正 URL は usage エラー(2)、取り込み時の `ValueError` は 1。`pdf` の `FileNotFoundError` / `UnsafeURLError` は 1。`sync` は失敗ソースがあっても 0(`failed_at` と Discord 通知で把握)。
 - 環境変数は上の表の通り(`core/config.py` が `.env` と環境から一括で読み、不正値は起動時に失敗)。
 - `uv run doc-ingest --help` は検証環境では起動できなかったため、出力は `uv run python cli.py --help` のもの(Usage 行が `cli.py`)。
