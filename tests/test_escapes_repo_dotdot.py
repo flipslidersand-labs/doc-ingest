@@ -78,6 +78,7 @@ def test_file_option_with_widened_base_dir_does_not_ingest_it(env, mocker, monke
     seen: list[str] = []
     ingest_changed_or_file(
         "link/../secret.md",
+        is_target=lambda p: True,
         changed=list,
         collection="design",
         source_label="d",

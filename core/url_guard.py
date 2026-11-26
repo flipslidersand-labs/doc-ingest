@@ -25,6 +25,15 @@ def strip_url(url: str) -> str:
     return urlunsplit((u.scheme, u.netloc, u.path, "", ""))
 
 
+def describe_http_error(exc: httpx.HTTPStatusError) -> str:
+    """One-line text for an HTTP status error with the URL's query and fragment dropped.
+
+    ``str(exc)`` embeds the full request URL, so a signed URL's token would reach stderr / cron logs.
+    """
+    resp = exc.response
+    return f"HTTP {resp.status_code} {resp.reason_phrase}: {strip_url(str(exc.request.url))}"
+
+
 def _blocked_reason(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> str | None:
     """Why *ip* must not be fetched, or None if it is a public unicast address.
 
@@ -81,14 +90,14 @@ def assert_safe_url(url: str) -> None:
     """Raise UnsafeURLError if url is not HTTPS or resolves to a private address."""
     parsed = urlparse(url)
     if parsed.scheme != "https":
-        raise UnsafeURLError(f"URL must use https scheme: {url!r}")
+        raise UnsafeURLError(f"URL must use https scheme: {strip_url(url)!r}")
     hostname = parsed.hostname
     if not hostname:
-        raise UnsafeURLError(f"URL has no hostname: {url!r}")
+        raise UnsafeURLError(f"URL has no hostname: {strip_url(url)!r}")
     try:
         _safe_addresses(hostname)
     except UnsafeURLError as exc:
-        raise UnsafeURLError(f"{exc}: {url!r}") from exc
+        raise UnsafeURLError(f"{exc}: {strip_url(url)!r}") from exc
 
 
 class _PinnedBackend(httpcore.SyncBackend):
@@ -133,12 +142,12 @@ def _capped_chunks(resp: httpx.Response, limit: int, url: str) -> Iterator[bytes
     """
     declared = resp.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > limit:
-        raise UnsafeURLError(f"response too large ({declared} bytes > {limit}): {url!r}")
+        raise UnsafeURLError(f"response too large ({declared} bytes > {limit}): {strip_url(url)!r}")
     written = 0
     for chunk in resp.iter_bytes():
         written += len(chunk)
         if written > limit:
-            raise UnsafeURLError(f"response exceeds {limit} bytes: {url!r}")
+            raise UnsafeURLError(f"response exceeds {limit} bytes: {strip_url(url)!r}")
         yield chunk
 
 
@@ -236,7 +245,9 @@ def safe_get(
             if resp.is_redirect and resp.status_code != 304:
                 location = resp.headers.get("location")
                 if not location:
-                    raise UnsafeURLError(f"redirect with no Location header: {current!r}")
+                    raise UnsafeURLError(
+                        f"redirect with no Location header: {strip_url(current)!r}"
+                    )
                 next_url = urljoin(current, location)
                 assert_safe_url(next_url)
                 current = next_url
@@ -252,7 +263,7 @@ def safe_get(
                 except (ValueError, LookupError, TypeError, AssertionError):
                     out.encoding = "utf-8"
             return out
-    raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {url!r}")
+    raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {strip_url(url)!r}")
 
 
 def safe_download(
@@ -285,7 +296,9 @@ def safe_download(
             if resp.is_redirect and resp.status_code != 304:
                 location = resp.headers.get("location")
                 if not location:
-                    raise UnsafeURLError(f"redirect with no Location header: {current!r}")
+                    raise UnsafeURLError(
+                        f"redirect with no Location header: {strip_url(current)!r}"
+                    )
                 next_url = urljoin(current, location)
                 assert_safe_url(next_url)
                 current = next_url
@@ -296,4 +309,4 @@ def safe_download(
                 written += len(chunk)
                 fileobj.write(chunk)
             return written
-    raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {url!r}")
+    raise UnsafeURLError(f"too many redirects (> {max_redirects}) starting from {strip_url(url)!r}")
