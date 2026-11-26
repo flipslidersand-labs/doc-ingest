@@ -64,6 +64,7 @@ class TestIngestNotesFileArg:
     ):
         """#217: 存在しないファイル (= 削除・リネームされた) は、検索に出続けないよう point を消す。"""
         missing = tmp_path / "10-projects" / "ghost.md"  # never created
+        override_settings(doc_ingest_base_dir=str(tmp_path))  # 判定は base 相対で行う (#360)
         mocker.patch("core.ingest_pipeline.assert_safe_path", return_value=missing)
         mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
         mock_upsert = mocker.patch("core.qdrant.upsert")
@@ -95,6 +96,7 @@ class TestIngestNotesFileArg:
         note = tmp_path / "10-projects" / "real.md"
         note.parent.mkdir(parents=True)
         note.write_text("## Section\n" + "content " * 20)
+        override_settings(doc_ingest_base_dir=str(tmp_path))  # 判定は base 相対で行う (#360)
 
         mocker.patch("core.ingest_pipeline.assert_safe_path", return_value=note)
         mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
@@ -226,13 +228,13 @@ class TestExplicitFile:
 
         from ingest.notes import COLLECTION, ingest_notes
 
-        ingest_notes(file="rel/a.md")
+        ingest_notes(file="10-projects/a.md")
 
-        safe.assert_called_once_with("rel/a.md")
+        safe.assert_called_once_with("10-projects/a.md")
         changed.assert_not_called()
         git_changed.assert_not_called()
         # assert_safe_path は検証のみ。解決前のパスが渡る (#315)
-        assert ingest.call_args.args[0] == [Path("rel/a.md")]
+        assert ingest.call_args.args[0] == [Path("10-projects/a.md")]
         assert ingest.call_args.kwargs["collection"] == COLLECTION
 
     def test_path_outside_base_raises_before_any_write(self, mocker, tmp_path, monkeypatch):
@@ -257,20 +259,50 @@ class TestExplicitFile:
         delete.assert_not_called()
         distill.assert_not_called()
 
-    def test_md_outside_note_dirs_is_ingested_when_given_explicitly(self, mocker, tmp_path):
-        """現仕様: file 指定には NOTE_DIRS の絞り込みがかからない (00-inbox も入る)。"""
-        from ingest.notes import _is_note, ingest_notes
+    @pytest.mark.parametrize(
+        "rel", ["00-inbox/scratch.md", "90-daily/2026-01-01.md", "10-projects/memo.txt", "top.md"]
+    )
+    @pytest.mark.parametrize("absolute", [True, False])
+    def test_file_outside_note_dirs_is_rejected_when_given_explicitly(
+        self, mocker, tmp_path, monkeypatch, rel, absolute, caplog
+    ):
+        """#360: 明示指定でも NOTE_DIRS / .md の判定を通す。絶対パスでも vault 相対で判定する。"""
+        from ingest.notes import ingest_notes
 
-        scratch = tmp_path / "00-inbox" / "scratch.md"
-        scratch.parent.mkdir()
-        scratch.write_text("## Section\n" + "x" * 100)
-        assert _is_note(Path("00-inbox/scratch.md")) is False
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("## Section\n" + "x" * 100)
+        override_settings(doc_ingest_base_dir=str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("core.qdrant.upsert")
+        distill = mocker.patch("ingest.notes.distill_text", return_value="distilled")
+
+        failed = ingest_notes(file=str(target) if absolute else rel)
+
+        assert failed == 1
+        mock_upsert.assert_not_called()
+        distill.assert_not_called()
+        assert "not a target of the" in caplog.text
+
+    @pytest.mark.parametrize("absolute", [True, False])
+    def test_file_inside_note_dirs_is_ingested_when_given_explicitly(
+        self, mocker, tmp_path, monkeypatch, absolute
+    ):
+        from ingest.notes import ingest_notes
+
+        target = tmp_path / "10-projects" / "memo.md"
+        target.parent.mkdir()
+        target.write_text("## Section\n" + "x" * 100)
+        override_settings(doc_ingest_base_dir=str(tmp_path))
+        monkeypatch.chdir(tmp_path)
         mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mock_upsert = mocker.patch("core.qdrant.upsert")
         mocker.patch("ingest.notes.distill_text", return_value="distilled")
 
-        ingest_notes(file=str(scratch))
+        assert ingest_notes(file=str(target) if absolute else "10-projects/memo.md") == 0
 
         mock_upsert.assert_called_once()
         assert mock_upsert.call_args.args[0] == "notes"
