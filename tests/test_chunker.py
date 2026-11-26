@@ -5,7 +5,13 @@ from typing import ClassVar
 import pytest
 import tiktoken
 
-from core.chunker import MAX_SECTION_TOKENS, _count_tokens, chunk_markdown, chunk_text
+from core.chunker import (
+    MAX_SECTION_TOKENS,
+    _count_tokens,
+    _split_by_tokens,
+    chunk_markdown,
+    chunk_text,
+)
 from tests.conftest import override_settings
 
 _enc = tiktoken.get_encoding("cl100k_base")
@@ -272,3 +278,60 @@ class TestChunkTextBoundsChunkSize:
         text = " ".join(f"word{i}" for i in range(3000))
         joined = " ".join(c["text"] for c in chunk_text(text))
         assert "word0" in joined and "word2999" in joined
+
+
+class TestChunkTextKeepsAShortTail:
+    """#366: 最後のチャンクが 10 token 未満だと捨てていた。直前のチャンクが閾値で確定済みだと、
+    文書末尾の短い段落(「以上」・署名など)が索引に入らなかった。"""
+
+    @staticmethod
+    def _para(prefix: str, n: int) -> str:
+        return " ".join(f"{prefix}{i}" for i in range(n))
+
+    def test_a_short_tail_is_merged_into_the_previous_chunk_when_it_fits(self):
+        body = self._para("a", 110)  # 閾値(200)を超えて確定する
+        assert _count_tokens(body) >= 200
+        chunks = chunk_text(body + "\n\n以上")
+        assert len(chunks) == 1
+        assert chunks[0]["text"] == body + "\n\n以上"
+
+    def test_a_short_tail_stays_its_own_chunk_when_merging_would_exceed_the_limit(self):
+        big = self._para("b", 200)  # 上限ぎりぎりで、「以上」を結合すると超える
+        assert _count_tokens(big) <= MAX_SECTION_TOKENS < _count_tokens(big + "\n\n以上")
+        chunks = chunk_text(big + "\n\n以上")
+        assert [c["text"] for c in chunks] == [big, "以上"]
+        assert [c["chunk_index"] for c in chunks] == [0, 1]
+        assert max(_count_tokens(c["text"]) for c in chunks) <= MAX_SECTION_TOKENS
+
+    @pytest.mark.parametrize("tail", ["---", "***", "。", "  　 "])
+    def test_a_punctuation_only_tail_is_still_dropped_as_noise(self, tail):
+        big = self._para("b", 200)
+        chunks = chunk_text(big + "\n\n" + tail)
+        assert [c["text"] for c in chunks] == [big]
+
+    def test_a_text_that_is_only_a_short_paragraph_is_still_skipped(self):
+        assert chunk_text("以上") == []
+
+
+class TestSplitByTokensCountsSeparators:
+    """#366: _split_by_tokens は段落の token 合計だけを数え、結合の区切り("\\n\\n")を数えなかった。
+    短い段落が多いセクションで max_tokens を超えた(chunk_text は #365 で直済み)。"""
+
+    @pytest.mark.parametrize("max_tokens", [MAX_SECTION_TOKENS, 300])
+    def test_every_piece_of_many_short_paragraphs_fits(self, max_tokens):
+        text = "\n\n".join(["a b c"] * 300)
+        pieces = _split_by_tokens(text, max_tokens)
+        assert len(pieces) > 1
+        assert max(_count_tokens(p) for p in pieces) <= max_tokens
+
+    @pytest.mark.parametrize("max_tokens", [MAX_SECTION_TOKENS, 300])
+    def test_chunk_markdown_sections_of_short_paragraphs_fit(self, max_tokens):
+        md = "## Many\n" + "\n\n".join(["a b c"] * 300)
+        chunks = chunk_markdown(md, max_section_tokens=max_tokens)
+        assert len(chunks) > 1
+        assert max(_count_tokens(c["text"]) for c in chunks) <= max_tokens
+
+    def test_no_paragraph_is_lost(self):
+        paras = [f"p{i} x" for i in range(300)]
+        pieces = _split_by_tokens("\n\n".join(paras), 100)
+        assert "\n\n".join(pieces) == "\n\n".join(paras)
