@@ -162,19 +162,48 @@ class TestExplicitFile:
         delete.assert_not_called()
         distill.assert_not_called()
 
-    def test_md_outside_design_patterns_is_ingested_when_given_explicitly(self, mocker, tmp_path):
-        """現仕様: file 指定には DESIGN_PATTERNS の絞り込みがかからない (README.md も入る)。"""
+    @pytest.mark.parametrize("name", ["README.md", "notes.txt", "docs/spec/deep.md"])
+    def test_file_outside_design_patterns_is_rejected_when_given_explicitly(
+        self, mocker, tmp_path, monkeypatch, name, caplog
+    ):
+        """#360: 明示指定でも DESIGN_PATTERNS / .md の判定を通す。外れたら何も書かず失敗として数える。"""
         from ingest.design_docs import _is_design_doc, ingest_design_docs
 
-        readme = tmp_path / "README.md"
-        readme.write_text("## Section\n" + "x" * 100)
-        assert _is_design_doc(readme) is False
+        target = tmp_path / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("## Section\n" + "x" * 100)
+        override_settings(doc_ingest_base_dir=str(tmp_path))
+        monkeypatch.chdir(tmp_path)
+        assert _is_design_doc(Path(name)) is False
+        mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
+        mocker.patch("core.qdrant.ids_by_payload", return_value=[])
+        mock_upsert = mocker.patch("core.qdrant.upsert")
+        distill = mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")
+
+        failed = ingest_design_docs(file=str(target))
+
+        assert failed == 1
+        mock_upsert.assert_not_called()
+        distill.assert_not_called()
+        assert "not a target of the" in caplog.text
+
+    @pytest.mark.parametrize("rel", ["CLAUDE.md", "docs/design.md", "adr/0001-x.md"])
+    def test_file_inside_design_patterns_is_ingested_by_absolute_path(
+        self, mocker, tmp_path, monkeypatch, rel
+    ):
+        from ingest.design_docs import ingest_design_docs
+
+        target = tmp_path / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("## Section\n" + "x" * 100)
+        override_settings(doc_ingest_base_dir=str(tmp_path))
+        monkeypatch.chdir(tmp_path)
         mocker.patch("core.ingest_pipeline.head_sha", return_value="abc")
         mocker.patch("core.qdrant.ids_by_payload", return_value=[])
         mock_upsert = mocker.patch("core.qdrant.upsert")
         mocker.patch("ingest.design_docs.distill_design_doc", return_value="distilled")
 
-        ingest_design_docs(file=str(readme))
+        assert ingest_design_docs(file=str(target)) == 0
 
         mock_upsert.assert_called_once()
         assert mock_upsert.call_args.args[0] == "design"
